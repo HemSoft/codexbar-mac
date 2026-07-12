@@ -44,7 +44,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     public func seedDefaultConfigurationsIfNeeded() {
-        guard configurations.isEmpty else {
+        guard defaults.data(forKey: configurationsKey) == nil else {
             return
         }
 
