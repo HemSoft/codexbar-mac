@@ -17,6 +17,8 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let appAppearanceKey = DefaultsKey.appAppearance
     private let autoRefreshIntervalKey = DefaultsKey.autoRefreshInterval
 
+    deinit {}
+
     public init(
         defaults: UserDefaults = .standard,
         secretStore: any SecretStore = InMemorySecretStore()
@@ -154,13 +156,20 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     public func refreshSecretAvailability() {
-        var availability: [String: Bool] = [:]
-        for configuration in configurations {
-            let account = Self.keychainAccount(for: configuration)
-            availability[configuration.id] = ((try? secretStore.readSecret(account: account)) ?? nil) != nil
-        }
+        let snapshot = configurations
+        let store = secretStore
 
-        secretAvailability = availability
+        Task.detached(priority: .utility) {
+            var availability: [String: Bool] = [:]
+            for configuration in snapshot {
+                let account = ProviderConfigurationStore.keychainAccount(for: configuration)
+                availability[configuration.id] = ((try? store.readSecret(account: account)) ?? nil) != nil
+            }
+
+            await MainActor.run { [weak self] in
+                self?.secretAvailability = availability
+            }
+        }
     }
 
     public nonisolated static func keychainAccount(for providerID: ProviderID) -> String {

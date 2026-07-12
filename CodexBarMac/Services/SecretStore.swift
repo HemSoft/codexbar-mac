@@ -10,6 +10,8 @@ public final class InMemorySecretStore: SecretStore, @unchecked Sendable {
     private let lock = NSLock()
     private var secrets: [String: String]
 
+    deinit {}
+
     public init(secrets: [String: String] = [:]) {
         self.secrets = secrets
     }

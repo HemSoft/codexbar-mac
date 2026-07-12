@@ -33,6 +33,7 @@ public final class UsageRefreshService: ObservableObject {
         }
 
         let enabledConfigurations = configurations.filter(\.isEnabled)
+        let enabledAccountIDs = Set(enabledConfigurations.map(\.id))
         var nextResults: [ProviderUsageResult] = []
 
         await withTaskGroup(of: ProviderUsageResult?.self) { group in
@@ -42,11 +43,7 @@ public final class UsageRefreshService: ObservableObject {
                 }
 
                 group.addTask {
-                    do {
-                        return try await provider.fetchUsage(for: configuration)
-                    } catch {
-                        return Self.errorResult(for: configuration, error: error)
-                    }
+                    await Self.fetchUsageWithTimeout(provider: provider, configuration: configuration)
                 }
             }
 
@@ -57,8 +54,7 @@ public final class UsageRefreshService: ObservableObject {
             }
         }
 
-        results = nextResults.sorted { $0.title < $1.title }
-        lastRefreshError = nil
+        applyBulkResults(nextResults, enabledAccountIDs: enabledAccountIDs)
     }
 
     @discardableResult
@@ -70,17 +66,9 @@ public final class UsageRefreshService: ObservableObject {
             return nil
         }
 
-        do {
-            let result = try await provider.fetchUsage(for: configuration)
-            replaceResult(result)
-            lastRefreshError = nil
-            return result
-        } catch {
-            let errorResult = Self.errorResult(for: configuration, error: error)
-            replaceResult(errorResult)
-            lastRefreshError = nil
-            return errorResult
-        }
+        let result = await Self.fetchUsageWithTimeout(provider: provider, configuration: configuration)
+        replaceResult(result)
+        return result
     }
 
     public func refresh() async {
@@ -120,10 +108,66 @@ public final class UsageRefreshService: ObservableObject {
         autoRefreshTask = nil
     }
 
+    private func applyBulkResults(
+        _ incoming: [ProviderUsageResult],
+        enabledAccountIDs: Set<String>
+    ) {
+        var merged = Dictionary(
+            uniqueKeysWithValues: results
+                .filter { enabledAccountIDs.contains($0.accountID) }
+                .map { ($0.accountID, $0) }
+        )
+
+        for result in incoming {
+            if let existing = merged[result.accountID] {
+                if result.fetchedAt >= existing.fetchedAt {
+                    merged[result.accountID] = result
+                }
+            } else {
+                merged[result.accountID] = result
+            }
+        }
+
+        results = merged.values.sorted { $0.title < $1.title }
+    }
+
     private func replaceResult(_ result: ProviderUsageResult) {
+        if let existing = results.first(where: { $0.accountID == result.accountID }),
+           existing.fetchedAt > result.fetchedAt {
+            return
+        }
+
         var nextResults = results.filter { $0.accountID != result.accountID }
         nextResults.append(result)
         results = nextResults.sorted { $0.title < $1.title }
+    }
+
+    nonisolated private static func fetchUsageWithTimeout(
+        provider: any UsageProvider,
+        configuration: ProviderAccountConfiguration,
+        timeout: Duration = .seconds(30)
+    ) async -> ProviderUsageResult {
+        await withTaskGroup(of: ProviderUsageResult.self) { group in
+            group.addTask {
+                do {
+                    return try await provider.fetchUsage(for: configuration)
+                } catch {
+                    return Self.errorResult(for: configuration, error: error)
+                }
+            }
+
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return Self.errorResult(for: configuration, error: RefreshTimeoutError())
+            }
+
+            guard let first = await group.next() else {
+                return Self.errorResult(for: configuration, error: RefreshTimeoutError())
+            }
+
+            group.cancelAll()
+            return first
+        }
     }
 
     nonisolated private static func errorResult(
@@ -138,6 +182,12 @@ public final class UsageRefreshService: ObservableObject {
             bars: [],
             fetchedAt: Date()
         )
+    }
+}
+
+private struct RefreshTimeoutError: LocalizedError {
+    var errorDescription: String? {
+        "Request timed out"
     }
 }
 
