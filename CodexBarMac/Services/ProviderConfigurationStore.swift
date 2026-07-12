@@ -43,6 +43,17 @@ public final class ProviderConfigurationStore: ObservableObject {
         configurations.filter(\.isEnabled)
     }
 
+    public func seedDefaultConfigurationsIfNeeded() {
+        guard configurations.isEmpty else {
+            return
+        }
+
+        configurations = ProviderID.allCases.map(ProviderAccountConfiguration.defaultConfiguration)
+        sortConfigurations()
+        saveConfigurations()
+        refreshSecretAvailability()
+    }
+
     public func configuration(for providerID: ProviderID) -> ProviderAccountConfiguration {
         configurations.first { $0.providerID == providerID }
             ?? .defaultConfiguration(for: providerID)
