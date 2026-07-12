@@ -61,11 +61,14 @@ public final class UsageRefreshService: ObservableObject {
 
     @discardableResult
     public func refresh(configuration: ProviderAccountConfiguration) async -> ProviderUsageResult? {
-        guard
-            configuration.isEnabled,
-            let provider = providers.first(where: { $0.providerID == configuration.providerID })
-        else {
+        guard configuration.isEnabled else {
             return nil
+        }
+
+        guard let provider = providers.first(where: { $0.providerID == configuration.providerID }) else {
+            let errorResult = Self.errorResult(for: configuration, error: MissingUsageProviderError())
+            replaceResult(errorResult)
+            return errorResult
         }
 
         let result = await Self.fetchUsageWithTimeout(provider: provider, configuration: configuration)
