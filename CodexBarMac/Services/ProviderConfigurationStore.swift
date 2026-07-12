@@ -16,6 +16,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let groupsKey = DefaultsKey.groups
     private let appAppearanceKey = DefaultsKey.appAppearance
     private let autoRefreshIntervalKey = DefaultsKey.autoRefreshInterval
+    private var secretAvailabilityGeneration = 0
 
     deinit {}
 
@@ -167,6 +168,8 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
 
         let store = secretStore
+        secretAvailabilityGeneration += 1
+        let generation = secretAvailabilityGeneration
 
         Task.detached(priority: .utility) {
             var availability: [String: Bool] = [:]
@@ -176,7 +179,9 @@ public final class ProviderConfigurationStore: ObservableObject {
             }
 
             await MainActor.run { [weak self] in
-                guard let self else { return }
+                guard let self, self.secretAvailabilityGeneration == generation else {
+                    return
+                }
 
                 var nextAvailability = self.secretAvailability
                 let snapshotIDs = Set(snapshot.map(\.id))
