@@ -63,7 +63,10 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() async {
-        await refreshService.refresh(configurations: configurationStore.enabledConfigurations)
+        guard await refreshService.refresh(configurations: configurationStore.enabledConfigurations) else {
+            return
+        }
+
         lastRefreshedAt = Date()
     }
 

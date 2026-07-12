@@ -7,6 +7,7 @@ struct MenuBarLabelContainer: View {
     var body: some View {
         MenuBarStatusLabel(
             severity: model.mostUrgentSeverity,
+            isRefreshEnabled: !model.isRefreshing,
             onRefresh: {
                 Task {
                     await model.refresh()

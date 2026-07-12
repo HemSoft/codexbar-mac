@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarStatusLabel: View {
     let severity: UsageSeverity
+    let isRefreshEnabled: Bool
     let onRefresh: () -> Void
     let onOpenSettings: () -> Void
     let onQuit: () -> Void
@@ -15,6 +16,7 @@ struct MenuBarStatusLabel: View {
             .accessibilityValue(severity.accessibilityLabel)
             .background(
                 StatusBarRightClickMenu(
+                    isRefreshEnabled: isRefreshEnabled,
                     onRefresh: onRefresh,
                     onOpenSettings: onOpenSettings,
                     onQuit: onQuit
@@ -24,12 +26,14 @@ struct MenuBarStatusLabel: View {
 }
 
 private struct StatusBarRightClickMenu: NSViewRepresentable {
+    let isRefreshEnabled: Bool
     let onRefresh: () -> Void
     let onOpenSettings: () -> Void
     let onQuit: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
+            isRefreshEnabled: isRefreshEnabled,
             onRefresh: onRefresh,
             onOpenSettings: onOpenSettings,
             onQuit: onQuit
@@ -43,6 +47,7 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: MenuAnchorView, context: Context) {
+        context.coordinator.isRefreshEnabled = isRefreshEnabled
         context.coordinator.onRefresh = onRefresh
         context.coordinator.onOpenSettings = onOpenSettings
         context.coordinator.onQuit = onQuit
@@ -52,6 +57,7 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject {
+        var isRefreshEnabled: Bool
         var onRefresh: () -> Void
         var onOpenSettings: () -> Void
         var onQuit: () -> Void
@@ -61,10 +67,12 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
         private var menu: NSMenu?
 
         init(
+            isRefreshEnabled: Bool,
             onRefresh: @escaping () -> Void,
             onOpenSettings: @escaping () -> Void,
             onQuit: @escaping () -> Void
         ) {
+            self.isRefreshEnabled = isRefreshEnabled
             self.onRefresh = onRefresh
             self.onOpenSettings = onOpenSettings
             self.onQuit = onQuit
@@ -98,6 +106,7 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
                 keyEquivalent: "r"
             )
             refreshItem.target = self
+            refreshItem.isEnabled = isRefreshEnabled
             menu.addItem(refreshItem)
 
             let settingsItem = NSMenuItem(

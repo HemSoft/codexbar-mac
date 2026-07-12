@@ -21,9 +21,10 @@ public final class UsageRefreshService: ObservableObject {
         autoRefreshTask?.cancel()
     }
 
-    public func refresh(configurations: [ProviderAccountConfiguration]) async {
+    @discardableResult
+    public func refresh(configurations: [ProviderAccountConfiguration]) async -> Bool {
         guard !isRefreshing else {
-            return
+            return false
         }
 
         isRefreshing = true
@@ -60,6 +61,7 @@ public final class UsageRefreshService: ObservableObject {
         }
 
         applyBulkResults(nextResults, enabledAccountIDs: enabledAccountIDs)
+        return true
     }
 
     @discardableResult
@@ -111,8 +113,9 @@ public final class UsageRefreshService: ObservableObject {
                     return
                 }
 
-                await self.refresh(configurations: configurations())
-                onRefreshFinished?()
+                if await self.refresh(configurations: configurations()) {
+                    onRefreshFinished?()
+                }
             }
         }
     }
