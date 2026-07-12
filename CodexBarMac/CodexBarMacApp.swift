@@ -13,7 +13,7 @@ struct CodexBarMacApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsPlaceholderView()
+            SettingsView(model: model)
         }
     }
 }

@@ -6,6 +6,7 @@ import Foundation
 final class AppModel: ObservableObject {
     let refreshService: UsageRefreshService
     let configurationStore: ProviderConfigurationStore
+    let launchAtLoginManager: LaunchAtLoginManager
 
     @Published private(set) var lastRefreshedAt: Date?
 
@@ -13,10 +14,12 @@ final class AppModel: ObservableObject {
 
     init(
         refreshService: UsageRefreshService = .demo(),
-        configurationStore: ProviderConfigurationStore = ProviderConfigurationStore()
+        configurationStore: ProviderConfigurationStore = ProviderConfigurationStore(),
+        launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager()
     ) {
         self.refreshService = refreshService
         self.configurationStore = configurationStore
+        self.launchAtLoginManager = launchAtLoginManager
         configurationStore.seedDefaultConfigurationsIfNeeded()
 
         refreshService.objectWillChange
@@ -26,6 +29,12 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
 
         configurationStore.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        launchAtLoginManager.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
@@ -80,6 +89,11 @@ final class AppModel: ObservableObject {
                 self?.lastRefreshedAt = Date()
             }
         )
+    }
+
+    func handleAccountsChanged() async {
+        updateAutoRefresh()
+        await refresh()
     }
 
     func quit() {
