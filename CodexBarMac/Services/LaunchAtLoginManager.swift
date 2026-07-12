@@ -18,7 +18,10 @@ public final class LaunchAtLoginManager: ObservableObject {
     public func setEnabled(_ enabled: Bool) {
         do {
             if enabled {
-                if SMAppService.mainApp.status != .enabled {
+                switch SMAppService.mainApp.status {
+                case .enabled, .requiresApproval:
+                    break
+                default:
                     try SMAppService.mainApp.register()
                 }
             } else if Self.shouldUnregister(for: SMAppService.mainApp.status) {
