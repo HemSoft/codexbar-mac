@@ -109,7 +109,7 @@ private struct UsageProgressBar: View {
     var body: some View {
         GeometryReader { proxy in
             let actualWidth = proxy.size.width * bar.fractionUsed
-            let projectedFraction = bar.projectedFraction() ?? 0
+            let projectedFraction = bar.showProjectionOnCurrentBar ? (bar.projectedFraction() ?? 0) : 0
             let projectedWidth = proxy.size.width * projectedFraction
 
             ZStack(alignment: .leading) {
