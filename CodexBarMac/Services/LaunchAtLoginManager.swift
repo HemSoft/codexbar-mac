@@ -13,15 +13,32 @@ public final class LaunchAtLoginManager: ObservableObject {
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.isEnabled = SMAppService.mainApp.status == .enabled
-        self.requiresApproval = SMAppService.mainApp.status == .requiresApproval
+        let status = SMAppService.mainApp.status
 
-        if defaults.object(forKey: preferenceKey) != nil {
+        if defaults.object(forKey: preferenceKey) == nil {
+            isEnabled = status == .enabled
+            requiresApproval = status == .requiresApproval
+        } else {
             let preferred = defaults.bool(forKey: preferenceKey)
             if preferred {
-                setEnabled(true)
-            } else if Self.shouldUnregister(for: SMAppService.mainApp.status) {
-                setEnabled(false)
+                switch status {
+                case .enabled:
+                    isEnabled = true
+                    requiresApproval = false
+                case .requiresApproval:
+                    isEnabled = false
+                    requiresApproval = true
+                default:
+                    isEnabled = false
+                    requiresApproval = false
+                    setEnabled(true)
+                }
+            } else {
+                isEnabled = false
+                requiresApproval = false
+                if Self.shouldUnregister(for: status) {
+                    setEnabled(false)
+                }
             }
         }
     }
@@ -43,12 +60,16 @@ public final class LaunchAtLoginManager: ObservableObject {
                 lastError = nil
             }
         } catch {
-            refreshState(requestedEnabled: defaults.bool(forKey: preferenceKey))
+            syncPublishedStateFromSystem(requestedEnabled: defaults.bool(forKey: preferenceKey))
             lastError = error.localizedDescription
         }
     }
 
     private func refreshState(requestedEnabled: Bool) {
+        guard requestedEnabled else {
+            return
+        }
+
         switch SMAppService.mainApp.status {
         case .enabled:
             defaults.set(true, forKey: preferenceKey)
@@ -56,15 +77,29 @@ public final class LaunchAtLoginManager: ObservableObject {
             requiresApproval = false
             lastError = nil
         case .requiresApproval:
-            defaults.set(false, forKey: preferenceKey)
+            defaults.set(true, forKey: preferenceKey)
             isEnabled = false
-            requiresApproval = requestedEnabled
+            requiresApproval = true
             lastError = nil
         default:
             defaults.set(false, forKey: preferenceKey)
             isEnabled = false
             requiresApproval = false
             lastError = nil
+        }
+    }
+
+    private func syncPublishedStateFromSystem(requestedEnabled: Bool) {
+        switch SMAppService.mainApp.status {
+        case .enabled:
+            isEnabled = requestedEnabled
+            requiresApproval = false
+        case .requiresApproval:
+            isEnabled = false
+            requiresApproval = requestedEnabled
+        default:
+            isEnabled = false
+            requiresApproval = false
         }
     }
 
