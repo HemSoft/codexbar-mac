@@ -39,6 +39,9 @@ public final class UsageRefreshService: ObservableObject {
         await withTaskGroup(of: ProviderUsageResult?.self) { group in
             for configuration in enabledConfigurations {
                 guard let provider = providers.first(where: { $0.providerID == configuration.providerID }) else {
+                    nextResults.append(
+                        Self.errorResult(for: configuration, error: MissingUsageProviderError())
+                    )
                     continue
                 }
 
@@ -190,6 +193,12 @@ public final class UsageRefreshService: ObservableObject {
 private struct RefreshTimeoutError: LocalizedError {
     var errorDescription: String? {
         "Request timed out"
+    }
+}
+
+private struct MissingUsageProviderError: LocalizedError {
+    var errorDescription: String? {
+        "Provider is not available"
     }
 }
 
