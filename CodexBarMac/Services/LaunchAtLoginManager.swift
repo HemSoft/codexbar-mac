@@ -60,7 +60,7 @@ public final class LaunchAtLoginManager: ObservableObject {
                 lastError = nil
             }
         } catch {
-            syncPublishedStateFromSystem(requestedEnabled: defaults.bool(forKey: preferenceKey))
+            syncPublishedStateFromSystem()
             lastError = error.localizedDescription
         }
     }
@@ -89,14 +89,18 @@ public final class LaunchAtLoginManager: ObservableObject {
         }
     }
 
-    private func syncPublishedStateFromSystem(requestedEnabled: Bool) {
+    private func syncPublishedStateFromSystem() {
+        let preferred = defaults.object(forKey: preferenceKey) == nil
+            ? nil
+            : defaults.bool(forKey: preferenceKey)
+
         switch SMAppService.mainApp.status {
         case .enabled:
-            isEnabled = requestedEnabled
+            isEnabled = true
             requiresApproval = false
         case .requiresApproval:
             isEnabled = false
-            requiresApproval = requestedEnabled
+            requiresApproval = preferred ?? true
         default:
             isEnabled = false
             requiresApproval = false
