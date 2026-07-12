@@ -115,14 +115,16 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     public func removeAccount(_ configuration: ProviderAccountConfiguration) {
-        configurations.removeAll { $0.id == configuration.id }
         do {
             try secretStore.deleteSecret(account: Self.keychainAccount(for: configuration))
-            lastError = nil
         } catch {
             lastError = error.localizedDescription
+            return
         }
+
+        configurations.removeAll { $0.id == configuration.id }
         secretAvailability.removeValue(forKey: configuration.id)
+        lastError = nil
         sortConfigurations()
         saveConfigurations()
         refreshSecretAvailability()
