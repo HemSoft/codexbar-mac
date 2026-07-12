@@ -20,7 +20,7 @@ Requires Xcode 16 or later on macOS 14+.
 ./run.sh
 ```
 
-This builds `CodexBarMac` and launches it. The app lives in the menu bar only (no Dock icon). Click the chart.bar icon to open the empty popover shell.
+This builds `CodexBarMac` and launches it. The app lives in the menu bar only (no Dock icon). Click the chart.bar.fill icon to open the empty popover shell.
 
 Build without launching:
 

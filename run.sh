@@ -40,4 +40,4 @@ fi
 echo "Launching $APP_PATH"
 open "$APP_PATH"
 
-echo "CodexBar is running ($BUNDLE_ID). Look for the chart.bar icon in the menu bar."
+echo "CodexBar is running ($BUNDLE_ID). Look for the chart.bar.fill icon in the menu bar."

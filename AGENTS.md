@@ -53,4 +53,4 @@ open CodexBarMac.xcodeproj
 ```
 
 The app is a menu bar agent (`LSUIElement`); it does not appear in the Dock.
-Look for the chart.bar SF Symbol in the menu bar after launch.
+Look for the chart.bar.fill SF Symbol in the menu bar after launch.
