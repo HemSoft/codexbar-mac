@@ -21,9 +21,10 @@ public final class UsageRefreshService: ObservableObject {
         autoRefreshTask?.cancel()
     }
 
-    public func refresh(configurations: [ProviderAccountConfiguration]) async {
+    @discardableResult
+    public func refresh(configurations: [ProviderAccountConfiguration]) async -> Bool {
         guard !isRefreshing else {
-            return
+            return false
         }
 
         isRefreshing = true
@@ -60,6 +61,7 @@ public final class UsageRefreshService: ObservableObject {
         }
 
         applyBulkResults(nextResults, enabledAccountIDs: enabledAccountIDs)
+        return true
     }
 
     @discardableResult
@@ -89,7 +91,8 @@ public final class UsageRefreshService: ObservableObject {
 
     public func updateAutoRefresh(
         interval: AutoRefreshInterval,
-        configurations: @escaping @MainActor () -> [ProviderAccountConfiguration]
+        configurations: @escaping @MainActor () -> [ProviderAccountConfiguration],
+        onRefreshFinished: (@MainActor () -> Void)? = nil
     ) {
         autoRefreshTask?.cancel()
         autoRefreshTask = nil
@@ -110,7 +113,9 @@ public final class UsageRefreshService: ObservableObject {
                     return
                 }
 
-                await self.refresh(configurations: configurations())
+                if await self.refresh(configurations: configurations()) {
+                    onRefreshFinished?()
+                }
             }
         }
     }
