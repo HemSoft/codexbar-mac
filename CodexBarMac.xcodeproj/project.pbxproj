@@ -18,6 +18,11 @@
 		100000000000000000000009 /* AutoRefreshInterval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* AutoRefreshInterval.swift */; };
 		10000000000000000000000A /* AppAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000C /* AppAppearance.swift */; };
 		10000000000000000000000B /* UserFacingDateTimeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000D /* UserFacingDateTimeFormatter.swift */; };
+		10000000000000000000000C /* UsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000E /* UsageProvider.swift */; };
+		10000000000000000000000D /* DemoUsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000F /* DemoUsageProvider.swift */; };
+		10000000000000000000000E /* UsageRefreshService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000010 /* UsageRefreshService.swift */; };
+		10000000000000000000000F /* ProviderConfigurationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000011 /* ProviderConfigurationStore.swift */; };
+		100000000000000000000010 /* SecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000012 /* SecretStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +39,11 @@
 		20000000000000000000000B /* AutoRefreshInterval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoRefreshInterval.swift; sourceTree = "<group>"; };
 		20000000000000000000000C /* AppAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearance.swift; sourceTree = "<group>"; };
 		20000000000000000000000D /* UserFacingDateTimeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserFacingDateTimeFormatter.swift; sourceTree = "<group>"; };
+		20000000000000000000000E /* UsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageProvider.swift; sourceTree = "<group>"; };
+		20000000000000000000000F /* DemoUsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoUsageProvider.swift; sourceTree = "<group>"; };
+		200000000000000000000010 /* UsageRefreshService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageRefreshService.swift; sourceTree = "<group>"; };
+		200000000000000000000011 /* ProviderConfigurationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderConfigurationStore.swift; sourceTree = "<group>"; };
+		200000000000000000000012 /* SecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecretStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -62,6 +72,7 @@
 				200000000000000000000002 /* PopoverView.swift */,
 				700000000000000000000005 /* Models */,
 				700000000000000000000006 /* Shared */,
+				700000000000000000000007 /* Services */,
 				200000000000000000000004 /* Info.plist */,
 				700000000000000000000004 /* Resources */,
 			);
@@ -104,6 +115,18 @@
 				20000000000000000000000D /* UserFacingDateTimeFormatter.swift */,
 			);
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		700000000000000000000007 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				20000000000000000000000E /* UsageProvider.swift */,
+				20000000000000000000000F /* DemoUsageProvider.swift */,
+				200000000000000000000010 /* UsageRefreshService.swift */,
+				200000000000000000000011 /* ProviderConfigurationStore.swift */,
+				200000000000000000000012 /* SecretStore.swift */,
+			);
+			path = Services;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -185,6 +208,11 @@
 				100000000000000000000009 /* AutoRefreshInterval.swift in Sources */,
 				10000000000000000000000A /* AppAppearance.swift in Sources */,
 				10000000000000000000000B /* UserFacingDateTimeFormatter.swift in Sources */,
+				10000000000000000000000C /* UsageProvider.swift in Sources */,
+				10000000000000000000000D /* DemoUsageProvider.swift in Sources */,
+				10000000000000000000000E /* UsageRefreshService.swift in Sources */,
+				10000000000000000000000F /* ProviderConfigurationStore.swift in Sources */,
+				100000000000000000000010 /* SecretStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
