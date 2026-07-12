@@ -73,10 +73,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-    }
-
     func quit() {
         NSApplication.shared.terminate(nil)
     }

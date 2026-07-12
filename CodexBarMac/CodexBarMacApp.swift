@@ -8,20 +8,7 @@ struct CodexBarMacApp: App {
         MenuBarExtra {
             PopoverView(model: model)
         } label: {
-            MenuBarStatusLabel(
-                severity: model.mostUrgentSeverity,
-                onRefresh: {
-                    Task {
-                        await model.refresh()
-                    }
-                },
-                onOpenSettings: {
-                    model.openSettings()
-                },
-                onQuit: {
-                    model.quit()
-                }
-            )
+            MenuBarLabelContainer(model: model)
         }
         .menuBarExtraStyle(.window)
 
