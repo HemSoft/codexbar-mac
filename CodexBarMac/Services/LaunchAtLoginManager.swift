@@ -21,28 +21,29 @@ public final class LaunchAtLoginManager: ObservableObject {
                 if SMAppService.mainApp.status != .enabled {
                     try SMAppService.mainApp.register()
                 }
-            } else if SMAppService.mainApp.status == .enabled {
+            } else if Self.shouldUnregister(for: SMAppService.mainApp.status) {
                 try SMAppService.mainApp.unregister()
             }
 
             defaults.set(enabled, forKey: preferenceKey)
-            isEnabled = SMAppService.mainApp.status == .enabled
+            isEnabled = enabled
             lastError = nil
         } catch {
-            isEnabled = SMAppService.mainApp.status == .enabled
+            isEnabled = defaults.bool(forKey: preferenceKey)
             lastError = error.localizedDescription
         }
     }
 
     private func applySavedPreference() {
-        let preferred = defaults.bool(forKey: preferenceKey)
-        let registered = SMAppService.mainApp.status == .enabled
+        setEnabled(defaults.bool(forKey: preferenceKey))
+    }
 
-        guard preferred != registered else {
-            isEnabled = registered
-            return
+    private static func shouldUnregister(for status: SMAppService.Status) -> Bool {
+        switch status {
+        case .enabled, .requiresApproval:
+            true
+        default:
+            false
         }
-
-        setEnabled(preferred)
     }
 }
