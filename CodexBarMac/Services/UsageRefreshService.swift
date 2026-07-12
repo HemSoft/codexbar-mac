@@ -208,7 +208,9 @@ private final class FetchRaceState: @unchecked Sendable {
         configuration: ProviderAccountConfiguration,
         timeout: Duration
     ) {
-        gate.setContinuation(continuation)
+        guard gate.install(continuation) else {
+            return
+        }
 
         fetchTask = Task {
             let result: ProviderUsageResult
@@ -234,26 +236,52 @@ private final class FetchRaceState: @unchecked Sendable {
     func cancel() {
         fetchTask?.cancel()
         timeoutTask?.cancel()
-        _ = gate.resumeOnce(with: nil)
+        gate.markCancelled()
     }
 }
 
 private final class RefreshResultGate: @unchecked Sendable {
     private let lock = NSLock()
     private var resumed = false
+    private var cancelled = false
     private var continuation: CheckedContinuation<ProviderUsageResult?, Never>?
 
     deinit {}
 
-    func setContinuation(_ continuation: CheckedContinuation<ProviderUsageResult?, Never>) {
+    func install(_ continuation: CheckedContinuation<ProviderUsageResult?, Never>) -> Bool {
         lock.withLock {
+            guard !resumed else {
+                return false
+            }
+
+            if cancelled {
+                resumed = true
+                continuation.resume(returning: nil)
+                return false
+            }
+
             self.continuation = continuation
+            return true
+        }
+    }
+
+    func markCancelled() {
+        lock.withLock {
+            guard !resumed else {
+                return
+            }
+
+            cancelled = true
+            if let continuation {
+                resumed = true
+                continuation.resume(returning: nil)
+            }
         }
     }
 
     func resumeOnce(with result: ProviderUsageResult?) -> Bool {
         lock.withLock {
-            guard !resumed, let continuation else {
+            guard !resumed, !cancelled, let continuation else {
                 return false
             }
 
