@@ -170,6 +170,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
 
         let store = secretStore
+        let persistedSnapshotIDs = Set(configurations.map(\.id))
         secretAvailabilityGeneration += 1
         let generation = secretAvailabilityGeneration
 
@@ -187,7 +188,8 @@ public final class ProviderConfigurationStore: ObservableObject {
 
                 var nextAvailability = self.secretAvailability
                 let snapshotIDs = Set(snapshot.map(\.id))
-                for accountID in nextAvailability.keys where !snapshotIDs.contains(accountID) {
+                for accountID in nextAvailability.keys
+                    where persistedSnapshotIDs.contains(accountID) && !snapshotIDs.contains(accountID) {
                     nextAvailability.removeValue(forKey: accountID)
                 }
 
