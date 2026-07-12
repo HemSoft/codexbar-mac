@@ -4,14 +4,14 @@ set -euo pipefail
 PROJECT="CodexBarMac.xcodeproj"
 SCHEME="CodexBarMac"
 BUNDLE_ID="com.hemsoft.CodexBarMac"
-DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || true)}"
 
-cd "$(dirname "$0")"
-
-if [[ ! -d "$DEVELOPER_DIR" ]]; then
-  echo "Xcode developer directory not found: $DEVELOPER_DIR" >&2
+if [[ -z "$DEVELOPER_DIR" || ! -d "$DEVELOPER_DIR" ]]; then
+  echo "Xcode developer directory not found. Set DEVELOPER_DIR or run xcode-select -s <path>." >&2
   exit 1
 fi
+
+cd "$(dirname "$0")"
 
 export DEVELOPER_DIR
 
