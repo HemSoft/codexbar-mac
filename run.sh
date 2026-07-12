@@ -37,6 +37,12 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
+if pgrep -x CodexBarMac >/dev/null 2>&1; then
+  echo "Stopping existing CodexBarMac instance"
+  pkill -x CodexBarMac || true
+  sleep 0.5
+fi
+
 echo "Launching $APP_PATH"
 open "$APP_PATH"
 
