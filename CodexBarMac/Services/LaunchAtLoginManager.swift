@@ -8,6 +8,8 @@ public final class LaunchAtLoginManager: ObservableObject {
     @Published public private(set) var requiresApproval: Bool
     @Published public private(set) var lastError: String?
 
+    deinit {}
+
     private let defaults: UserDefaults
     private let preferenceKey = "launchAtLoginEnabled"
 
