@@ -5,7 +5,6 @@ import Foundation
 public final class UsageRefreshService: ObservableObject {
     @Published public private(set) var results: [ProviderUsageResult] = []
     @Published public private(set) var isRefreshing = false
-    @Published public private(set) var lastRefreshError: String?
 
     private let providers: [any UsageProvider]
     private var autoRefreshTask: Task<Void, Never>?
@@ -150,32 +149,18 @@ public final class UsageRefreshService: ObservableObject {
         configuration: ProviderAccountConfiguration,
         timeout: Duration = .seconds(30)
     ) async -> ProviderUsageResult {
-        await withCheckedContinuation { continuation in
-            let gate = RefreshResultGate(continuation: continuation)
+        let race = FetchRaceState(configuration: configuration)
 
-            let fetchTask = Task {
-                let result: ProviderUsageResult
-                do {
-                    result = try await provider.fetchUsage(for: configuration)
-                } catch {
-                    result = Self.errorResult(for: configuration, error: error)
-                }
-
-                if gate.resumeOnce(with: result) {
-                    return
-                }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                race.begin(continuation: continuation, provider: provider, timeout: timeout)
             }
-
-            Task {
-                try? await Task.sleep(for: timeout)
-                if gate.resumeOnce(with: Self.errorResult(for: configuration, error: RefreshTimeoutError())) {
-                    fetchTask.cancel()
-                }
-            }
+        } onCancel: {
+            race.cancel()
         }
     }
 
-    nonisolated private static func errorResult(
+    nonisolated fileprivate static func errorResult(
         for configuration: ProviderAccountConfiguration,
         error: Error
     ) -> ProviderUsageResult {
@@ -196,24 +181,82 @@ private struct RefreshTimeoutError: LocalizedError {
     }
 }
 
+private struct RefreshCancellationError: LocalizedError {
+    var errorDescription: String? {
+        "Refresh cancelled"
+    }
+}
+
 private struct MissingUsageProviderError: LocalizedError {
     var errorDescription: String? {
         "Provider is not available"
     }
 }
 
+private final class FetchRaceState: @unchecked Sendable {
+    private let configuration: ProviderAccountConfiguration
+    private let gate: RefreshResultGate
+    private var fetchTask: Task<Void, Never>?
+    private var timeoutTask: Task<Void, Never>?
+
+    init(configuration: ProviderAccountConfiguration) {
+        self.configuration = configuration
+        self.gate = RefreshResultGate()
+    }
+
+    func begin(
+        continuation: CheckedContinuation<ProviderUsageResult, Never>,
+        provider: any UsageProvider,
+        timeout: Duration
+    ) {
+        gate.setContinuation(continuation)
+
+        fetchTask = Task {
+            let result: ProviderUsageResult
+            do {
+                result = try await provider.fetchUsage(for: configuration)
+            } catch {
+                result = UsageRefreshService.errorResult(for: configuration, error: error)
+            }
+
+            if gate.resumeOnce(with: result) {
+                return
+            }
+        }
+
+        timeoutTask = Task {
+            try? await Task.sleep(for: timeout)
+            if gate.resumeOnce(with: UsageRefreshService.errorResult(for: configuration, error: RefreshTimeoutError())) {
+                fetchTask?.cancel()
+            }
+        }
+    }
+
+    func cancel() {
+        fetchTask?.cancel()
+        timeoutTask?.cancel()
+        _ = gate.resumeOnce(
+            with: UsageRefreshService.errorResult(for: configuration, error: RefreshCancellationError())
+        )
+    }
+}
+
 private final class RefreshResultGate: @unchecked Sendable {
     private let lock = NSLock()
     private var resumed = false
-    private let continuation: CheckedContinuation<ProviderUsageResult, Never>
+    private var continuation: CheckedContinuation<ProviderUsageResult, Never>?
 
-    init(continuation: CheckedContinuation<ProviderUsageResult, Never>) {
-        self.continuation = continuation
+    deinit {}
+
+    func setContinuation(_ continuation: CheckedContinuation<ProviderUsageResult, Never>) {
+        lock.withLock {
+            self.continuation = continuation
+        }
     }
 
     func resumeOnce(with result: ProviderUsageResult) -> Bool {
         lock.withLock {
-            guard !resumed else {
+            guard !resumed, let continuation else {
                 return false
             }
 

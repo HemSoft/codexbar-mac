@@ -187,9 +187,9 @@ public final class ProviderConfigurationStore: ObservableObject {
                 }
 
                 var nextAvailability = self.secretAvailability
-                let snapshotIDs = Set(snapshot.map(\.id))
+                let currentPersistedIDs = Set(self.configurations.map(\.id))
                 for accountID in nextAvailability.keys
-                    where persistedSnapshotIDs.contains(accountID) && !snapshotIDs.contains(accountID) {
+                    where persistedSnapshotIDs.contains(accountID) && !currentPersistedIDs.contains(accountID) {
                     nextAvailability.removeValue(forKey: accountID)
                 }
 
