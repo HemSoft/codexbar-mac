@@ -216,6 +216,8 @@ private final class FetchRaceState: @unchecked Sendable {
             let result: ProviderUsageResult
             do {
                 result = try await provider.fetchUsage(for: configuration)
+            } catch is CancellationError {
+                return
             } catch {
                 result = UsageRefreshService.errorResult(for: configuration, error: error)
             }
@@ -227,7 +229,12 @@ private final class FetchRaceState: @unchecked Sendable {
         }
 
         timeoutTask = Task {
-            try? await Task.sleep(for: timeout)
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+
             if gate.resumeOnce(with: UsageRefreshService.errorResult(for: configuration, error: RefreshTimeoutError())) {
                 fetchTask?.cancel()
                 timeoutTask?.cancel()
@@ -236,9 +243,9 @@ private final class FetchRaceState: @unchecked Sendable {
     }
 
     func cancel() {
+        gate.markCancelled()
         fetchTask?.cancel()
         timeoutTask?.cancel()
-        gate.markCancelled()
     }
 }
 
