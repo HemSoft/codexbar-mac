@@ -61,9 +61,21 @@ struct SettingsView: View {
                             } label: {
                                 ProviderSettingsRow(configuration: configuration)
                             }
+
+                            Spacer()
+
+                            Button(role: .destructive) {
+                                configurationStore.removeAccount(configuration)
+                                Task {
+                                    await model.handleAccountsChanged()
+                                }
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Remove account")
                         }
                     }
-                    .onDelete(perform: deleteAccounts)
 
                     Menu {
                         ForEach(ProviderID.allCases) { providerID in
@@ -134,17 +146,6 @@ struct SettingsView: View {
             get: { model.launchAtLoginManager.isEnabled },
             set: { model.launchAtLoginManager.setEnabled($0) }
         )
-    }
-
-    private func deleteAccounts(at offsets: IndexSet) {
-        let accounts = configurationStore.configurations
-        for index in offsets {
-            configurationStore.removeAccount(accounts[index])
-        }
-
-        Task {
-            await model.handleAccountsChanged()
-        }
     }
 
     private func resetAccounts() {

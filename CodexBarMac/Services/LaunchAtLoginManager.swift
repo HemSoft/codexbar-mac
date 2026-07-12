@@ -12,8 +12,13 @@ public final class LaunchAtLoginManager: ObservableObject {
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.isEnabled = defaults.bool(forKey: preferenceKey)
-        applySavedPreference()
+
+        if defaults.object(forKey: preferenceKey) == nil {
+            isEnabled = SMAppService.mainApp.status == .enabled
+        } else {
+            isEnabled = defaults.bool(forKey: preferenceKey)
+            applySavedPreference()
+        }
     }
 
     public func setEnabled(_ enabled: Bool) {
