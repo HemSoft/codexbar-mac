@@ -34,5 +34,23 @@ experience changes under a separate `Developer Experience` heading.
 
 ## Build & Run
 
-(To be filled in by the project scaffolding issue — Xcode project, scheme, and
-run script land there.)
+From the repo root:
+
+```sh
+./run.sh
+```
+
+Build only:
+
+```sh
+xcodebuild -project CodexBarMac.xcodeproj -scheme CodexBarMac build
+```
+
+Open the project in Xcode:
+
+```sh
+open CodexBarMac.xcodeproj
+```
+
+The app is a menu bar agent (`LSUIElement`); it does not appear in the Dock.
+Look for the chart.bar.fill SF Symbol in the menu bar after launch.

@@ -10,7 +10,23 @@ Built with Swift / SwiftUI using `MenuBarExtra` — native macOS, no Electron ov
 
 ## Status
 
-🚧 **Bootstrapping.** The V1 work is sequenced in [GitHub Issues](https://github.com/HemSoft/codexbar-mac/issues). Provider logic is being ported from `codexbar-ios`, with Mac-specific advantages: because the app runs on the same machine as your CLI tools, it can read local credentials (Codex CLI, GitHub CLI) directly instead of requiring browser sign-in.
+🚧 **Early development.** The menu bar app shell builds and runs; provider logic is being ported from `codexbar-ios`. V1 work is sequenced in [GitHub Issues](https://github.com/HemSoft/codexbar-mac/issues). Because the app runs on the same machine as your CLI tools, it can read local credentials (Codex CLI, GitHub CLI) directly instead of requiring browser sign-in.
+
+## Build & Run
+
+Requires Xcode 16 or later on macOS 14+.
+
+```sh
+./run.sh
+```
+
+This builds `CodexBarMac` and launches it. The app lives in the menu bar only (no Dock icon). Click the chart.bar.fill icon to open the empty popover shell.
+
+Build without launching:
+
+```sh
+xcodebuild -project CodexBarMac.xcodeproj -scheme CodexBarMac build
+```
 
 ## Planned Providers (V1)
 
