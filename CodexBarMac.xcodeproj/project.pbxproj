@@ -10,6 +10,14 @@
 		100000000000000000000001 /* CodexBarMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000001 /* CodexBarMacApp.swift */; };
 		100000000000000000000002 /* PopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000002 /* PopoverView.swift */; };
 		100000000000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000003 /* Assets.xcassets */; };
+		100000000000000000000004 /* ProviderID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000006 /* ProviderID.swift */; };
+		100000000000000000000005 /* UsageSeverity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000007 /* UsageSeverity.swift */; };
+		100000000000000000000006 /* UsageBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000008 /* UsageBar.swift */; };
+		100000000000000000000007 /* ProviderUsageResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000009 /* ProviderUsageResult.swift */; };
+		100000000000000000000008 /* ProviderAccountConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000A /* ProviderAccountConfiguration.swift */; };
+		100000000000000000000009 /* AutoRefreshInterval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* AutoRefreshInterval.swift */; };
+		10000000000000000000000A /* AppAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000C /* AppAppearance.swift */; };
+		10000000000000000000000B /* UserFacingDateTimeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000D /* UserFacingDateTimeFormatter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -18,6 +26,14 @@
 		200000000000000000000003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		200000000000000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		200000000000000000000005 /* CodexBarMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CodexBarMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		200000000000000000000006 /* ProviderID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderID.swift; sourceTree = "<group>"; };
+		200000000000000000000007 /* UsageSeverity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageSeverity.swift; sourceTree = "<group>"; };
+		200000000000000000000008 /* UsageBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageBar.swift; sourceTree = "<group>"; };
+		200000000000000000000009 /* ProviderUsageResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderUsageResult.swift; sourceTree = "<group>"; };
+		20000000000000000000000A /* ProviderAccountConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderAccountConfiguration.swift; sourceTree = "<group>"; };
+		20000000000000000000000B /* AutoRefreshInterval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoRefreshInterval.swift; sourceTree = "<group>"; };
+		20000000000000000000000C /* AppAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearance.swift; sourceTree = "<group>"; };
+		20000000000000000000000D /* UserFacingDateTimeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserFacingDateTimeFormatter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,6 +60,8 @@
 			children = (
 				200000000000000000000001 /* CodexBarMacApp.swift */,
 				200000000000000000000002 /* PopoverView.swift */,
+				700000000000000000000005 /* Models */,
+				700000000000000000000006 /* Shared */,
 				200000000000000000000004 /* Info.plist */,
 				700000000000000000000004 /* Resources */,
 			);
@@ -64,6 +82,28 @@
 				200000000000000000000003 /* Assets.xcassets */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		700000000000000000000005 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000006 /* ProviderID.swift */,
+				200000000000000000000007 /* UsageSeverity.swift */,
+				200000000000000000000008 /* UsageBar.swift */,
+				200000000000000000000009 /* ProviderUsageResult.swift */,
+				20000000000000000000000A /* ProviderAccountConfiguration.swift */,
+				20000000000000000000000B /* AutoRefreshInterval.swift */,
+				20000000000000000000000C /* AppAppearance.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		700000000000000000000006 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				20000000000000000000000D /* UserFacingDateTimeFormatter.swift */,
+			);
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -137,6 +177,14 @@
 			files = (
 				100000000000000000000001 /* CodexBarMacApp.swift in Sources */,
 				100000000000000000000002 /* PopoverView.swift in Sources */,
+				100000000000000000000004 /* ProviderID.swift in Sources */,
+				100000000000000000000005 /* UsageSeverity.swift in Sources */,
+				100000000000000000000006 /* UsageBar.swift in Sources */,
+				100000000000000000000007 /* ProviderUsageResult.swift in Sources */,
+				100000000000000000000008 /* ProviderAccountConfiguration.swift in Sources */,
+				100000000000000000000009 /* AutoRefreshInterval.swift in Sources */,
+				10000000000000000000000A /* AppAppearance.swift in Sources */,
+				10000000000000000000000B /* UserFacingDateTimeFormatter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
