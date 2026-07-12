@@ -147,26 +147,28 @@ public final class UsageRefreshService: ObservableObject {
         configuration: ProviderAccountConfiguration,
         timeout: Duration = .seconds(30)
     ) async -> ProviderUsageResult {
-        await withTaskGroup(of: ProviderUsageResult.self) { group in
-            group.addTask {
+        await withCheckedContinuation { continuation in
+            let gate = RefreshResultGate(continuation: continuation)
+
+            let fetchTask = Task {
+                let result: ProviderUsageResult
                 do {
-                    return try await provider.fetchUsage(for: configuration)
+                    result = try await provider.fetchUsage(for: configuration)
                 } catch {
-                    return Self.errorResult(for: configuration, error: error)
+                    result = Self.errorResult(for: configuration, error: error)
+                }
+
+                if gate.resumeOnce(with: result) {
+                    return
                 }
             }
 
-            group.addTask {
+            Task {
                 try? await Task.sleep(for: timeout)
-                return Self.errorResult(for: configuration, error: RefreshTimeoutError())
+                if gate.resumeOnce(with: Self.errorResult(for: configuration, error: RefreshTimeoutError())) {
+                    fetchTask.cancel()
+                }
             }
-
-            guard let first = await group.next() else {
-                return Self.errorResult(for: configuration, error: RefreshTimeoutError())
-            }
-
-            group.cancelAll()
-            return first
         }
     }
 
@@ -188,6 +190,28 @@ public final class UsageRefreshService: ObservableObject {
 private struct RefreshTimeoutError: LocalizedError {
     var errorDescription: String? {
         "Request timed out"
+    }
+}
+
+private final class RefreshResultGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resumed = false
+    private let continuation: CheckedContinuation<ProviderUsageResult, Never>
+
+    init(continuation: CheckedContinuation<ProviderUsageResult, Never>) {
+        self.continuation = continuation
+    }
+
+    func resumeOnce(with result: ProviderUsageResult) -> Bool {
+        lock.withLock {
+            guard !resumed else {
+                return false
+            }
+
+            resumed = true
+            continuation.resume(returning: result)
+            return true
+        }
     }
 }
 

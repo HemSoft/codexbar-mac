@@ -140,12 +140,14 @@ public final class ProviderConfigurationStore: ObservableObject {
         do {
             if secret.isEmpty {
                 try secretStore.deleteSecret(account: Self.keychainAccount(for: configuration))
+                secretAvailability[configuration.id] = false
             } else {
                 try secretStore.saveSecret(secret, account: Self.keychainAccount(for: configuration))
+                secretAvailability[configuration.id] = true
             }
 
             lastError = nil
-            refreshSecretAvailability()
+            refreshSecretAvailability(including: [configuration])
         } catch {
             lastError = error.localizedDescription
         }
@@ -155,8 +157,14 @@ public final class ProviderConfigurationStore: ObservableObject {
         secretAvailability[configuration.id] ?? false
     }
 
-    public func refreshSecretAvailability() {
-        let snapshot = configurations
+    public func refreshSecretAvailability(
+        including additional: [ProviderAccountConfiguration] = []
+    ) {
+        var snapshot = configurations
+        for configuration in additional where !snapshot.contains(where: { $0.id == configuration.id }) {
+            snapshot.append(configuration)
+        }
+
         let store = secretStore
 
         Task.detached(priority: .utility) {
@@ -167,7 +175,7 @@ public final class ProviderConfigurationStore: ObservableObject {
             }
 
             await MainActor.run { [weak self] in
-                self?.secretAvailability = availability
+                self?.secretAvailability.merge(availability) { _, new in new }
             }
         }
     }
