@@ -221,6 +221,7 @@ private final class FetchRaceState: @unchecked Sendable {
             }
 
             if gate.resumeOnce(with: result) {
+                timeoutTask?.cancel()
                 return
             }
         }
@@ -229,6 +230,7 @@ private final class FetchRaceState: @unchecked Sendable {
             try? await Task.sleep(for: timeout)
             if gate.resumeOnce(with: UsageRefreshService.errorResult(for: configuration, error: RefreshTimeoutError())) {
                 fetchTask?.cancel()
+                timeoutTask?.cancel()
             }
         }
     }
