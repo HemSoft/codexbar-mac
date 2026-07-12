@@ -45,6 +45,37 @@ public final class LaunchAtLoginManager: ObservableObject {
         }
     }
 
+    public func refreshFromSystem() {
+        let status = SMAppService.mainApp.status
+
+        if defaults.object(forKey: preferenceKey) == nil {
+            isEnabled = status == .enabled
+            requiresApproval = status == .requiresApproval
+            lastError = nil
+            return
+        }
+
+        let preferred = defaults.bool(forKey: preferenceKey)
+        if preferred {
+            switch status {
+            case .enabled:
+                isEnabled = true
+                requiresApproval = false
+            case .requiresApproval:
+                isEnabled = false
+                requiresApproval = true
+            default:
+                isEnabled = false
+                requiresApproval = false
+            }
+        } else {
+            isEnabled = false
+            requiresApproval = false
+        }
+
+        lastError = nil
+    }
+
     public func setEnabled(_ enabled: Bool) {
         do {
             if enabled {

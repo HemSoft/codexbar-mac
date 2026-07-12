@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -128,6 +129,12 @@ struct SettingsView: View {
             }
         }
         .frame(minWidth: 520, minHeight: 420)
+        .onAppear {
+            model.launchAtLoginManager.refreshFromSystem()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.launchAtLoginManager.refreshFromSystem()
+        }
     }
 
     private var appearanceBinding: Binding<AppAppearance> {
