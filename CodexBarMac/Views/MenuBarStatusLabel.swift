@@ -143,7 +143,8 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
                     let self,
                     let button = self.statusBarButton,
                     let menu = self.menu,
-                    let window = button.window
+                    let window = button.window,
+                    event.window === window
                 else {
                     return event
                 }

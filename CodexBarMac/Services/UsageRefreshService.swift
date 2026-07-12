@@ -89,7 +89,8 @@ public final class UsageRefreshService: ObservableObject {
 
     public func updateAutoRefresh(
         interval: AutoRefreshInterval,
-        configurations: @escaping @MainActor () -> [ProviderAccountConfiguration]
+        configurations: @escaping @MainActor () -> [ProviderAccountConfiguration],
+        onRefreshFinished: (@MainActor () -> Void)? = nil
     ) {
         autoRefreshTask?.cancel()
         autoRefreshTask = nil
@@ -111,6 +112,7 @@ public final class UsageRefreshService: ObservableObject {
                 }
 
                 await self.refresh(configurations: configurations())
+                onRefreshFinished?()
             }
         }
     }

@@ -68,9 +68,15 @@ final class AppModel: ObservableObject {
     }
 
     func updateAutoRefresh() {
-        refreshService.updateAutoRefresh(interval: configurationStore.autoRefreshInterval) { [configurationStore] in
-            configurationStore.enabledConfigurations
-        }
+        refreshService.updateAutoRefresh(
+            interval: configurationStore.autoRefreshInterval,
+            configurations: { [configurationStore] in
+                configurationStore.enabledConfigurations
+            },
+            onRefreshFinished: { [weak self] in
+                self?.lastRefreshedAt = Date()
+            }
+        )
     }
 
     func quit() {
