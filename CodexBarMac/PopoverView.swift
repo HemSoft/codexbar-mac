@@ -30,9 +30,6 @@ struct PopoverView: View {
         .frame(minWidth: 360, idealWidth: 380, maxWidth: 420, minHeight: 420, maxHeight: 640)
         .background(Color(nsColor: .windowBackgroundColor))
         .preferredColorScheme(model.configurationStore.appAppearance.colorScheme)
-        .task {
-            await model.activate()
-        }
         .onChange(of: model.configurationStore.autoRefreshInterval) { _, _ in
             model.updateAutoRefresh()
         }

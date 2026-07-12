@@ -19,5 +19,8 @@ struct MenuBarLabelContainer: View {
                 model.quit()
             }
         )
+        .task {
+            await model.activate()
+        }
     }
 }
