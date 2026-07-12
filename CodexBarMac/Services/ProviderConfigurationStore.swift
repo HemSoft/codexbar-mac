@@ -121,6 +121,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         } catch {
             lastError = error.localizedDescription
         }
+        secretAvailability.removeValue(forKey: configuration.id)
         sortConfigurations()
         saveConfigurations()
         refreshSecretAvailability()
@@ -175,7 +176,19 @@ public final class ProviderConfigurationStore: ObservableObject {
             }
 
             await MainActor.run { [weak self] in
-                self?.secretAvailability.merge(availability) { _, new in new }
+                guard let self else { return }
+
+                var nextAvailability = self.secretAvailability
+                let snapshotIDs = Set(snapshot.map(\.id))
+                for accountID in nextAvailability.keys where !snapshotIDs.contains(accountID) {
+                    nextAvailability.removeValue(forKey: accountID)
+                }
+
+                for (accountID, isAvailable) in availability {
+                    nextAvailability[accountID] = isAvailable
+                }
+
+                self.secretAvailability = nextAvailability
             }
         }
     }
