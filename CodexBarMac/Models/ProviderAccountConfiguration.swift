@@ -171,11 +171,11 @@ public extension ProviderAccountConfiguration {
     static func defaultConfiguration(for providerID: ProviderID) -> ProviderAccountConfiguration {
         switch providerID {
         case .codex:
-            ProviderAccountConfiguration(providerID: providerID, authMethod: .browserSession)
+            ProviderAccountConfiguration(providerID: providerID, authMethod: .codexAuthJSON)
         case .copilot:
-            ProviderAccountConfiguration(providerID: providerID, authMethod: .browserSession)
+            ProviderAccountConfiguration(providerID: providerID, authMethod: .cliToken)
         case .claude:
-            ProviderAccountConfiguration(providerID: providerID, authMethod: .browserSession)
+            ProviderAccountConfiguration(providerID: providerID, authMethod: .oauth)
         case .openRouter:
             ProviderAccountConfiguration(providerID: providerID, authMethod: .apiKey)
         case .openCodeZen:
