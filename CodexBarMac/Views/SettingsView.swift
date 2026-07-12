@@ -27,6 +27,12 @@ struct SettingsView: View {
 
                     Toggle("Launch at Login", isOn: launchAtLoginBinding)
 
+                    if model.launchAtLoginManager.requiresApproval {
+                        Text("Approve CodexBar in System Settings > General > Login Items to finish enabling launch at login.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
                     if let launchError = model.launchAtLoginManager.lastError {
                         Text(launchError)
                             .font(.footnote)
