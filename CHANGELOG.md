@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Provider abstraction with `UsageRefreshService`, `ProviderConfigurationStore`, and `DemoUsageProvider` for concurrent refresh and demo data.
 - Menu bar icon tinted by the most urgent usage severity, with a popover dashboard showing provider usage cards, manual refresh, and a settings stub.
 - Right-click menu on the menu bar icon with Refresh, Settings, and Quit actions.
+- Native Settings window for appearance, auto-refresh, launch at login, and per-provider account management with immediate dashboard updates.
 
 ### Developer Experience
 

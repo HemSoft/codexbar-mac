@@ -13,7 +13,8 @@ struct CodexBarMacApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsPlaceholderView()
+            SettingsView(model: model)
+                .preferredColorScheme(model.configurationStore.appAppearance.colorScheme)
         }
     }
 }

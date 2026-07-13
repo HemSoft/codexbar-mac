@@ -26,8 +26,10 @@
 		100000000000000000000011 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000013 /* AppModel.swift */; };
 		100000000000000000000012 /* MenuBarStatusLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000014 /* MenuBarStatusLabel.swift */; };
 		100000000000000000000013 /* ProviderUsageCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000015 /* ProviderUsageCard.swift */; };
-		100000000000000000000014 /* SettingsPlaceholderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000016 /* SettingsPlaceholderView.swift */; };
 		100000000000000000000015 /* MenuBarLabelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000017 /* MenuBarLabelContainer.swift */; };
+		100000000000000000000016 /* LaunchAtLoginManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000018 /* LaunchAtLoginManager.swift */; };
+		100000000000000000000017 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000019 /* SettingsView.swift */; };
+		100000000000000000000018 /* ProviderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000001A /* ProviderSettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,8 +54,10 @@
 		200000000000000000000013 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		200000000000000000000014 /* MenuBarStatusLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarStatusLabel.swift; sourceTree = "<group>"; };
 		200000000000000000000015 /* ProviderUsageCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderUsageCard.swift; sourceTree = "<group>"; };
-		200000000000000000000016 /* SettingsPlaceholderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPlaceholderView.swift; sourceTree = "<group>"; };
 		200000000000000000000017 /* MenuBarLabelContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarLabelContainer.swift; sourceTree = "<group>"; };
+		200000000000000000000018 /* LaunchAtLoginManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginManager.swift; sourceTree = "<group>"; };
+		200000000000000000000019 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		20000000000000000000001A /* ProviderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -137,6 +141,7 @@
 				200000000000000000000010 /* UsageRefreshService.swift */,
 				200000000000000000000011 /* ProviderConfigurationStore.swift */,
 				200000000000000000000012 /* SecretStore.swift */,
+				200000000000000000000018 /* LaunchAtLoginManager.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -147,7 +152,8 @@
 				200000000000000000000014 /* MenuBarStatusLabel.swift */,
 				200000000000000000000017 /* MenuBarLabelContainer.swift */,
 				200000000000000000000015 /* ProviderUsageCard.swift */,
-				200000000000000000000016 /* SettingsPlaceholderView.swift */,
+				200000000000000000000019 /* SettingsView.swift */,
+				20000000000000000000001A /* ProviderSettingsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -239,8 +245,10 @@
 				100000000000000000000011 /* AppModel.swift in Sources */,
 				100000000000000000000012 /* MenuBarStatusLabel.swift in Sources */,
 				100000000000000000000013 /* ProviderUsageCard.swift in Sources */,
-				100000000000000000000014 /* SettingsPlaceholderView.swift in Sources */,
 				100000000000000000000015 /* MenuBarLabelContainer.swift in Sources */,
+				100000000000000000000016 /* LaunchAtLoginManager.swift in Sources */,
+				100000000000000000000017 /* SettingsView.swift in Sources */,
+				100000000000000000000018 /* ProviderSettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
