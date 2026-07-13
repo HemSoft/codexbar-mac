@@ -14,7 +14,7 @@ final class AppModel: ObservableObject {
     private var pendingRefresh = false
 
     init(
-        refreshService: UsageRefreshService = .demo(),
+        refreshService: UsageRefreshService = .live(),
         configurationStore: ProviderConfigurationStore = ProviderConfigurationStore(secretStore: KeychainService()),
         launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager()
     ) {

@@ -117,7 +117,7 @@ struct ProviderSettingsView: View {
     private var availableAuthMethods: [ProviderAuthMethod] {
         switch providerID {
         case .codex:
-            [.codexAuthJSON, .browserSession]
+            [.codexAuthJSON]
         case .copilot:
             [.cliToken, .browserSession]
         case .openRouter, .openCodeZen:
@@ -134,7 +134,7 @@ struct ProviderSettingsView: View {
     private var credentialGuidance: String {
         switch providerID {
         case .codex:
-            "CodexBar reads Codex CLI credentials from ~/.codex/auth.json when auth.json is selected. Browser sign-in remains available as a fallback."
+            "CodexBar reads Codex CLI credentials from ~/.codex/auth.json. Browser sign-in will be added in a later issue."
         case .copilot:
             "GitHub Copilot can use GitHub CLI credentials discovered from `gh auth status`, or a token saved in the Keychain."
         case .claude:

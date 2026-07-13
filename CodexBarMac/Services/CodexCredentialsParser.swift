@@ -57,6 +57,32 @@ public enum CodexCredentialsParser {
         )
     }
 
+    public static func storedCredential(from credentials: CodexCredentials) -> String {
+        var tokens: [String: Any] = ["access_token": credentials.accessToken]
+        if let refreshToken = credentials.refreshToken {
+            tokens["refresh_token"] = refreshToken
+        }
+        if let idToken = credentials.idToken {
+            tokens["id_token"] = idToken
+        }
+        if let accountID = credentials.accountID {
+            tokens["account_id"] = accountID
+        }
+        if let expiresAt = credentials.expiresAt {
+            tokens["expires_at"] = expiresAt
+        }
+
+        let root: [String: Any] = [
+            "auth_mode": "chatgpt",
+            "tokens": tokens,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
+              let value = String(data: data, encoding: .utf8) else {
+            return credentials.accessToken
+        }
+        return value
+    }
+
     private static func stringValue(in object: [String: Any], snakeCase: String, camelCase: String) -> String? {
         if let value = object[snakeCase] as? String {
             return value
@@ -85,8 +111,27 @@ public enum CodexCredentialsParser {
         }
     }
 
+    private static let openAIAuthClaim = "https://api.openai.com/auth"
+
     private static func accountID(from token: String) -> String? {
-        jwtPayload(from: token)?["chatgpt_account_id"] as? String
+        guard let payload = jwtPayload(from: token) else {
+            return nil
+        }
+
+        if let accountID = payload["chatgpt_account_id"] as? String,
+           !accountID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return accountID
+        }
+
+        guard
+            let auth = payload[openAIAuthClaim] as? [String: Any],
+            let accountID = auth["chatgpt_account_id"] as? String,
+            !accountID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return nil
+        }
+
+        return accountID
     }
 
     private static func jwtPayload(from token: String) -> [String: Any]? {
