@@ -264,6 +264,14 @@ public enum ClaudeUsageParser {
             bars.append(bar)
         }
 
+        for scopedBar in scopedWeeklyBarsFromHeaders(
+            fields: fields,
+            fetchedAt: fetchedAt,
+            dateTimeFormatter: dateTimeFormatter
+        ) {
+            bars.append(scopedBar)
+        }
+
         guard !bars.isEmpty else {
             return nil
         }
@@ -322,6 +330,44 @@ public enum ClaudeUsageParser {
             fetchedAt: fetchedAt,
             dateTimeFormatter: dateTimeFormatter
         )
+    }
+
+    private static let scopedWeeklyHeaderModels: [(label: String, keyVariants: [String])] = [
+        ("Sonnet weekly usage limit", ["7d-sonnet", "7d_sonnet"]),
+        ("Opus weekly usage limit", ["7d-opus", "7d_opus"]),
+    ]
+
+    private static func scopedWeeklyBarsFromHeaders(
+        fields: [AnyHashable: Any],
+        fetchedAt: Date,
+        dateTimeFormatter: UserFacingDateTimeFormatter
+    ) -> [UsageBar] {
+        var bars: [UsageBar] = []
+        var seenLabels = Set<String>()
+
+        for model in scopedWeeklyHeaderModels {
+            guard !seenLabels.contains(model.label) else {
+                continue
+            }
+
+            for variant in model.keyVariants {
+                if let bar = usageBarFromHeaders(
+                    label: model.label,
+                    utilizationKey: "anthropic-ratelimit-unified-\(variant)-utilization",
+                    resetKey: "anthropic-ratelimit-unified-\(variant)-reset",
+                    durationSeconds: 604_800,
+                    fields: fields,
+                    fetchedAt: fetchedAt,
+                    dateTimeFormatter: dateTimeFormatter
+                ) {
+                    bars.append(bar)
+                    seenLabels.insert(model.label)
+                    break
+                }
+            }
+        }
+
+        return bars
     }
 
     private static func usageBar(

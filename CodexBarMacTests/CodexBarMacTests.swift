@@ -514,6 +514,73 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.used), [11, 9, 5])
     }
 
+    func testClaudeUsageParserReadsScopedWeeklyRateLimitHeaders() throws {
+        let result = try XCTUnwrap(ClaudeUsageParser.parseRateLimitHeaders(
+            [
+                "anthropic-ratelimit-unified-5h-utilization": "0.42",
+                "anthropic-ratelimit-unified-5h-reset": "1893456000",
+                "anthropic-ratelimit-unified-7d-utilization": "0.65",
+                "anthropic-ratelimit-unified-7d-reset": "1894060800",
+                "anthropic-ratelimit-unified-7d_sonnet-utilization": "0.88",
+                "anthropic-ratelimit-unified-7d_sonnet-reset": "1894060800",
+                "anthropic-ratelimit-unified-7d-opus-utilization": "0.31",
+                "anthropic-ratelimit-unified-7d-opus-reset": "1894060800",
+            ],
+            subscriptionType: "max"
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), [
+            "5 hour usage limit",
+            "Weekly usage limit",
+            "Sonnet weekly usage limit",
+            "Opus weekly usage limit",
+        ])
+        XCTAssertEqual(result.bars.map(\.used), [42, 65, 88, 31])
+    }
+
+    func testClaudeCredentialStorePreservesFilePermissionsAndMetadata() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        let original = """
+        {
+          "otherEntry": {"enabled": true},
+          "claudeAiOauth": {
+            "accessToken": "old-access",
+            "refreshToken": "refresh-token",
+            "expiresAt": 1000
+          }
+        }
+        """
+        try Data(original.utf8).write(to: URL(fileURLWithPath: credentialsPath))
+        _ = chmod(credentialsPath, 0o600)
+
+        try ClaudeCredentialStore.saveCredentials(
+            ClaudeCredentials(
+                expiresAt: 4_000_000_000_000,
+                accessToken: "new-access",
+                refreshToken: "refresh-token"
+            ),
+            to: .file(credentialsPath)
+        )
+
+        var attributes = stat()
+        XCTAssertEqual(stat(credentialsPath, &attributes), 0)
+        XCTAssertEqual(attributes.st_mode & 0o777, 0o600)
+
+        let root = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: URL(fileURLWithPath: credentialsPath))
+        ) as? [String: Any]
+        let otherEntry = root?["otherEntry"] as? [String: Any]
+        XCTAssertEqual(otherEntry?["enabled"] as? Bool, true)
+        let oauth = root?["claudeAiOauth"] as? [String: Any]
+        XCTAssertEqual(oauth?["accessToken"] as? String, "new-access")
+        XCTAssertEqual(oauth?["refreshToken"] as? String, "refresh-token")
+    }
+
     func testClaudeUsageProviderReadsLocalCredentialsFile() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import Darwin
 
 public enum ClaudeCredentialStore: Sendable {
     public enum Storage: Equatable, Sendable {
@@ -31,18 +32,58 @@ public enum ClaudeCredentialStore: Sendable {
         _ credentials: ClaudeCredentials,
         to storage: Storage
     ) throws {
-        let stored = ClaudeCredentialsParser.storedCredential(from: credentials)
         switch storage {
         case .keychain(let service, let account):
-            try saveGenericPassword(stored, service: service, account: account)
-        case .file(let path):
-            let fileURL = URL(fileURLWithPath: path)
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
+            try saveGenericPassword(
+                ClaudeCredentialsParser.storedCredential(from: credentials),
+                service: service,
+                account: account
             )
-            try Data(stored.utf8).write(to: fileURL, options: .atomic)
+        case .file(let path):
+            try writeCredentialsFile(credentials, at: path)
         }
+    }
+
+    private static func writeCredentialsFile(_ credentials: ClaudeCredentials, at path: String) throws {
+        let fileURL = URL(fileURLWithPath: path)
+        var root: [String: Any] = [:]
+
+        if let data = try? Data(contentsOf: fileURL),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            root = existing
+        }
+
+        let storedJSON = ClaudeCredentialsParser.storedCredential(from: credentials)
+        guard let data = storedJSON.data(using: .utf8),
+              let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let oauth = parsed["claudeAiOauth"] else {
+            throw ClaudeCredentialStoreError.invalidCredentialPayload
+        }
+
+        root["claudeAiOauth"] = oauth
+
+        let encoded = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let fileMode = existingFileMode(at: fileURL.path) ?? 0o600
+        try encoded.write(to: fileURL, options: .atomic)
+        _ = chmod(fileURL.path, fileMode)
+    }
+
+    private static func existingFileMode(at path: String) -> mode_t? {
+        guard FileManager.default.fileExists(atPath: path) else {
+            return nil
+        }
+
+        var attributes = stat()
+        guard stat(path, &attributes) == 0 else {
+            return nil
+        }
+
+        return attributes.st_mode & 0o777
     }
 
     private static func readGenericPassword(service: String, account: String) throws -> String? {
@@ -91,4 +132,8 @@ public enum ClaudeCredentialStore: Sendable {
         }
         throw KeychainError.unhandledStatus(updateStatus)
     }
+}
+
+public enum ClaudeCredentialStoreError: Error {
+    case invalidCredentialPayload
 }

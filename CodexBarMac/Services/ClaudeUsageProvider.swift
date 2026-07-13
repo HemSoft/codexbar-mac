@@ -42,15 +42,16 @@ public final class ClaudeUsageProvider: UsageProvider {
             storage: loaded.storage,
             configuration: configuration
         )
-        guard let token = loaded.credentials.accessToken, !token.isEmpty else {
+        guard var token = loaded.credentials.accessToken, !token.isEmpty else {
             return failureResult("Claude credential is missing an access token.", configuration: configuration)
         }
         await snapshotCache.prepare(accountID: configuration.id, credential: token)
 
         let oauthOutcome = try await fetchOAuthUsage(
             configuration: configuration,
-            credentials: loaded.credentials,
-            accessToken: token
+            loaded: &loaded,
+            accessToken: &token,
+            canRefresh: true
         )
         if let usageResult = oauthOutcome.result {
             let retryAt = await snapshotCache.retryAt(accountID: configuration.id)
@@ -59,8 +60,9 @@ public final class ClaudeUsageProvider: UsageProvider {
                 do {
                     if let rateLimitResult = try await fetchRateLimitUsage(
                         configuration: configuration,
-                        credentials: loaded.credentials,
-                        accessToken: token
+                        loaded: &loaded,
+                        accessToken: &token,
+                        canRefresh: true
                     ), !rateLimitResult.bars.isEmpty {
                         await snapshotCache.store(rateLimitResult, accountID: configuration.id)
                         return rateLimitResult
@@ -80,8 +82,9 @@ public final class ClaudeUsageProvider: UsageProvider {
 
         if let rateLimitResult = try await fetchRateLimitUsage(
             configuration: configuration,
-            credentials: loaded.credentials,
-            accessToken: token
+            loaded: &loaded,
+            accessToken: &token,
+            canRefresh: true
         ) {
             return rateLimitResult
         }
@@ -125,8 +128,9 @@ public final class ClaudeUsageProvider: UsageProvider {
 
     private func fetchOAuthUsage(
         configuration: ProviderAccountConfiguration,
-        credentials: ClaudeCredentials,
-        accessToken: String
+        loaded: inout LoadedCredentials,
+        accessToken: inout String,
+        canRefresh: Bool
     ) async throws -> OAuthUsageOutcome {
         let fetchedAt = now()
         if let retryAt = await snapshotCache.retryAt(accountID: configuration.id), retryAt > fetchedAt {
@@ -151,7 +155,7 @@ public final class ClaudeUsageProvider: UsageProvider {
         case 200..<300:
             guard let parsed = ClaudeUsageParser.parse(
                 data,
-                subscriptionType: credentials.subscriptionType,
+                subscriptionType: loaded.credentials.subscriptionType,
                 fetchedAt: fetchedAt
             ) else {
                 return OAuthUsageOutcome(result: nil, permitsFallbackProbe: true)
@@ -161,6 +165,30 @@ public final class ClaudeUsageProvider: UsageProvider {
                 result: result,
                 permitsFallbackProbe: false,
                 isSuccessfulSnapshot: true
+            )
+        case 401 where canRefresh && loaded.credentials.refreshToken?.isEmpty == false:
+            let refreshed = try await refreshCredentials(
+                loaded.credentials,
+                storage: loaded.storage,
+                configuration: configuration
+            )
+            guard
+                let newToken = refreshed.accessToken,
+                !newToken.isEmpty,
+                newToken != accessToken
+            else {
+                return OAuthUsageOutcome(
+                    result: failureResult("Claude credential was rejected. Sign in again.", configuration: configuration),
+                    permitsFallbackProbe: false
+                )
+            }
+            loaded.credentials = refreshed
+            accessToken = newToken
+            return try await fetchOAuthUsage(
+                configuration: configuration,
+                loaded: &loaded,
+                accessToken: &accessToken,
+                canRefresh: false
             )
         case 401:
             return OAuthUsageOutcome(
@@ -203,8 +231,9 @@ public final class ClaudeUsageProvider: UsageProvider {
 
     private func fetchRateLimitUsage(
         configuration: ProviderAccountConfiguration,
-        credentials: ClaudeCredentials,
-        accessToken: String
+        loaded: inout LoadedCredentials,
+        accessToken: inout String,
+        canRefresh: Bool
     ) async throws -> ProviderUsageResult? {
         let fetchedAt = now()
         let (_, response) = try await session.data(for: makeRateLimitProbeRequest(accessToken: accessToken))
@@ -212,13 +241,38 @@ public final class ClaudeUsageProvider: UsageProvider {
             return nil
         }
 
-        guard httpResponse.statusCode != 401 && httpResponse.statusCode != 403 else {
+        switch httpResponse.statusCode {
+        case 401 where canRefresh && loaded.credentials.refreshToken?.isEmpty == false:
+            let previousToken = accessToken
+            let refreshed = try await refreshCredentials(
+                loaded.credentials,
+                storage: loaded.storage,
+                configuration: configuration
+            )
+            guard
+                let newToken = refreshed.accessToken,
+                !newToken.isEmpty,
+                newToken != previousToken
+            else {
+                return failureResult("Claude credential expired or lacks Claude Code access.", configuration: configuration)
+            }
+            loaded.credentials = refreshed
+            accessToken = newToken
+            return try await fetchRateLimitUsage(
+                configuration: configuration,
+                loaded: &loaded,
+                accessToken: &accessToken,
+                canRefresh: false
+            )
+        case 401, 403:
             return failureResult("Claude credential expired or lacks Claude Code access.", configuration: configuration)
+        default:
+            break
         }
 
         guard let parsed = ClaudeUsageParser.parseRateLimitHeaders(
             httpResponse.allHeaderFields,
-            subscriptionType: credentials.subscriptionType,
+            subscriptionType: loaded.credentials.subscriptionType,
             fetchedAt: fetchedAt
         ) else {
             return nil
@@ -239,10 +293,22 @@ public final class ClaudeUsageProvider: UsageProvider {
         }
 
         let expiresAt = Date(timeIntervalSince1970: TimeInterval(normalizeEpochToSeconds(credentials.expiresAt)))
-        guard expiresAt <= Date() else {
+        guard expiresAt <= now() else {
             return credentials
         }
 
+        guard credentials.refreshToken?.isEmpty == false else {
+            return credentials
+        }
+
+        return try await refreshCredentials(credentials, storage: storage, configuration: configuration)
+    }
+
+    private func refreshCredentials(
+        _ credentials: ClaudeCredentials,
+        storage: ClaudeCredentialStore.Storage?,
+        configuration: ProviderAccountConfiguration
+    ) async throws -> ClaudeCredentials {
         guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
             return credentials
         }
