@@ -14,6 +14,7 @@ struct CodexBarMacApp: App {
 
         Settings {
             SettingsView(model: model)
+                .preferredColorScheme(model.configurationStore.appAppearance.colorScheme)
         }
     }
 }

@@ -64,9 +64,30 @@ final class AppModel: ObservableObject {
     }
 
     var displayedResults: [ProviderUsageResult] {
-        let enabledAccountIDs = Set(configurationStore.enabledConfigurations.map(\.id))
+        let enabledConfigurations = configurationStore.enabledConfigurations
+        let configurationByID = Dictionary(
+            uniqueKeysWithValues: enabledConfigurations.map { ($0.id, $0) }
+        )
+        let enabledAccountIDs = Set(enabledConfigurations.map(\.id))
+
         return refreshService.results
             .filter { enabledAccountIDs.contains($0.accountID) }
+            .map { result in
+                guard let configuration = configurationByID[result.accountID],
+                      configuration.displayName != result.title else {
+                    return result
+                }
+
+                return ProviderUsageResult(
+                    accountID: result.accountID,
+                    providerID: result.providerID,
+                    title: configuration.displayName,
+                    subtitle: result.subtitle,
+                    bars: result.bars,
+                    creditsRemaining: result.creditsRemaining,
+                    fetchedAt: result.fetchedAt
+                )
+            }
             .sorted {
                 $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
             }
