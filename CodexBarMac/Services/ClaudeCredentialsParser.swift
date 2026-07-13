@@ -36,4 +36,37 @@ public enum ClaudeCredentialsParser {
 
         return try? decoder.decode(ClaudeCredentials.self, from: data)
     }
+
+    public static func storedCredential(from credentials: ClaudeCredentials) -> String {
+        let tokenPairs = [
+            jsonPair("subscriptionType", credentials.subscriptionType),
+            jsonPair("rateLimitTier", credentials.rateLimitTier),
+            jsonPair("expiresAt", credentials.expiresAt),
+            jsonPair("accessToken", credentials.accessToken),
+            jsonPair("refreshToken", credentials.refreshToken),
+        ].compactMap { $0 }
+
+        return """
+        {
+          "claudeAiOauth": {
+            \(tokenPairs.joined(separator: ",\n    "))
+          }
+        }
+        """
+    }
+
+    private static func jsonPair(_ key: String, _ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+
+        let encodedValue = (try? JSONEncoder().encode(value))
+            .flatMap { String(data: $0, encoding: .utf8) }
+            ?? "\"\""
+        return "\"\(key)\": \(encodedValue)"
+    }
+
+    private static func jsonPair(_ key: String, _ value: Int64) -> String {
+        "\"\(key)\": \(value)"
+    }
 }

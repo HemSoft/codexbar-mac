@@ -429,6 +429,123 @@ final class CodexBarMacTests: XCTestCase {
 
         _ = try await provider.fetchUsage(for: configuration)
     }
+
+    func testClaudeUsageParserReadsOAuthUsageWindows() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_893_369_600)
+        let formatter = UserFacingDateTimeFormatter(
+            timeZone: try XCTUnwrap(TimeZone(identifier: "Europe/Berlin")),
+            locale: Locale(identifier: "de_DE")
+        )
+        let payload = """
+        {
+          "five_hour": {
+            "utilization": 0.42,
+            "resets_at": "2030-01-01T00:00:00Z"
+          },
+          "seven_day": {
+            "utilization": 0.81,
+            "resets_at": "2030-01-08T00:00:00Z"
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(payload.utf8),
+            subscriptionType: "pro",
+            fetchedAt: fetchedAt,
+            dateTimeFormatter: formatter
+        ))
+
+        XCTAssertEqual(result.providerID, .claude)
+        XCTAssertEqual(result.title, "Claude (Pro)")
+        XCTAssertEqual(result.bars.map(\.label), ["5 hour usage limit", "Weekly usage limit"])
+        XCTAssertEqual(result.bars.map(\.used), [42, 81])
+    }
+
+    func testClaudeUsageParserReadsStructuredAndScopedLimitsWithoutDuplicates() throws {
+        let payload = """
+        {
+          "five_hour": {"utilization": 0.99, "resets_at": "2030-01-01T00:00:00Z"},
+          "seven_day": {"utilization": 0.88, "resets_at": "2030-01-08T00:00:00Z"},
+          "limits": [
+            {"kind":"session","percent":15,"is_active":true},
+            {"kind":"weekly_all","percent":36,"resets_at":"2030-01-08T00:00:00Z","is_active":true},
+            {"kind":"weekly_scoped","percent":71,"resets_at":"2030-01-08T00:00:00.838164+00:00","scope":{"model":{"display_name":"Fable"}},"is_active":true},
+            {"kind":"weekly_scoped","percent":49,"scope":{"model":{"display_name":"Claude Sonnet 4.5"}},"is_active":true}
+          ]
+        }
+        """
+
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(payload.utf8),
+            subscriptionType: "max_20x"
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), [
+            "5 hour usage limit",
+            "All models weekly usage limit",
+            "Fable weekly usage limit",
+            "Claude Sonnet 4.5 weekly usage limit",
+        ])
+        XCTAssertEqual(result.bars.map(\.used), [15, 36, 71, 49])
+    }
+
+    func testClaudeUsageParserShowsObservedInactiveFableWeeklyLimit() throws {
+        let payload = """
+        {
+          "limits": [
+            {"kind":"session","percent":11,"resets_at":"2030-01-01T02:00:00Z","is_active":true},
+            {"kind":"weekly_all","percent":9,"resets_at":"2030-01-08T04:00:00Z","is_active":false},
+            {"kind":"weekly_scoped","percent":5,"resets_at":"2030-01-08T04:00:00Z","scope":{"model":{"display_name":"Fable"}},"is_active":false}
+          ]
+        }
+        """
+
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(payload.utf8),
+            subscriptionType: "max"
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), [
+            "5 hour usage limit",
+            "All models weekly usage limit",
+            "Fable weekly usage limit",
+        ])
+        XCTAssertEqual(result.bars.map(\.used), [11, 9, 5])
+    }
+
+    func testClaudeUsageProviderReadsLocalCredentialsFile() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 4_000_000_000_000,
+            accessToken: "claude-access"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = ClaudeUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            credentialsFilePath: credentialsPath
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/oauth/usage")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer claude-access")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":0.25,"resets_at":"2030-01-01T00:00:00Z"},"seven_day":{"utilization":0.5,"resets_at":"2030-01-08T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
+
+        XCTAssertEqual(result.bars.map(\.used), [25, 50])
+    }
 }
 
 private func requestBodyData(from request: URLRequest) -> Data? {

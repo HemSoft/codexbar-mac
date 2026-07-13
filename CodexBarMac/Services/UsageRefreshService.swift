@@ -314,7 +314,8 @@ public extension UsageRefreshService {
     static func live(secretStore: any SecretStore = KeychainService()) -> UsageRefreshService {
         let providers: [any UsageProvider] = [
             CodexUsageProvider(secretStore: secretStore),
-        ] + DemoUsageProvider.samples.filter { $0.providerID != .codex }
+            ClaudeUsageProvider(secretStore: secretStore),
+        ] + DemoUsageProvider.samples.filter { $0.providerID != .codex && $0.providerID != .claude }
 
         return UsageRefreshService(providers: providers)
     }
