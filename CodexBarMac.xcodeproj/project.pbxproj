@@ -30,6 +30,13 @@
 		100000000000000000000016 /* LaunchAtLoginManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000018 /* LaunchAtLoginManager.swift */; };
 		100000000000000000000017 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000019 /* SettingsView.swift */; };
 		100000000000000000000018 /* ProviderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000001A /* ProviderSettingsView.swift */; };
+		100000000000000000000019 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000001B /* KeychainService.swift */; };
+		10000000000000000000001A /* CodexCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000001C /* CodexCredentials.swift */; };
+		10000000000000000000001B /* CodexCredentialsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000001D /* CodexCredentialsParser.swift */; };
+		10000000000000000000001C /* ClaudeCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000001E /* ClaudeCredentials.swift */; };
+		10000000000000000000001D /* ClaudeCredentialsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000001F /* ClaudeCredentialsParser.swift */; };
+		10000000000000000000001E /* LocalCredentialDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000020 /* LocalCredentialDiscovery.swift */; };
+		10000000000000000000001F /* CredentialReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000021 /* CredentialReadiness.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -58,6 +65,13 @@
 		200000000000000000000018 /* LaunchAtLoginManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginManager.swift; sourceTree = "<group>"; };
 		200000000000000000000019 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		20000000000000000000001A /* ProviderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSettingsView.swift; sourceTree = "<group>"; };
+		20000000000000000000001B /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
+		20000000000000000000001C /* CodexCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexCredentials.swift; sourceTree = "<group>"; };
+		20000000000000000000001D /* CodexCredentialsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexCredentialsParser.swift; sourceTree = "<group>"; };
+		20000000000000000000001E /* ClaudeCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCredentials.swift; sourceTree = "<group>"; };
+		20000000000000000000001F /* ClaudeCredentialsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCredentialsParser.swift; sourceTree = "<group>"; };
+		200000000000000000000020 /* LocalCredentialDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCredentialDiscovery.swift; sourceTree = "<group>"; };
+		200000000000000000000021 /* CredentialReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialReadiness.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -121,6 +135,9 @@
 				20000000000000000000000A /* ProviderAccountConfiguration.swift */,
 				20000000000000000000000B /* AutoRefreshInterval.swift */,
 				20000000000000000000000C /* AppAppearance.swift */,
+				20000000000000000000001C /* CodexCredentials.swift */,
+				20000000000000000000001E /* ClaudeCredentials.swift */,
+				200000000000000000000021 /* CredentialReadiness.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -141,6 +158,10 @@
 				200000000000000000000010 /* UsageRefreshService.swift */,
 				200000000000000000000011 /* ProviderConfigurationStore.swift */,
 				200000000000000000000012 /* SecretStore.swift */,
+				20000000000000000000001B /* KeychainService.swift */,
+				20000000000000000000001D /* CodexCredentialsParser.swift */,
+				20000000000000000000001F /* ClaudeCredentialsParser.swift */,
+				200000000000000000000020 /* LocalCredentialDiscovery.swift */,
 				200000000000000000000018 /* LaunchAtLoginManager.swift */,
 			);
 			path = Services;
@@ -249,6 +270,13 @@
 				100000000000000000000016 /* LaunchAtLoginManager.swift in Sources */,
 				100000000000000000000017 /* SettingsView.swift in Sources */,
 				100000000000000000000018 /* ProviderSettingsView.swift in Sources */,
+				100000000000000000000019 /* KeychainService.swift in Sources */,
+				10000000000000000000001A /* CodexCredentials.swift in Sources */,
+				10000000000000000000001B /* CodexCredentialsParser.swift in Sources */,
+				10000000000000000000001C /* ClaudeCredentials.swift in Sources */,
+				10000000000000000000001D /* ClaudeCredentialsParser.swift in Sources */,
+				10000000000000000000001E /* LocalCredentialDiscovery.swift in Sources */,
+				10000000000000000000001F /* CredentialReadiness.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

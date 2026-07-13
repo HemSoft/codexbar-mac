@@ -15,7 +15,7 @@ final class AppModel: ObservableObject {
 
     init(
         refreshService: UsageRefreshService = .demo(),
-        configurationStore: ProviderConfigurationStore = ProviderConfigurationStore(),
+        configurationStore: ProviderConfigurationStore = ProviderConfigurationStore(secretStore: KeychainService()),
         launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager()
     ) {
         self.refreshService = refreshService
@@ -102,8 +102,13 @@ final class AppModel: ObservableObject {
     }
 
     func activate() async {
+        configurationStore.applyLocalCredentialDiscoveries()
         updateAutoRefresh()
         await refresh()
+    }
+
+    func discoverLocalCredentials() {
+        configurationStore.applyLocalCredentialDiscoveries()
     }
 
     func refresh() async {

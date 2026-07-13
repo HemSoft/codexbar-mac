@@ -6,6 +6,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var configurations: [ProviderAccountConfiguration]
     @Published public private(set) var groups: [ProviderAccountGroup]
     @Published public private(set) var secretAvailability: [String: Bool]
+    @Published public private(set) var localCredentialHints: [String: String]
     @Published public private(set) var appAppearance: AppAppearance
     @Published public private(set) var autoRefreshInterval: AutoRefreshInterval
     @Published public private(set) var lastError: String?
@@ -22,7 +23,7 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     public init(
         defaults: UserDefaults = .standard,
-        secretStore: any SecretStore = InMemorySecretStore()
+        secretStore: any SecretStore = KeychainService()
     ) {
         let loadedGroups = Self.loadGroups(from: defaults)
         self.defaults = defaults
@@ -33,6 +34,7 @@ public final class ProviderConfigurationStore: ObservableObject {
             validGroupIDs: Set(loadedGroups.map(\.id))
         )
         self.secretAvailability = [:]
+        self.localCredentialHints = [:]
         self.appAppearance = Self.loadAppAppearance(from: defaults)
         self.autoRefreshInterval = Self.loadAutoRefreshInterval(from: defaults)
         sortConfigurations()
@@ -135,6 +137,7 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         configurations.removeAll { $0.id == configuration.id }
         secretAvailability.removeValue(forKey: configuration.id)
+        localCredentialHints.removeValue(forKey: configuration.id)
         lastError = nil
         sortConfigurations()
         saveConfigurations()
@@ -170,6 +173,63 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     public func hasSecret(for configuration: ProviderAccountConfiguration) -> Bool {
         secretAvailability[configuration.id] ?? false
+    }
+
+    public func credentialReadiness(for configuration: ProviderAccountConfiguration) -> CredentialReadiness {
+        if hasSecret(for: configuration) {
+            return .keychainSaved
+        }
+
+        if let hint = localCredentialHints[configuration.id] {
+            return .localCLIReady(description: hint)
+        }
+
+        return .missing
+    }
+
+    public func applyLocalCredentialDiscoveries(
+        _ discovery: LocalCredentialDiscovery.Result = LocalCredentialDiscovery.discover()
+    ) {
+        var nextHints: [String: String] = [:]
+
+        if discovery.codexAuthAvailable {
+            for index in configurations.indices where configurations[index].providerID == .codex {
+                configurations[index].authMethod = .codexAuthJSON
+                nextHints[configurations[index].id] = "~/.codex/auth.json"
+            }
+        }
+
+        for username in discovery.githubUsernames {
+            if let index = configurations.firstIndex(where: {
+                $0.providerID == .copilot
+                    && $0.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .localizedCaseInsensitiveCompare(username) == .orderedSame
+            }) {
+                configurations[index].authMethod = .cliToken
+                nextHints[configurations[index].id] = "GitHub CLI (\(username))"
+                continue
+            }
+
+            var configuration = ProviderAccountConfiguration
+                .defaultConfiguration(for: .copilot)
+                .withNewAccountID()
+            configuration.accountLabel = username
+            configuration.authMethod = .cliToken
+            configurations.append(configuration)
+            nextHints[configuration.id] = "GitHub CLI (\(username))"
+        }
+
+        if discovery.claudeOAuthAvailable {
+            for index in configurations.indices where configurations[index].providerID == .claude {
+                configurations[index].authMethod = .oauth
+                nextHints[configurations[index].id] = "~/.claude/.credentials.json"
+            }
+        }
+
+        localCredentialHints = nextHints
+        sortConfigurations()
+        saveConfigurations()
+        refreshSecretAvailability()
     }
 
     public func refreshSecretAvailability(
