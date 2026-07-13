@@ -72,6 +72,35 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(outsideTolerance.bars.map(\.label), ["315 minute usage limit"])
     }
 
+    func testCodexUsageParserAcceptsRelativeResetTimes() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 2_000_000_000)
+        let payload = """
+        {
+          "plan_type": "pro",
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 15,
+              "reset_after_seconds": 3600,
+              "limit_window_seconds": 18000
+            },
+            "secondary_window": {
+              "used_percent": 40,
+              "reset_after_seconds": 86400,
+              "limit_window_seconds": 604800
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8), fetchedAt: fetchedAt))
+
+        XCTAssertEqual(result.bars.map(\.label), ["5 hour usage limit", "Weekly usage limit"])
+        XCTAssertEqual(result.bars.map(\.resetsAt), [
+            fetchedAt.addingTimeInterval(3_600),
+            fetchedAt.addingTimeInterval(86_400),
+        ])
+    }
+
     func testCodexUsageProviderProactivelyRefreshesAndPersistsRotation() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let authDirectory = FileManager.default.temporaryDirectory

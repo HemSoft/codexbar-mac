@@ -17,8 +17,8 @@ public enum CodexUsageParser {
         }
 
         var windows: [CodexUsageWindow] = []
-        addWindow(named: "primary_window", from: rateLimit, to: &windows)
-        addWindow(named: "secondary_window", from: rateLimit, to: &windows)
+        addWindow(named: "primary_window", from: rateLimit, fetchedAt: fetchedAt, to: &windows)
+        addWindow(named: "secondary_window", from: rateLimit, fetchedAt: fetchedAt, to: &windows)
 
         guard !windows.isEmpty else {
             return nil
@@ -54,20 +54,33 @@ public enum CodexUsageParser {
         )
     }
 
-    private static func addWindow(named name: String, from rateLimit: [String: Any], to windows: inout [CodexUsageWindow]) {
+    private static func addWindow(
+        named name: String,
+        from rateLimit: [String: Any],
+        fetchedAt: Date,
+        to windows: inout [CodexUsageWindow]
+    ) {
         guard
             let window = rateLimit[name] as? [String: Any],
             let usedPercent = doubleValue(window["used_percent"]),
-            let resetEpoch = intValue(window["reset_at"]),
             let durationSeconds = intValue(window["limit_window_seconds"])
         else {
+            return
+        }
+
+        let resetsAt: Date
+        if let resetEpoch = intValue(window["reset_at"]) {
+            resetsAt = Date(timeIntervalSince1970: TimeInterval(resetEpoch))
+        } else if let resetAfterSeconds = intValue(window["reset_after_seconds"]) {
+            resetsAt = fetchedAt.addingTimeInterval(TimeInterval(resetAfterSeconds))
+        } else {
             return
         }
 
         windows.append(
             CodexUsageWindow(
                 usedPercent: min(max(usedPercent, 0), 100),
-                resetsAt: Date(timeIntervalSince1970: TimeInterval(resetEpoch)),
+                resetsAt: resetsAt,
                 durationSeconds: durationSeconds
             )
         )
