@@ -196,12 +196,19 @@ public final class CodexUsageProvider: UsageProvider {
                 return .temporarilyUnavailable
             }
             guard (200..<300).contains(httpResponse.statusCode) else {
+                if [400, 401, 403].contains(httpResponse.statusCode),
+                   let external = externallyRefreshedCredentials(original: credentials, location: location) {
+                    return external
+                }
                 return [400, 401, 403].contains(httpResponse.statusCode) ? .rejected : .temporarilyUnavailable
             }
             guard let tokenResponse = try? JSONDecoder().decode(CodexTokenRefreshResponse.self, from: data) else {
                 return .temporarilyUnavailable
             }
             if tokenResponse.error != nil {
+                if let external = externallyRefreshedCredentials(original: credentials, location: location) {
+                    return external
+                }
                 return .rejected
             }
             guard let accessToken = tokenResponse.accessToken, !accessToken.isEmpty else {
@@ -242,6 +249,21 @@ public final class CodexUsageProvider: UsageProvider {
         } catch {
             return .temporarilyUnavailable
         }
+    }
+
+    private func externallyRefreshedCredentials(
+        original: CodexCredentials,
+        location: CredentialLocation
+    ) -> CredentialRefreshResult? {
+        guard
+            let latest = try? readCredentials(location: location),
+            latest != original,
+            !latest.shouldRefresh(at: now())
+        else {
+            return nil
+        }
+
+        return .success(latest)
     }
 
     private func credentialLocation(for configuration: ProviderAccountConfiguration) -> CredentialLocation {

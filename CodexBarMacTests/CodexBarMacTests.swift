@@ -216,6 +216,62 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.first?.used, 18)
     }
 
+    func testCodexUsageProviderReusesExternallyRefreshedCredentialsAfterRejectedRefresh() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let authDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: authDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: authDirectory) }
+
+        let authFilePath = authDirectory.appendingPathComponent("auth.json").path
+        try CodexAuthFileStore.writeCredentials(
+            CodexCredentials(
+                accessToken: "old-access",
+                refreshToken: "old-refresh",
+                expiresAt: 2_000_000_060
+            ),
+            at: authFilePath
+        )
+
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CodexUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            usageEndpoint: URL(string: "https://example.test/codex-usage")!,
+            tokenEndpoint: URL(string: "https://example.test/codex-token")!,
+            authFilePath: authFilePath,
+            now: { now }
+        )
+        MockURLProtocol.handler = { request in
+            if request.url?.path == "/codex-token" {
+                try CodexAuthFileStore.writeCredentials(
+                    CodexCredentials(
+                        accessToken: "shared-access",
+                        refreshToken: "shared-refresh",
+                        expiresAt: 2_000_003_600
+                    ),
+                    at: authFilePath
+                )
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 401, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"error":"invalid_grant"}"#.utf8)
+                )
+            }
+
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer shared-access")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":33,"reset_at":2000007200,"limit_window_seconds":18000}}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 33)
+    }
+
     func testCodexUsageProviderProactivelyRefreshesAndPersistsRotation() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let authDirectory = FileManager.default.temporaryDirectory
