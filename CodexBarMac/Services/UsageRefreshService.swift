@@ -310,4 +310,12 @@ public extension UsageRefreshService {
     static func demo() -> UsageRefreshService {
         UsageRefreshService(providers: DemoUsageProvider.samples)
     }
+
+    static func live(secretStore: any SecretStore = KeychainService()) -> UsageRefreshService {
+        let providers: [any UsageProvider] = [
+            CodexUsageProvider(secretStore: secretStore),
+        ] + DemoUsageProvider.samples.filter { $0.providerID != .codex }
+
+        return UsageRefreshService(providers: providers)
+    }
 }

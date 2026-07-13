@@ -67,4 +67,22 @@
       buildConfiguration = "Release"
       revealArchiveInOrganizer = "YES">
    </ArchiveAction>
+   <TestAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      shouldUseLaunchSchemeArgsEnv = "YES">
+      <Testables>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "500000000000000000000002"
+               BuildableName = "CodexBarMacTests.xctest"
+               BlueprintName = "CodexBarMacTests"
+               ReferencedContainer = "container:CodexBarMac.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+      </Testables>
+   </TestAction>
 </Scheme>

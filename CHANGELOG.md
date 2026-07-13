@@ -15,8 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Right-click menu on the menu bar icon with Refresh, Settings, and Quit actions.
 - Native Settings window for appearance, auto-refresh, launch at login, and per-provider account management with immediate dashboard updates.
 - Keychain-backed API key storage and local CLI credential discovery for Codex (`~/.codex/auth.json`), GitHub CLI (`gh auth status`), and Claude Code (`~/.claude/.credentials.json`).
+- Live ChatGPT / Codex usage fetching from local CLI credentials with proactive token refresh, 5-hour and weekly usage windows, and reset countdowns.
 
 ### Developer Experience
+
+- `CodexBarMacTests` target with parser and provider unit tests using redacted fixtures.
 
 - `run.sh` script to build and launch the app from the command line.
 - `AGENTS.md` and `README.md` document build and run instructions.
