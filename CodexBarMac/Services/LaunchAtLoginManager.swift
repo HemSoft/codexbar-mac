@@ -13,6 +13,10 @@ public final class LaunchAtLoginManager: ObservableObject {
     private let defaults: UserDefaults
     private let preferenceKey = "launchAtLoginEnabled"
 
+    public var isToggleOn: Bool {
+        isEnabled || requiresApproval
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let status = SMAppService.mainApp.status

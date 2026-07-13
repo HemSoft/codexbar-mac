@@ -156,7 +156,7 @@ struct SettingsView: View {
 
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(
-            get: { model.launchAtLoginManager.isEnabled },
+            get: { model.launchAtLoginManager.isToggleOn },
             set: { model.launchAtLoginManager.setEnabled($0) }
         )
     }
