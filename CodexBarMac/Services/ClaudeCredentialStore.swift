@@ -34,35 +34,34 @@ public enum ClaudeCredentialStore: Sendable {
     ) throws {
         switch storage {
         case .keychain(let service, let account):
+            let existing = try? readGenericPassword(service: service, account: account)
             try saveGenericPassword(
-                ClaudeCredentialsParser.storedCredential(from: credentials),
+                ClaudeCredentialsParser.storedCredential(from: credentials, mergingExisting: existing),
                 service: service,
                 account: account
             )
         case .file(let path):
-            try writeCredentialsFile(credentials, at: path)
+            let existing = try? String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8)
+            try writeCredentialsFile(credentials, at: path, mergingExisting: existing)
         }
     }
 
-    private static func writeCredentialsFile(_ credentials: ClaudeCredentials, at path: String) throws {
+    private static func writeCredentialsFile(
+        _ credentials: ClaudeCredentials,
+        at path: String,
+        mergingExisting existing: String? = nil
+    ) throws {
         let fileURL = URL(fileURLWithPath: path)
-        var root: [String: Any] = [:]
-
-        if let data = try? Data(contentsOf: fileURL),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            root = existing
-        }
-
-        let storedJSON = ClaudeCredentialsParser.storedCredential(from: credentials)
-        guard let data = storedJSON.data(using: .utf8),
-              let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let oauth = parsed["claudeAiOauth"] else {
+        let stored = ClaudeCredentialsParser.storedCredential(
+            from: credentials,
+            mergingExisting: existing ?? (try? String(contentsOf: fileURL, encoding: .utf8))
+        )
+        guard let data = stored.data(using: .utf8),
+              let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ClaudeCredentialStoreError.invalidCredentialPayload
         }
 
-        root["claudeAiOauth"] = oauth
-
-        let encoded = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+        let encoded = try JSONSerialization.data(withJSONObject: parsed, options: [.prettyPrinted, .sortedKeys])
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true

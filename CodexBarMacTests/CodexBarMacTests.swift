@@ -564,7 +564,8 @@ final class CodexBarMacTests: XCTestCase {
           "claudeAiOauth": {
             "accessToken": "old-access",
             "refreshToken": "refresh-token",
-            "expiresAt": 1000
+            "expiresAt": 1000,
+            "scopes": ["user:inference", "user:profile"]
           }
         }
         """
@@ -592,6 +593,7 @@ final class CodexBarMacTests: XCTestCase {
         let oauth = root?["claudeAiOauth"] as? [String: Any]
         XCTAssertEqual(oauth?["accessToken"] as? String, "new-access")
         XCTAssertEqual(oauth?["refreshToken"] as? String, "refresh-token")
+        XCTAssertEqual(oauth?["scopes"] as? [String], ["user:inference", "user:profile"])
     }
 
     func testClaudeUsageProviderReadsLocalCredentialsFile() async throws {

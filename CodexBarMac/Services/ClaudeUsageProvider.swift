@@ -225,7 +225,7 @@ public final class ClaudeUsageProvider: UsageProvider {
         case 403:
             return OAuthUsageOutcome(
                 result: failureResult("Claude credential lacks permission to read subscription usage.", configuration: configuration),
-                permitsFallbackProbe: false
+                permitsFallbackProbe: true
             )
         case 404:
             return OAuthUsageOutcome(
