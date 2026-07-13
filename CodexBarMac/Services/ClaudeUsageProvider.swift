@@ -37,11 +37,20 @@ public final class ClaudeUsageProvider: UsageProvider {
             return failureResult(notConfiguredMessage(for: configuration), configuration: configuration)
         }
 
-        loaded.credentials = try await refreshedCredentialsIfNeeded(
+        switch try await refreshedCredentialsIfNeeded(
             loaded.credentials,
             storage: loaded.storage,
             configuration: configuration
-        )
+        ) {
+        case .unchanged(let credentials), .refreshed(let credentials):
+            loaded.credentials = credentials
+        case .temporarilyUnavailable:
+            return failureResult("Could not renew the Claude credential. Try again.", configuration: configuration)
+        case .rejected:
+            return failureResult("Claude credential renewal was rejected. Sign in again.", configuration: configuration)
+        case .persistenceFailed:
+            return failureResult("Could not securely save the renewed Claude credential. Sign in again.", configuration: configuration)
+        }
         guard var token = loaded.credentials.accessToken, !token.isEmpty else {
             return failureResult("Claude credential is missing an access token.", configuration: configuration)
         }
@@ -56,7 +65,7 @@ public final class ClaudeUsageProvider: UsageProvider {
         if let usageResult = oauthOutcome.result {
             let retryAt = await snapshotCache.retryAt(accountID: configuration.id)
             let canProbe = retryAt.map { $0 <= now() } ?? true
-            if canProbe, usageResult.bars.isEmpty {
+            if canProbe, oauthOutcome.permitsFallbackProbe, usageResult.bars.isEmpty {
                 do {
                     if let rateLimitResult = try await fetchRateLimitUsage(
                         configuration: configuration,
@@ -167,29 +176,47 @@ public final class ClaudeUsageProvider: UsageProvider {
                 isSuccessfulSnapshot: true
             )
         case 401 where canRefresh && loaded.credentials.refreshToken?.isEmpty == false:
-            let refreshed = try await refreshCredentials(
+            switch await refreshCredentials(
                 loaded.credentials,
                 storage: loaded.storage,
                 configuration: configuration
-            )
-            guard
-                let newToken = refreshed.accessToken,
-                !newToken.isEmpty,
-                newToken != accessToken
-            else {
+            ) {
+            case .refreshed(let refreshed):
+                guard let newToken = refreshed.accessToken, !newToken.isEmpty else {
+                    return OAuthUsageOutcome(
+                        result: failureResult("Claude credential was rejected. Sign in again.", configuration: configuration),
+                        permitsFallbackProbe: false
+                    )
+                }
+                loaded.credentials = refreshed
+                accessToken = newToken
+                return try await fetchOAuthUsage(
+                    configuration: configuration,
+                    loaded: &loaded,
+                    accessToken: &accessToken,
+                    canRefresh: false
+                )
+            case .rejected:
+                return OAuthUsageOutcome(
+                    result: failureResult("Claude credential renewal was rejected. Sign in again.", configuration: configuration),
+                    permitsFallbackProbe: false
+                )
+            case .temporarilyUnavailable:
+                return OAuthUsageOutcome(
+                    result: failureResult("Could not renew the Claude credential. Try again.", configuration: configuration),
+                    permitsFallbackProbe: false
+                )
+            case .persistenceFailed:
+                return OAuthUsageOutcome(
+                    result: failureResult("Could not securely save the renewed Claude credential. Sign in again.", configuration: configuration),
+                    permitsFallbackProbe: false
+                )
+            case .unchanged:
                 return OAuthUsageOutcome(
                     result: failureResult("Claude credential was rejected. Sign in again.", configuration: configuration),
                     permitsFallbackProbe: false
                 )
             }
-            loaded.credentials = refreshed
-            accessToken = newToken
-            return try await fetchOAuthUsage(
-                configuration: configuration,
-                loaded: &loaded,
-                accessToken: &accessToken,
-                canRefresh: false
-            )
         case 401:
             return OAuthUsageOutcome(
                 result: failureResult("Claude credential was rejected. Sign in again.", configuration: configuration),
@@ -243,27 +270,32 @@ public final class ClaudeUsageProvider: UsageProvider {
 
         switch httpResponse.statusCode {
         case 401 where canRefresh && loaded.credentials.refreshToken?.isEmpty == false:
-            let previousToken = accessToken
-            let refreshed = try await refreshCredentials(
+            switch await refreshCredentials(
                 loaded.credentials,
                 storage: loaded.storage,
                 configuration: configuration
-            )
-            guard
-                let newToken = refreshed.accessToken,
-                !newToken.isEmpty,
-                newToken != previousToken
-            else {
+            ) {
+            case .refreshed(let refreshed):
+                guard let newToken = refreshed.accessToken, !newToken.isEmpty else {
+                    return failureResult("Claude credential expired or lacks Claude Code access.", configuration: configuration)
+                }
+                loaded.credentials = refreshed
+                accessToken = newToken
+                return try await fetchRateLimitUsage(
+                    configuration: configuration,
+                    loaded: &loaded,
+                    accessToken: &accessToken,
+                    canRefresh: false
+                )
+            case .rejected:
+                return failureResult("Claude credential renewal was rejected. Sign in again.", configuration: configuration)
+            case .temporarilyUnavailable:
+                return failureResult("Could not renew the Claude credential. Try again.", configuration: configuration)
+            case .persistenceFailed:
+                return failureResult("Could not securely save the renewed Claude credential. Sign in again.", configuration: configuration)
+            case .unchanged:
                 return failureResult("Claude credential expired or lacks Claude Code access.", configuration: configuration)
             }
-            loaded.credentials = refreshed
-            accessToken = newToken
-            return try await fetchRateLimitUsage(
-                configuration: configuration,
-                loaded: &loaded,
-                accessToken: &accessToken,
-                canRefresh: false
-            )
         case 401, 403:
             return failureResult("Claude credential expired or lacks Claude Code access.", configuration: configuration)
         default:
@@ -287,30 +319,30 @@ public final class ClaudeUsageProvider: UsageProvider {
         _ credentials: ClaudeCredentials,
         storage: ClaudeCredentialStore.Storage?,
         configuration: ProviderAccountConfiguration
-    ) async throws -> ClaudeCredentials {
+    ) async throws -> ClaudeCredentialRefreshResult {
         guard credentials.expiresAt > 0 else {
-            return credentials
+            return .unchanged(credentials)
         }
 
         let expiresAt = Date(timeIntervalSince1970: TimeInterval(normalizeEpochToSeconds(credentials.expiresAt)))
         guard expiresAt <= now() else {
-            return credentials
+            return .unchanged(credentials)
         }
 
         guard credentials.refreshToken?.isEmpty == false else {
-            return credentials
+            return .unchanged(credentials)
         }
 
-        return try await refreshCredentials(credentials, storage: storage, configuration: configuration)
+        return await refreshCredentials(credentials, storage: storage, configuration: configuration)
     }
 
     private func refreshCredentials(
         _ credentials: ClaudeCredentials,
         storage: ClaudeCredentialStore.Storage?,
         configuration: ProviderAccountConfiguration
-    ) async throws -> ClaudeCredentials {
+    ) async -> ClaudeCredentialRefreshResult {
         guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
-            return credentials
+            return .unchanged(credentials)
         }
 
         var request = URLRequest(url: Self.tokenRefreshEndpoint)
@@ -318,32 +350,52 @@ public final class ClaudeUsageProvider: UsageProvider {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.httpBody = try JSONEncoder().encode([
+        request.httpBody = try? JSONEncoder().encode([
             "grant_type": "refresh_token",
             "refresh_token": refreshToken,
             "client_id": Self.clientID
         ])
 
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            return .temporarilyUnavailable
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            return .temporarilyUnavailable
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            if [400, 401, 403].contains(httpResponse.statusCode) {
+                return .rejected
+            }
+            return .temporarilyUnavailable
+        }
+
         guard
-            let httpResponse = response as? HTTPURLResponse,
-            (200..<300).contains(httpResponse.statusCode),
             let refreshed = try? JSONDecoder().decode(TokenRefreshResponse.self, from: data),
             let accessToken = refreshed.accessToken,
             !accessToken.isEmpty
         else {
-            return credentials
+            return .temporarilyUnavailable
         }
 
         let updated = ClaudeCredentials(
             subscriptionType: credentials.subscriptionType,
             rateLimitTier: credentials.rateLimitTier,
-            expiresAt: refreshed.expiresAt ?? refreshed.expiresIn.map { Date().addingTimeInterval(TimeInterval($0)).claudeUsageUnixTimeMilliseconds } ?? 0,
+            expiresAt: refreshed.expiresAt ?? refreshed.expiresIn.map { now().addingTimeInterval(TimeInterval($0)).claudeUsageUnixTimeMilliseconds } ?? 0,
             accessToken: accessToken,
             refreshToken: refreshed.refreshToken ?? credentials.refreshToken
         )
-        try persistCredentials(updated, storage: storage, configuration: configuration)
-        return updated
+        do {
+            try persistCredentials(updated, storage: storage, configuration: configuration)
+        } catch {
+            return .persistenceFailed
+        }
+        return .refreshed(updated)
     }
 
     private func persistCredentials(
@@ -506,6 +558,14 @@ private actor ClaudeUsageSnapshotCache {
     func retryAt(accountID: String) -> Date? {
         retryDates[accountID]
     }
+}
+
+private enum ClaudeCredentialRefreshResult: Sendable {
+    case unchanged(ClaudeCredentials)
+    case refreshed(ClaudeCredentials)
+    case rejected
+    case temporarilyUnavailable
+    case persistenceFailed
 }
 
 private struct OAuthUsageOutcome {
