@@ -194,8 +194,16 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         if discovery.codexAuthAvailable {
             for index in configurations.indices where configurations[index].providerID == .codex {
-                configurations[index].authMethod = .codexAuthJSON
-                nextHints[configurations[index].id] = "~/.codex/auth.json"
+                if shouldApplyLocalAuthMethod(
+                    current: configurations[index].authMethod,
+                    localMethod: .codexAuthJSON,
+                    providerID: .codex
+                ) {
+                    configurations[index].authMethod = .codexAuthJSON
+                    nextHints[configurations[index].id] = "~/.codex/auth.json"
+                } else if configurations[index].authMethod == .codexAuthJSON {
+                    nextHints[configurations[index].id] = "~/.codex/auth.json"
+                }
             }
         }
 
@@ -205,8 +213,17 @@ public final class ProviderConfigurationStore: ObservableObject {
                     && $0.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
                         .localizedCaseInsensitiveCompare(username) == .orderedSame
             }) {
-                configurations[index].authMethod = .cliToken
-                nextHints[configurations[index].id] = "GitHub CLI (\(username))"
+                if shouldApplyLocalAuthMethod(
+                    current: configurations[index].authMethod,
+                    localMethod: .cliToken,
+                    providerID: .copilot
+                ) {
+                    configurations[index].authMethod = .cliToken
+                }
+
+                if configurations[index].authMethod == .cliToken {
+                    nextHints[configurations[index].id] = "GitHub CLI (\(username))"
+                }
                 continue
             }
 
@@ -221,8 +238,16 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         if discovery.claudeOAuthAvailable {
             for index in configurations.indices where configurations[index].providerID == .claude {
-                configurations[index].authMethod = .oauth
-                nextHints[configurations[index].id] = "~/.claude/.credentials.json"
+                if shouldApplyLocalAuthMethod(
+                    current: configurations[index].authMethod,
+                    localMethod: .oauth,
+                    providerID: .claude
+                ) {
+                    configurations[index].authMethod = .oauth
+                    nextHints[configurations[index].id] = "~/.claude/.credentials.json"
+                } else if configurations[index].authMethod == .oauth {
+                    nextHints[configurations[index].id] = "~/.claude/.credentials.json"
+                }
             }
         }
 
@@ -413,6 +438,15 @@ public final class ProviderConfigurationStore: ObservableObject {
             $0.id != configuration.id
                 && $0.displayName.localizedCaseInsensitiveCompare(name) == .orderedSame
         }
+    }
+
+    private func shouldApplyLocalAuthMethod(
+        current: ProviderAuthMethod,
+        localMethod: ProviderAuthMethod,
+        providerID: ProviderID
+    ) -> Bool {
+        current == localMethod
+            || current == ProviderAccountConfiguration.defaultConfiguration(for: providerID).authMethod
     }
 
     private static func normalizedGroupName(_ name: String) -> String {

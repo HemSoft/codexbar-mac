@@ -102,13 +102,17 @@ final class AppModel: ObservableObject {
     }
 
     func activate() async {
-        configurationStore.applyLocalCredentialDiscoveries()
+        await discoverLocalCredentials()
         updateAutoRefresh()
         await refresh()
     }
 
-    func discoverLocalCredentials() {
-        configurationStore.applyLocalCredentialDiscoveries()
+    func discoverLocalCredentials() async {
+        let discovery = await Task.detached(priority: .utility) {
+            LocalCredentialDiscovery.discover()
+        }.value
+
+        configurationStore.applyLocalCredentialDiscoveries(discovery)
     }
 
     func refresh() async {

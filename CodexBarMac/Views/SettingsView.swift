@@ -137,7 +137,9 @@ struct SettingsView: View {
         .frame(minWidth: 520, minHeight: 420)
         .onAppear {
             model.launchAtLoginManager.refreshFromSystem()
-            model.discoverLocalCredentials()
+            Task {
+                await model.discoverLocalCredentials()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.launchAtLoginManager.refreshFromSystem()
