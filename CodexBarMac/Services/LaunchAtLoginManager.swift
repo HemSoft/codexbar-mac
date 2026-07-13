@@ -31,9 +31,9 @@ public final class LaunchAtLoginManager: ObservableObject {
                     isEnabled = false
                     requiresApproval = true
                 default:
+                    defaults.set(false, forKey: preferenceKey)
                     isEnabled = false
                     requiresApproval = false
-                    setEnabled(true)
                 }
             } else {
                 isEnabled = false
@@ -65,6 +65,7 @@ public final class LaunchAtLoginManager: ObservableObject {
                 isEnabled = false
                 requiresApproval = true
             default:
+                defaults.set(false, forKey: preferenceKey)
                 isEnabled = false
                 requiresApproval = false
             }
