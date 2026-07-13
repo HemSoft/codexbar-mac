@@ -5,13 +5,33 @@ public enum CodexTokenRefresh {
     public static let tokenEndpoint = URL(string: "https://auth.openai.com/oauth/token")!
 
     public static func makeRefreshTokenRequestBody(refreshToken: String) -> Data {
-        let encoded = [
-            "grant_type=refresh_token",
-            "refresh_token=\(refreshToken.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? refreshToken)",
-            "client_id=\(clientID)",
-        ].joined(separator: "&")
+        formEncoded([
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refreshToken),
+            ("client_id", clientID),
+        ])
+    }
+
+    private static func formEncoded(_ pairs: [(String, String)]) -> Data {
+        let encoded = pairs
+            .map { "\($0.0.urlFormEncoded)=\($0.1.urlFormEncoded)" }
+            .joined(separator: "&")
         return Data(encoded.utf8)
     }
+}
+
+private extension String {
+    var urlFormEncoded: String {
+        addingPercentEncoding(withAllowedCharacters: .urlFormAllowed) ?? self
+    }
+}
+
+private extension CharacterSet {
+    static let urlFormAllowed: CharacterSet = {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return allowed
+    }()
 }
 
 struct CodexTokenRefreshResponse: Decodable {

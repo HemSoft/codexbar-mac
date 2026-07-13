@@ -101,6 +101,36 @@ final class CodexBarMacTests: XCTestCase {
         ])
     }
 
+    func testCodexCredentialsParserReadsNamespacedAccountIDFromIDToken() {
+        let header = #"{"alg":"none"}"#.base64URLEncodedForTest()
+        let payload = #"{"https://api.openai.com/auth":{"chatgpt_account_id":"namespaced-account"}}"#
+            .base64URLEncodedForTest()
+        let idToken = "\(header).\(payload).signature"
+
+        let credentials = CodexCredentialsParser.parse("""
+        {
+          "tokens": {
+            "access_token": "access-token",
+            "id_token": "\(idToken)"
+          }
+        }
+        """)
+
+        XCTAssertEqual(credentials?.accountID, "namespaced-account")
+    }
+
+    func testCodexRefreshTokenRequestBodyFormEncodesReservedCharacters() {
+        let body = String(
+            data: CodexTokenRefresh.makeRefreshTokenRequestBody(refreshToken: "a+b&c=d"),
+            encoding: .utf8
+        )
+
+        XCTAssertEqual(
+            body,
+            "grant_type=refresh_token&refresh_token=a%2Bb%26c%3Dd&client_id=app_EMoamEEZ73f0CkXaXp7hrann"
+        )
+    }
+
     func testCodexUsageProviderProactivelyRefreshesAndPersistsRotation() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let authDirectory = FileManager.default.temporaryDirectory
@@ -211,6 +241,53 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.accountID, configuration.id)
         XCTAssertEqual(result.bars.map(\.label), ["Weekly usage limit"])
     }
+
+    func testCodexUsageProviderSendsNamespacedAccountIDHeader() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let authDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: authDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: authDirectory) }
+
+        let header = #"{"alg":"none"}"#.base64URLEncodedForTest()
+        let payload = #"{"https://api.openai.com/auth":{"chatgpt_account_id":"namespaced-account"}}"#
+            .base64URLEncodedForTest()
+        let idToken = "\(header).\(payload).signature"
+        let authFilePath = authDirectory.appendingPathComponent("auth.json").path
+        try CodexAuthFileStore.writeCredentials(
+            CodexCredentials(
+                accessToken: "codex-access",
+                idToken: idToken,
+                expiresAt: 2_000_003_600
+            ),
+            at: authFilePath
+        )
+
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CodexUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            usageEndpoint: URL(string: "https://example.test/codex-usage")!,
+            authFilePath: authFilePath,
+            now: { now }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "ChatGPT-Account-Id"), "namespaced-account")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":10,"reset_at":2000007200,"limit_window_seconds":18000}}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        _ = try await provider.fetchUsage(for: configuration)
+    }
 }
 
 private func requestBodyData(from request: URLRequest) -> Data? {
@@ -276,4 +353,13 @@ private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+}
+
+private extension String {
+    func base64URLEncodedForTest() -> String {
+        Data(utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
 }
