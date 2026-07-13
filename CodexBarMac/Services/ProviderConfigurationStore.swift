@@ -17,6 +17,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let groupsKey = DefaultsKey.groups
     private let appAppearanceKey = DefaultsKey.appAppearance
     private let autoRefreshIntervalKey = DefaultsKey.autoRefreshInterval
+    private let suppressedCopilotDiscoveryUsernamesKey = DefaultsKey.suppressedCopilotDiscoveryUsernames
     private var secretAvailabilityGeneration = 0
 
     deinit {}
@@ -128,6 +129,8 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     public func removeAccount(_ configuration: ProviderAccountConfiguration) {
+        rememberSuppressedCopilotDiscovery(for: configuration)
+
         do {
             try secretStore.deleteSecret(account: Self.keychainAccount(for: configuration))
         } catch {
@@ -208,6 +211,10 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
 
         for username in discovery.githubUsernames {
+            guard !isSuppressedCopilotDiscoveryUsername(username) else {
+                continue
+            }
+
             if let index = configurations.firstIndex(where: {
                 $0.providerID == .copilot
                     && $0.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -333,6 +340,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         static let groups = "providerAccountGroups"
         static let appAppearance = "appAppearance"
         static let autoRefreshInterval = "autoRefreshInterval"
+        static let suppressedCopilotDiscoveryUsernames = "suppressedCopilotDiscoveryUsernames"
     }
 
     private static func loadConfigurations(
@@ -455,6 +463,57 @@ public final class ProviderConfigurationStore: ObservableObject {
     ) -> Bool {
         current == localMethod
             || current == ProviderAccountConfiguration.defaultConfiguration(for: providerID).authMethod
+    }
+
+    private func rememberSuppressedCopilotDiscovery(for configuration: ProviderAccountConfiguration) {
+        guard configuration.providerID == .copilot else {
+            return
+        }
+
+        if let hint = localCredentialHints[configuration.id],
+           let username = Self.githubUsername(fromLocalCredentialHint: hint) {
+            addSuppressedCopilotDiscoveryUsername(username)
+            return
+        }
+
+        let label = configuration.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else {
+            return
+        }
+
+        addSuppressedCopilotDiscoveryUsername(label)
+    }
+
+    private func isSuppressedCopilotDiscoveryUsername(_ username: String) -> Bool {
+        suppressedCopilotDiscoveryUsernames().contains(username.lowercased())
+    }
+
+    private func addSuppressedCopilotDiscoveryUsername(_ username: String) {
+        let normalized = username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else {
+            return
+        }
+
+        var suppressed = suppressedCopilotDiscoveryUsernames()
+        guard suppressed.insert(normalized).inserted else {
+            return
+        }
+
+        defaults.set(Array(suppressed).sorted(), forKey: suppressedCopilotDiscoveryUsernamesKey)
+    }
+
+    private func suppressedCopilotDiscoveryUsernames() -> Set<String> {
+        Set(defaults.stringArray(forKey: suppressedCopilotDiscoveryUsernamesKey) ?? [])
+    }
+
+    private static func githubUsername(fromLocalCredentialHint hint: String) -> String? {
+        guard hint.hasPrefix("GitHub CLI ("), hint.hasSuffix(")") else {
+            return nil
+        }
+
+        let username = hint.dropFirst("GitHub CLI (".count).dropLast()
+        let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func unusedDefaultCopilotAccountIndex() -> Int? {

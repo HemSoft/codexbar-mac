@@ -195,11 +195,34 @@ public struct LocalCredentialDiscovery: Sendable {
     }
 
     private static func runGitHubAuthStatus() throws -> (exitCode: Int32, stdout: String, stderr: String) {
-        try ShellCommand.run(
-            executable: "/usr/bin/env",
-            arguments: ["gh", "auth", "status", "--hostname", "github.com"],
+        let executable = resolveGitHubCLIExecutable()
+        return try ShellCommand.run(
+            executable: executable,
+            arguments: gitHubAuthStatusArguments(for: executable),
             timeout: 10
         )
+    }
+
+    static func resolveGitHubCLIExecutable() -> String {
+        let candidates = [
+            "/opt/homebrew/bin/gh",
+            "/usr/local/bin/gh",
+            "/usr/bin/gh",
+        ]
+
+        for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
+        }
+
+        return "/usr/bin/env"
+    }
+
+    static func gitHubAuthStatusArguments(for executable: String) -> [String] {
+        if executable == "/usr/bin/env" {
+            return ["gh", "auth", "status", "--hostname", "github.com"]
+        }
+
+        return ["auth", "status", "--hostname", "github.com"]
     }
 }
 
