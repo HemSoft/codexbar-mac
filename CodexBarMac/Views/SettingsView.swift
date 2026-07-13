@@ -63,10 +63,16 @@ struct SettingsView: View {
                                     accountID: configuration.id,
                                     onAccountsChanged: {
                                         await model.handleAccountsChanged()
+                                    },
+                                    onCredentialsChanged: {
+                                        await model.handleAccountsChanged()
                                     }
                                 )
                             } label: {
-                                ProviderSettingsRow(configuration: configuration)
+                                ProviderSettingsRow(
+                                    configuration: configuration,
+                                    readiness: configurationStore.credentialReadiness(for: configuration)
+                                )
                             }
 
                             Spacer()
@@ -131,6 +137,9 @@ struct SettingsView: View {
         .frame(minWidth: 520, minHeight: 420)
         .onAppear {
             model.launchAtLoginManager.refreshFromSystem()
+            Task {
+                await model.discoverLocalCredentials()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.launchAtLoginManager.refreshFromSystem()
@@ -195,6 +204,7 @@ struct SettingsView: View {
 
 private struct ProviderSettingsRow: View {
     let configuration: ProviderAccountConfiguration
+    let readiness: CredentialReadiness
 
     var body: some View {
         HStack(spacing: 12) {
@@ -212,11 +222,29 @@ private struct ProviderSettingsRow: View {
     }
 
     private var statusIcon: String {
-        configuration.isEnabled ? "checkmark.circle.fill" : "pause.circle"
+        if !configuration.isEnabled {
+            return "pause.circle"
+        }
+
+        switch readiness {
+        case .keychainSaved, .localCLIReady:
+            return "checkmark.circle.fill"
+        case .missing:
+            return "exclamationmark.circle"
+        }
     }
 
     private var statusTint: Color {
-        configuration.isEnabled ? .green : .secondary
+        if !configuration.isEnabled {
+            return .secondary
+        }
+
+        switch readiness {
+        case .keychainSaved, .localCLIReady:
+            return .green
+        case .missing:
+            return .orange
+        }
     }
 
     private var statusText: String {
@@ -224,7 +252,14 @@ private struct ProviderSettingsRow: View {
             return "Disabled"
         }
 
-        return configuration.providerID.displayName
+        switch readiness {
+        case .keychainSaved:
+            return "Keychain credential saved"
+        case .localCLIReady(let description):
+            return "Local credentials ready (\(description))"
+        case .missing:
+            return "Needs credentials"
+        }
     }
 }
 

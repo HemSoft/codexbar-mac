@@ -4,17 +4,21 @@ struct ProviderSettingsView: View {
     @ObservedObject var configurationStore: ProviderConfigurationStore
     let accountID: String
     var onAccountsChanged: @MainActor () async -> Void = {}
+    var onCredentialsChanged: @MainActor () async -> Void = {}
 
     @State private var configuration: ProviderAccountConfiguration
+    @State private var secret = ""
 
     init(
         configurationStore: ProviderConfigurationStore,
         accountID: String,
-        onAccountsChanged: @escaping @MainActor () async -> Void = {}
+        onAccountsChanged: @escaping @MainActor () async -> Void = {},
+        onCredentialsChanged: @escaping @MainActor () async -> Void = {}
     ) {
         self.configurationStore = configurationStore
         self.accountID = accountID
         self.onAccountsChanged = onAccountsChanged
+        self.onCredentialsChanged = onCredentialsChanged
         self._configuration = State(
             initialValue: configurationStore.configuration(accountID: accountID)
                 ?? ProviderID(rawValue: accountID).map(ProviderAccountConfiguration.defaultConfiguration)
@@ -42,13 +46,22 @@ struct ProviderSettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if configuration.requiresSecret {
-                    SecureField("API key or token", text: .constant(""))
-                        .disabled(true)
+                credentialStatusView
 
-                    Text("Credential entry will be wired up in issue #6.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                if configuration.requiresSecret {
+                    SecureField(secretPlaceholder, text: $secret)
+                        .textFieldStyle(.roundedBorder)
+
+                    Button(configurationStore.hasSecret(for: configuration) ? "Update API Key" : "Save API Key") {
+                        saveSecret()
+                    }
+                    .disabled(secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                if configurationStore.hasSecret(for: configuration) {
+                    Button("Remove Saved Key", role: .destructive) {
+                        removeSecret()
+                    }
                 }
             }
 
@@ -61,6 +74,9 @@ struct ProviderSettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle(configuration.providerID.displayName)
+        .onAppear {
+            configurationStore.refreshSecretAvailability(including: [configuration])
+        }
         .onChange(of: configuration) { oldValue, newValue in
             guard configurationStore.update(newValue) else {
                 configuration = oldValue
@@ -76,6 +92,21 @@ struct ProviderSettingsView: View {
             Task {
                 await onAccountsChanged()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var credentialStatusView: some View {
+        switch configurationStore.credentialReadiness(for: configuration) {
+        case .keychainSaved:
+            Label("Credential saved in Keychain", systemImage: "key.fill")
+                .foregroundStyle(.green)
+        case .localCLIReady(let description):
+            Label("Local credentials ready (\(description))", systemImage: "terminal.fill")
+                .foregroundStyle(.green)
+        case .missing:
+            Label("No credentials configured yet", systemImage: "exclamationmark.circle")
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -96,20 +127,47 @@ struct ProviderSettingsView: View {
         }
     }
 
+    private var secretPlaceholder: String {
+        configurationStore.hasSecret(for: configuration) ? "Credential saved" : "Paste API key or token"
+    }
+
     private var credentialGuidance: String {
         switch providerID {
         case .codex:
-            "CodexBar will read Codex CLI credentials from ~/.codex/auth.json when the Codex provider lands in issue #7."
+            "CodexBar reads Codex CLI credentials from ~/.codex/auth.json when auth.json is selected. Browser sign-in remains available as a fallback."
         case .copilot:
-            "GitHub Copilot will use GitHub CLI credentials when the Copilot provider lands in issue #9."
+            "GitHub Copilot can use GitHub CLI credentials discovered from `gh auth status`, or a token saved in the Keychain."
         case .claude:
-            "Claude Code local OAuth credentials will be preferred over browser sign-in when issue #8 lands."
+            "Claude Code OAuth credentials from the macOS Keychain or ~/.claude/.credentials.json are preferred when available. Browser sign-in remains the fallback."
         case .openRouter:
-            "Store an OpenRouter API key in the Keychain when issue #10 lands."
+            "Store an OpenRouter API key in the Keychain."
         case .openCodeZen:
-            "Store an OpenCode ZEN API key in the Keychain when issue #12 lands."
+            "Store an OpenCode ZEN API key in the Keychain."
         case .cursor:
             "Cursor browser or local session auth will be added in issue #11."
+        }
+    }
+
+    private func saveSecret() {
+        let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSecret.isEmpty else {
+            return
+        }
+
+        configurationStore.saveSecret(trimmedSecret, for: configuration)
+        secret = ""
+
+        Task {
+            await onCredentialsChanged()
+        }
+    }
+
+    private func removeSecret() {
+        configurationStore.saveSecret("", for: configuration)
+        secret = ""
+
+        Task {
+            await onCredentialsChanged()
         }
     }
 }

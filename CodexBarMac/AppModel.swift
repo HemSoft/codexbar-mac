@@ -15,7 +15,7 @@ final class AppModel: ObservableObject {
 
     init(
         refreshService: UsageRefreshService = .demo(),
-        configurationStore: ProviderConfigurationStore = ProviderConfigurationStore(),
+        configurationStore: ProviderConfigurationStore = ProviderConfigurationStore(secretStore: KeychainService()),
         launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager()
     ) {
         self.refreshService = refreshService
@@ -102,8 +102,17 @@ final class AppModel: ObservableObject {
     }
 
     func activate() async {
+        await discoverLocalCredentials()
         updateAutoRefresh()
         await refresh()
+    }
+
+    func discoverLocalCredentials() async {
+        let discovery = await Task.detached(priority: .utility) {
+            LocalCredentialDiscovery.discover()
+        }.value
+
+        configurationStore.applyLocalCredentialDiscoveries(discovery)
     }
 
     func refresh() async {

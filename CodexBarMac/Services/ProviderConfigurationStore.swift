@@ -6,6 +6,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var configurations: [ProviderAccountConfiguration]
     @Published public private(set) var groups: [ProviderAccountGroup]
     @Published public private(set) var secretAvailability: [String: Bool]
+    @Published public private(set) var localCredentialHints: [String: String]
     @Published public private(set) var appAppearance: AppAppearance
     @Published public private(set) var autoRefreshInterval: AutoRefreshInterval
     @Published public private(set) var lastError: String?
@@ -16,13 +17,14 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let groupsKey = DefaultsKey.groups
     private let appAppearanceKey = DefaultsKey.appAppearance
     private let autoRefreshIntervalKey = DefaultsKey.autoRefreshInterval
+    private let suppressedCopilotDiscoveryUsernamesKey = DefaultsKey.suppressedCopilotDiscoveryUsernames
     private var secretAvailabilityGeneration = 0
 
     deinit {}
 
     public init(
         defaults: UserDefaults = .standard,
-        secretStore: any SecretStore = InMemorySecretStore()
+        secretStore: any SecretStore = KeychainService()
     ) {
         let loadedGroups = Self.loadGroups(from: defaults)
         self.defaults = defaults
@@ -33,6 +35,7 @@ public final class ProviderConfigurationStore: ObservableObject {
             validGroupIDs: Set(loadedGroups.map(\.id))
         )
         self.secretAvailability = [:]
+        self.localCredentialHints = [:]
         self.appAppearance = Self.loadAppAppearance(from: defaults)
         self.autoRefreshInterval = Self.loadAutoRefreshInterval(from: defaults)
         sortConfigurations()
@@ -126,6 +129,8 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     public func removeAccount(_ configuration: ProviderAccountConfiguration) {
+        rememberSuppressedCopilotDiscovery(for: configuration)
+
         do {
             try secretStore.deleteSecret(account: Self.keychainAccount(for: configuration))
         } catch {
@@ -135,6 +140,7 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         configurations.removeAll { $0.id == configuration.id }
         secretAvailability.removeValue(forKey: configuration.id)
+        localCredentialHints.removeValue(forKey: configuration.id)
         lastError = nil
         sortConfigurations()
         saveConfigurations()
@@ -170,6 +176,103 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     public func hasSecret(for configuration: ProviderAccountConfiguration) -> Bool {
         secretAvailability[configuration.id] ?? false
+    }
+
+    public func credentialReadiness(for configuration: ProviderAccountConfiguration) -> CredentialReadiness {
+        if hasSecret(for: configuration) {
+            return .keychainSaved
+        }
+
+        if let hint = localCredentialHints[configuration.id] {
+            return .localCLIReady(description: hint)
+        }
+
+        return .missing
+    }
+
+    public func applyLocalCredentialDiscoveries(
+        _ discovery: LocalCredentialDiscovery.Result = LocalCredentialDiscovery.discover()
+    ) {
+        var nextHints: [String: String] = [:]
+
+        if discovery.codexAuthAvailable {
+            for index in configurations.indices where configurations[index].providerID == .codex {
+                if shouldApplyLocalAuthMethod(
+                    current: configurations[index].authMethod,
+                    localMethod: .codexAuthJSON,
+                    providerID: .codex
+                ) {
+                    configurations[index].authMethod = .codexAuthJSON
+                    nextHints[configurations[index].id] = "~/.codex/auth.json"
+                } else if configurations[index].authMethod == .codexAuthJSON {
+                    nextHints[configurations[index].id] = "~/.codex/auth.json"
+                }
+            }
+        }
+
+        for username in discovery.githubUsernames {
+            guard !isSuppressedCopilotDiscoveryUsername(username) else {
+                continue
+            }
+
+            if let index = configurations.firstIndex(where: {
+                $0.providerID == .copilot
+                    && $0.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .localizedCaseInsensitiveCompare(username) == .orderedSame
+            }) {
+                if shouldApplyLocalAuthMethod(
+                    current: configurations[index].authMethod,
+                    localMethod: .cliToken,
+                    providerID: .copilot
+                ) {
+                    configurations[index].authMethod = .cliToken
+                }
+
+                if configurations[index].authMethod == .cliToken {
+                    nextHints[configurations[index].id] = "GitHub CLI (\(username))"
+                }
+                continue
+            }
+
+            if let index = unusedDefaultCopilotAccountIndex() {
+                configurations[index].accountLabel = uniqueAccountLabel(
+                    preferred: username,
+                    for: configurations[index]
+                )
+                configurations[index].authMethod = .cliToken
+                nextHints[configurations[index].id] = "GitHub CLI (\(username))"
+                continue
+            }
+
+            var configuration = ProviderAccountConfiguration
+                .defaultConfiguration(for: .copilot)
+                .withNewAccountID()
+            configuration.accountLabel = uniqueAccountLabel(preferred: username, for: configuration)
+            configuration.authMethod = .cliToken
+            configurations.append(configuration)
+            nextHints[configuration.id] = "GitHub CLI (\(username))"
+        }
+
+        if discovery.claudeOAuthAvailable {
+            let claudeCredentialHint = discovery.claudeCredentialSource ?? "~/.claude/.credentials.json"
+            for index in configurations.indices where configurations[index].providerID == .claude {
+                if shouldApplyLocalAuthMethod(
+                    current: configurations[index].authMethod,
+                    localMethod: .oauth,
+                    providerID: .claude
+                ) {
+                    configurations[index].authMethod = .oauth
+                    nextHints[configurations[index].id] = claudeCredentialHint
+                } else if configurations[index].authMethod == .oauth {
+                    nextHints[configurations[index].id] = claudeCredentialHint
+                }
+            }
+        }
+
+        localCredentialHints = nextHints
+        sortConfigurations()
+        saveConfigurations()
+        refreshSecretAvailability()
     }
 
     public func refreshSecretAvailability(
@@ -240,6 +343,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         static let groups = "providerAccountGroups"
         static let appAppearance = "appAppearance"
         static let autoRefreshInterval = "autoRefreshInterval"
+        static let suppressedCopilotDiscoveryUsernames = "suppressedCopilotDiscoveryUsernames"
     }
 
     private static func loadConfigurations(
@@ -355,8 +459,117 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
     }
 
+    private func shouldApplyLocalAuthMethod(
+        current: ProviderAuthMethod,
+        localMethod: ProviderAuthMethod,
+        providerID: ProviderID
+    ) -> Bool {
+        current == localMethod
+            || current == ProviderAccountConfiguration.defaultConfiguration(for: providerID).authMethod
+    }
+
+    private func rememberSuppressedCopilotDiscovery(for configuration: ProviderAccountConfiguration) {
+        guard configuration.providerID == .copilot else {
+            return
+        }
+
+        if let hint = localCredentialHints[configuration.id],
+           let username = Self.githubUsername(fromLocalCredentialHint: hint) {
+            addSuppressedCopilotDiscoveryUsername(username)
+            return
+        }
+
+        let label = configuration.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else {
+            return
+        }
+
+        addSuppressedCopilotDiscoveryUsername(label)
+    }
+
+    private func isSuppressedCopilotDiscoveryUsername(_ username: String) -> Bool {
+        suppressedCopilotDiscoveryUsernames().contains(username.lowercased())
+    }
+
+    private func addSuppressedCopilotDiscoveryUsername(_ username: String) {
+        let normalized = username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else {
+            return
+        }
+
+        var suppressed = suppressedCopilotDiscoveryUsernames()
+        guard suppressed.insert(normalized).inserted else {
+            return
+        }
+
+        defaults.set(Array(suppressed).sorted(), forKey: suppressedCopilotDiscoveryUsernamesKey)
+    }
+
+    private func suppressedCopilotDiscoveryUsernames() -> Set<String> {
+        Set(defaults.stringArray(forKey: suppressedCopilotDiscoveryUsernamesKey) ?? [])
+    }
+
+    private static func githubUsername(fromLocalCredentialHint hint: String) -> String? {
+        guard hint.hasPrefix("GitHub CLI ("), hint.hasSuffix(")") else {
+            return nil
+        }
+
+        let username = hint.dropFirst("GitHub CLI (".count).dropLast()
+        let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func unusedDefaultCopilotAccountIndex() -> Int? {
+        configurations.firstIndex(where: { configuration in
+            guard configuration.providerID == .copilot else {
+                return false
+            }
+
+            let label = configuration.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            let isDefaultLabel = label.isEmpty
+                || label.localizedCaseInsensitiveCompare(ProviderID.copilot.displayName) == .orderedSame
+                || label.range(
+                    of: #"^GitHub Copilot( \d+)?$"#,
+                    options: [.regularExpression, .caseInsensitive]
+                ) != nil
+            let hasNoCredential = !hasSecret(for: configuration)
+                && localCredentialHints[configuration.id] == nil
+
+            return isDefaultLabel
+                && hasNoCredential
+                && configuration.authMethod == ProviderAccountConfiguration.defaultConfiguration(for: .copilot).authMethod
+        })
+    }
+
     private static func normalizedGroupName(_ name: String) -> String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func uniqueAccountLabel(
+        preferred: String,
+        for configuration: ProviderAccountConfiguration
+    ) -> String {
+        let trimmedPreferred = preferred.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPreferred.isEmpty else {
+            return suggestedAccountLabel(for: configuration.providerID)
+        }
+
+        var candidate = trimmedPreferred
+        var suffix = 2
+        while !isAccountNameUnique(
+            ProviderAccountConfiguration(
+                id: configuration.id,
+                providerID: configuration.providerID,
+                isEnabled: configuration.isEnabled,
+                accountLabel: candidate,
+                authMethod: configuration.authMethod
+            )
+        ) {
+            candidate = "\(trimmedPreferred) \(suffix)"
+            suffix += 1
+        }
+
+        return candidate
     }
 
     private func suggestedAccountLabel(for providerID: ProviderID) -> String {
