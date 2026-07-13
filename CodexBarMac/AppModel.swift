@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastRefreshedAt: Date?
 
     private var cancellables = Set<AnyCancellable>()
+    private var pendingRefresh = false
 
     init(
         refreshService: UsageRefreshService = .demo(),
@@ -25,6 +26,19 @@ final class AppModel: ObservableObject {
         refreshService.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        refreshService.$isRefreshing
+            .removeDuplicates()
+            .sink { [weak self] isRefreshing in
+                guard let self, !isRefreshing else {
+                    return
+                }
+
+                Task {
+                    await self.drainPendingRefreshIfNeeded()
+                }
             }
             .store(in: &cancellables)
 
@@ -72,11 +86,26 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() async {
+        if refreshService.isRefreshing {
+            pendingRefresh = true
+            return
+        }
+
         guard await refreshService.refresh(configurations: configurationStore.enabledConfigurations) else {
+            pendingRefresh = true
             return
         }
 
         lastRefreshedAt = Date()
+    }
+
+    private func drainPendingRefreshIfNeeded() async {
+        guard pendingRefresh else {
+            return
+        }
+
+        pendingRefresh = false
+        await refresh()
     }
 
     func updateAutoRefresh() {
