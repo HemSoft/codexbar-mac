@@ -63,6 +63,7 @@ struct ProviderSettingsView: View {
         .navigationTitle(configuration.providerID.displayName)
         .onChange(of: configuration) { oldValue, newValue in
             guard configurationStore.update(newValue) else {
+                configuration = oldValue
                 return
             }
 
