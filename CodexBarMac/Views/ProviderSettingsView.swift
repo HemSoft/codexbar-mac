@@ -138,7 +138,7 @@ struct ProviderSettingsView: View {
         case .copilot:
             "GitHub Copilot can use GitHub CLI credentials discovered from `gh auth status`, or a token saved in the Keychain."
         case .claude:
-            "Claude Code OAuth credentials from ~/.claude/.credentials.json are preferred when available. Browser sign-in remains the fallback."
+            "Claude Code OAuth credentials from the macOS Keychain or ~/.claude/.credentials.json are preferred when available. Browser sign-in remains the fallback."
         case .openRouter:
             "Store an OpenRouter API key in the Keychain."
         case .openCodeZen:

@@ -227,6 +227,13 @@ public final class ProviderConfigurationStore: ObservableObject {
                 continue
             }
 
+            if let index = unusedDefaultCopilotAccountIndex() {
+                configurations[index].accountLabel = username
+                configurations[index].authMethod = .cliToken
+                nextHints[configurations[index].id] = "GitHub CLI (\(username))"
+                continue
+            }
+
             var configuration = ProviderAccountConfiguration
                 .defaultConfiguration(for: .copilot)
                 .withNewAccountID()
@@ -237,6 +244,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
 
         if discovery.claudeOAuthAvailable {
+            let claudeCredentialHint = discovery.claudeCredentialSource ?? "~/.claude/.credentials.json"
             for index in configurations.indices where configurations[index].providerID == .claude {
                 if shouldApplyLocalAuthMethod(
                     current: configurations[index].authMethod,
@@ -244,9 +252,9 @@ public final class ProviderConfigurationStore: ObservableObject {
                     providerID: .claude
                 ) {
                     configurations[index].authMethod = .oauth
-                    nextHints[configurations[index].id] = "~/.claude/.credentials.json"
+                    nextHints[configurations[index].id] = claudeCredentialHint
                 } else if configurations[index].authMethod == .oauth {
-                    nextHints[configurations[index].id] = "~/.claude/.credentials.json"
+                    nextHints[configurations[index].id] = claudeCredentialHint
                 }
             }
         }
@@ -447,6 +455,28 @@ public final class ProviderConfigurationStore: ObservableObject {
     ) -> Bool {
         current == localMethod
             || current == ProviderAccountConfiguration.defaultConfiguration(for: providerID).authMethod
+    }
+
+    private func unusedDefaultCopilotAccountIndex() -> Int? {
+        configurations.firstIndex(where: { configuration in
+            guard configuration.providerID == .copilot else {
+                return false
+            }
+
+            let label = configuration.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            let isDefaultLabel = label.isEmpty
+                || label.localizedCaseInsensitiveCompare(ProviderID.copilot.displayName) == .orderedSame
+                || label.range(
+                    of: #"^GitHub Copilot( \d+)?$"#,
+                    options: [.regularExpression, .caseInsensitive]
+                ) != nil
+            let hasNoCredential = !hasSecret(for: configuration)
+                && localCredentialHints[configuration.id] == nil
+
+            return isDefaultLabel
+                && hasNoCredential
+                && configuration.authMethod == ProviderAccountConfiguration.defaultConfiguration(for: .copilot).authMethod
+        })
     }
 
     private static func normalizedGroupName(_ name: String) -> String {

@@ -1,32 +1,42 @@
 import Foundation
+import Security
 
 public struct LocalCredentialDiscovery: Sendable {
     public struct Result: Equatable, Sendable {
         public let codexAuthAvailable: Bool
         public let githubUsernames: [String]
         public let claudeOAuthAvailable: Bool
+        public let claudeCredentialSource: String?
 
         public init(
             codexAuthAvailable: Bool,
             githubUsernames: [String],
-            claudeOAuthAvailable: Bool
+            claudeOAuthAvailable: Bool,
+            claudeCredentialSource: String? = nil
         ) {
             self.codexAuthAvailable = codexAuthAvailable
             self.githubUsernames = githubUsernames
             self.claudeOAuthAvailable = claudeOAuthAvailable
+            self.claudeCredentialSource = claudeCredentialSource
         }
     }
 
     public static func discover(
         codexAuthPath: String = defaultCodexAuthPath(),
         claudeCredentialsPath: String = defaultClaudeCredentialsPath(),
+        claudeKeychainAccount: String = NSUserName(),
         ghStatusRunner: (@Sendable () throws -> (exitCode: Int32, stdout: String, stderr: String))? = nil
     ) -> Result {
         let runner = ghStatusRunner ?? { try runGitHubAuthStatus() }
+        let claudeCredentialSource = resolveClaudeCredentialSource(
+            at: claudeCredentialsPath,
+            keychainAccount: claudeKeychainAccount
+        )
         return Result(
             codexAuthAvailable: CodexCredentialsParser.parseAuthFile(at: codexAuthPath) != nil,
             githubUsernames: discoverGitHubUsernames(using: runner),
-            claudeOAuthAvailable: hasClaudeOAuthCredentials(at: claudeCredentialsPath)
+            claudeOAuthAvailable: claudeCredentialSource != nil,
+            claudeCredentialSource: claudeCredentialSource
         )
     }
 
@@ -49,7 +59,33 @@ public struct LocalCredentialDiscovery: Sendable {
             .path
     }
 
-    private static func hasClaudeOAuthCredentials(at path: String) -> Bool {
+    static func resolveClaudeCredentialSource(
+        at path: String,
+        keychainAccount: String
+    ) -> String? {
+        if hasClaudeOAuthCredentialsInKeychain(account: keychainAccount) {
+            return "macOS Keychain (Claude Code)"
+        }
+
+        if hasClaudeOAuthCredentialsInFile(at: path) {
+            return "~/.claude/.credentials.json"
+        }
+
+        return nil
+    }
+
+    static func hasClaudeOAuthCredentials(
+        at path: String,
+        keychainAccount: String
+    ) -> Bool {
+        if hasClaudeOAuthCredentialsInKeychain(account: keychainAccount) {
+            return true
+        }
+
+        return hasClaudeOAuthCredentialsInFile(at: path)
+    }
+
+    static func hasClaudeOAuthCredentialsInFile(at path: String) -> Bool {
         guard let credentials = ClaudeCredentialsParser.parseCredentialsFile(at: path),
               let accessToken = credentials.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !accessToken.isEmpty else {
@@ -57,6 +93,48 @@ public struct LocalCredentialDiscovery: Sendable {
         }
 
         return true
+    }
+
+    static func hasClaudeOAuthCredentialsInKeychain(account: String) -> Bool {
+        for service in ["Claude Code-credentials", "Claude Code"] {
+            guard let secret = try? readGenericPassword(service: service, account: account),
+                  let credentials = ClaudeCredentialsParser.parse(secret),
+                  let accessToken = credentials.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !accessToken.isEmpty else {
+                continue
+            }
+
+            return true
+        }
+
+        return false
+    }
+
+    static func readGenericPassword(service: String, account: String) throws -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true,
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        if status == errSecItemNotFound {
+            return nil
+        }
+
+        guard status == errSecSuccess else {
+            throw KeychainError.unhandledStatus(status)
+        }
+
+        guard let data = result as? Data else {
+            return nil
+        }
+
+        return String(data: data, encoding: .utf8)
     }
 
     private static func discoverGitHubUsernames(
