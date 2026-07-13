@@ -62,9 +62,12 @@ public enum CodexUsageParser {
     ) {
         guard
             let window = rateLimit[name] as? [String: Any],
-            let usedPercent = doubleValue(window["used_percent"]),
-            let durationSeconds = intValue(window["limit_window_seconds"])
+            let usedPercent = doubleValue(window["used_percent"])
         else {
+            return
+        }
+
+        guard let durationSeconds = durationSeconds(for: window, windowName: name) else {
             return
         }
 
@@ -84,6 +87,25 @@ public enum CodexUsageParser {
                 durationSeconds: durationSeconds
             )
         )
+    }
+
+    private static func durationSeconds(for window: [String: Any], windowName: String) -> Int? {
+        if let limitWindowSeconds = intValue(window["limit_window_seconds"]) {
+            return limitWindowSeconds
+        }
+
+        if let windowMinutes = intValue(window["window_minutes"]) {
+            return windowMinutes * 60
+        }
+
+        switch windowName {
+        case "primary_window":
+            return fiveHourDurationSeconds
+        case "secondary_window":
+            return weeklyDurationSeconds
+        default:
+            return nil
+        }
     }
 
     private static func label(forDuration durationSeconds: Int) -> String {

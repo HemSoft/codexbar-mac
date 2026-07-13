@@ -248,6 +248,8 @@ public final class CodexUsageProvider: UsageProvider {
         switch configuration.authMethod {
         case .codexAuthJSON:
             return .authFile(authFilePath)
+        case .browserSession:
+            return .browserSession
         default:
             return .keychain(ProviderConfigurationStore.keychainAccount(for: configuration))
         }
@@ -257,6 +259,8 @@ public final class CodexUsageProvider: UsageProvider {
         switch location {
         case .authFile(let path):
             return CodexAuthFileStore.readCredentials(at: path)
+        case .browserSession:
+            return nil
         case .keychain(let account):
             guard let secret = try secretStore.readSecret(account: account) else {
                 return nil
@@ -269,6 +273,8 @@ public final class CodexUsageProvider: UsageProvider {
         switch location {
         case .authFile(let path):
             try CodexAuthFileStore.writeCredentials(credentials, at: path)
+        case .browserSession:
+            break
         case .keychain(let account):
             try secretStore.saveSecret(
                 CodexCredentialsParser.storedCredential(from: credentials),
@@ -281,6 +287,8 @@ public final class CodexUsageProvider: UsageProvider {
         switch configuration.authMethod {
         case .codexAuthJSON:
             "Not configured - sign in with Codex CLI."
+        case .browserSession:
+            "Browser sign-in is not available on Mac yet. Use Codex CLI credentials."
         default:
             "Not configured - sign in with ChatGPT."
         }
@@ -325,12 +333,15 @@ public final class CodexUsageProvider: UsageProvider {
 
 private enum CredentialLocation: Equatable {
     case authFile(String)
+    case browserSession
     case keychain(String)
 
     var coordinatorKey: String {
         switch self {
         case .authFile(let path):
             "auth-file:\(path)"
+        case .browserSession:
+            "browser-session"
         case .keychain(let account):
             "keychain:\(account)"
         }

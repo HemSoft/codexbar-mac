@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 @testable import CodexBarMac
 
 final class CodexBarMacTests: XCTestCase {
@@ -129,6 +130,51 @@ final class CodexBarMacTests: XCTestCase {
             body,
             "grant_type=refresh_token&refresh_token=a%2Bb%26c%3Dd&client_id=app_EMoamEEZ73f0CkXaXp7hrann"
         )
+    }
+
+    func testCodexUsageParserAcceptsWindowMinutesWhenLimitSecondsMissing() throws {
+        let payload = #"{"rate_limit":{"primary_window":{"used_percent":12,"reset_at":1893456000,"window_minutes":300},"secondary_window":{"used_percent":40,"reset_at":1894060800}}}"#
+        let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(result.bars.map(\.label), ["5 hour usage limit", "Weekly usage limit"])
+        XCTAssertEqual(result.bars.first?.used, 12)
+        XCTAssertEqual(result.bars.last?.used, 40)
+    }
+
+    func testCodexAuthFileStorePreservesOwnerOnlyPermissionsAndLastRefresh() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let authFilePath = directory.appendingPathComponent("auth.json").path
+        FileManager.default.createFile(atPath: authFilePath, contents: Data("{}".utf8))
+        _ = chmod(authFilePath, 0o600)
+
+        try CodexAuthFileStore.writeCredentials(
+            CodexCredentials(accessToken: "access-token", refreshToken: "refresh-token"),
+            at: authFilePath
+        )
+
+        var attributes = stat()
+        XCTAssertEqual(stat(authFilePath, &attributes), 0)
+        XCTAssertEqual(attributes.st_mode & 0o777, 0o600)
+
+        let root = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: authFilePath))) as? [String: Any]
+        XCTAssertNotNil(root?["last_refresh"] as? String)
+    }
+
+    func testCodexUsageProviderExplainsUnavailableBrowserFallback() async throws {
+        let configuration = ProviderAccountConfiguration(
+            providerID: .codex,
+            authMethod: .browserSession
+        )
+        let provider = CodexUsageProvider(now: { Date(timeIntervalSince1970: 2_000_000_000) })
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertTrue(result.subtitle.contains("Browser sign-in is not available on Mac yet"))
+        XCTAssertTrue(result.bars.isEmpty)
     }
 
     func testCodexUsageProviderProactivelyRefreshesAndPersistsRotation() async throws {
