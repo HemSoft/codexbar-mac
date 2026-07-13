@@ -5,6 +5,7 @@ public final class ClaudeUsageProvider: UsageProvider {
     private static let tokenRefreshEndpoint = URL(string: "https://platform.claude.com/v1/oauth/token")!
     private static let messagesEndpoint = URL(string: "https://api.anthropic.com/v1/messages")!
     private static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+    private static let refreshCoordinator = CredentialRefreshCoordinator<ClaudeCredentialRefreshResult>()
     private static let probeBody = """
     {"model":"claude-haiku-4-5","max_tokens":1,"messages":[{"role":"user","content":"x"}]}
     """
@@ -341,6 +342,20 @@ public final class ClaudeUsageProvider: UsageProvider {
         storage: ClaudeCredentialStore.Storage?,
         configuration: ProviderAccountConfiguration
     ) async -> ClaudeCredentialRefreshResult {
+        await Self.refreshCoordinator.run(for: refreshCoordinatorKey(storage: storage, configuration: configuration)) { [self] in
+            await performCredentialRefresh(credentials, storage: storage, configuration: configuration)
+        }
+    }
+
+    private func performCredentialRefresh(
+        _ credentials: ClaudeCredentials,
+        storage: ClaudeCredentialStore.Storage?,
+        configuration: ProviderAccountConfiguration
+    ) async -> ClaudeCredentialRefreshResult {
+        if let storage, let latest = ClaudeCredentialStore.readCredentials(from: storage), latest != credentials {
+            return credentialIsFresh(latest) ? .unchanged(latest) : .refreshed(latest)
+        }
+
         guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
             return .unchanged(credentials)
         }
@@ -369,6 +384,10 @@ public final class ClaudeUsageProvider: UsageProvider {
         }
 
         guard (200..<300).contains(httpResponse.statusCode) else {
+            if [400, 401, 403].contains(httpResponse.statusCode),
+               let external = externallyRefreshedCredentials(original: credentials, storage: storage) {
+                return external
+            }
             if [400, 401, 403].contains(httpResponse.statusCode) {
                 return .rejected
             }
@@ -396,6 +415,43 @@ public final class ClaudeUsageProvider: UsageProvider {
             return .persistenceFailed
         }
         return .refreshed(updated)
+    }
+
+    private func externallyRefreshedCredentials(
+        original: ClaudeCredentials,
+        storage: ClaudeCredentialStore.Storage?
+    ) -> ClaudeCredentialRefreshResult? {
+        guard let storage,
+              let latest = ClaudeCredentialStore.readCredentials(from: storage),
+              latest != original,
+              credentialIsFresh(latest) else {
+            return nil
+        }
+
+        return .refreshed(latest)
+    }
+
+    private func credentialIsFresh(_ credentials: ClaudeCredentials) -> Bool {
+        guard credentials.expiresAt > 0 else {
+            return true
+        }
+
+        let expiresAt = Date(timeIntervalSince1970: TimeInterval(normalizeEpochToSeconds(credentials.expiresAt)))
+        return expiresAt > now()
+    }
+
+    private func refreshCoordinatorKey(
+        storage: ClaudeCredentialStore.Storage?,
+        configuration: ProviderAccountConfiguration
+    ) -> String {
+        switch storage {
+        case .keychain(let service, let account):
+            "keychain:\(service):\(account)"
+        case .file(let path):
+            "file:\(path)"
+        case nil:
+            "settings:\(ProviderConfigurationStore.keychainAccount(for: configuration))"
+        }
     }
 
     private func persistCredentials(

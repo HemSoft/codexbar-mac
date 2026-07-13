@@ -12,7 +12,7 @@ public enum ClaudeCredentialStore: Sendable {
         keychainAccount: String = NSUserName(),
         credentialsFilePath: String = LocalCredentialDiscovery.defaultClaudeCredentialsPath()
     ) -> (credentials: ClaudeCredentials, storage: Storage)? {
-        for service in ["Claude Code-credentials", "Claude Code"] {
+        for service in keychainCredentialServices() {
             if let secret = try? readGenericPassword(service: service, account: keychainAccount),
                let credentials = ClaudeCredentialsParser.parse(secret),
                credentials.accessToken?.isEmpty == false {
@@ -70,6 +70,67 @@ public enum ClaudeCredentialStore: Sendable {
         let fileMode = existingFileMode(at: fileURL.path) ?? 0o600
         try encoded.write(to: fileURL, options: .atomic)
         _ = chmod(fileURL.path, fileMode)
+    }
+
+    static func keychainCredentialServices() -> [String] {
+        var services = ["Claude Code-credentials", "Claude Code"]
+        for service in enumerateKeychainCredentialServices() where !services.contains(service) {
+            services.append(service)
+        }
+        return services
+    }
+
+    static func hasOAuthCredentialsInKeychain(account: String) -> Bool {
+        for service in keychainCredentialServices() {
+            guard let secret = try? readGenericPassword(service: service, account: account),
+                  let credentials = ClaudeCredentialsParser.parse(secret),
+                  credentials.accessToken?.isEmpty == false else {
+                continue
+            }
+            return true
+        }
+        return false
+    }
+
+    static func readCredentials(from storage: Storage) -> ClaudeCredentials? {
+        switch storage {
+        case .keychain(let service, let account):
+            guard let secret = try? readGenericPassword(service: service, account: account) else {
+                return nil
+            }
+            return ClaudeCredentialsParser.parse(secret)
+        case .file(let path):
+            return ClaudeCredentialsParser.parseCredentialsFile(at: path)
+        }
+    }
+
+    private static func enumerateKeychainCredentialServices() -> [String] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound {
+            return []
+        }
+        guard status == errSecSuccess,
+              let items = result as? [[String: Any]] else {
+            return []
+        }
+
+        var services = Set<String>()
+        for item in items {
+            guard let service = item[kSecAttrService as String] as? String else {
+                continue
+            }
+            if service == "Claude Code" || service.hasPrefix("Claude Code-credentials") {
+                services.insert(service)
+            }
+        }
+        return services.sorted()
     }
 
     private static func existingFileMode(at path: String) -> mode_t? {
