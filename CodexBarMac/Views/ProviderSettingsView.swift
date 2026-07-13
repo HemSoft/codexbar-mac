@@ -61,8 +61,14 @@ struct ProviderSettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle(configuration.providerID.displayName)
-        .onChange(of: configuration) { _, newValue in
+        .onChange(of: configuration) { oldValue, newValue in
             guard configurationStore.update(newValue) else {
+                return
+            }
+
+            let shouldRefresh = oldValue.isEnabled != newValue.isEnabled
+                || oldValue.authMethod != newValue.authMethod
+            guard shouldRefresh else {
                 return
             }
 
