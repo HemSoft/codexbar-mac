@@ -56,11 +56,11 @@ struct ProviderSettingsView: View {
                         saveSecret()
                     }
                     .disabled(secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
 
-                    if configurationStore.hasSecret(for: configuration) {
-                        Button("Remove Saved Key", role: .destructive) {
-                            removeSecret()
-                        }
+                if configurationStore.hasSecret(for: configuration) {
+                    Button("Remove Saved Key", role: .destructive) {
+                        removeSecret()
                     }
                 }
             }

@@ -235,7 +235,10 @@ public final class ProviderConfigurationStore: ObservableObject {
             }
 
             if let index = unusedDefaultCopilotAccountIndex() {
-                configurations[index].accountLabel = username
+                configurations[index].accountLabel = uniqueAccountLabel(
+                    preferred: username,
+                    for: configurations[index]
+                )
                 configurations[index].authMethod = .cliToken
                 nextHints[configurations[index].id] = "GitHub CLI (\(username))"
                 continue
@@ -244,7 +247,7 @@ public final class ProviderConfigurationStore: ObservableObject {
             var configuration = ProviderAccountConfiguration
                 .defaultConfiguration(for: .copilot)
                 .withNewAccountID()
-            configuration.accountLabel = username
+            configuration.accountLabel = uniqueAccountLabel(preferred: username, for: configuration)
             configuration.authMethod = .cliToken
             configurations.append(configuration)
             nextHints[configuration.id] = "GitHub CLI (\(username))"
@@ -540,6 +543,33 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     private static func normalizedGroupName(_ name: String) -> String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func uniqueAccountLabel(
+        preferred: String,
+        for configuration: ProviderAccountConfiguration
+    ) -> String {
+        let trimmedPreferred = preferred.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPreferred.isEmpty else {
+            return suggestedAccountLabel(for: configuration.providerID)
+        }
+
+        var candidate = trimmedPreferred
+        var suffix = 2
+        while !isAccountNameUnique(
+            ProviderAccountConfiguration(
+                id: configuration.id,
+                providerID: configuration.providerID,
+                isEnabled: configuration.isEnabled,
+                accountLabel: candidate,
+                authMethod: configuration.authMethod
+            )
+        ) {
+            candidate = "\(trimmedPreferred) \(suffix)"
+            suffix += 1
+        }
+
+        return candidate
     }
 
     private func suggestedAccountLabel(for providerID: ProviderID) -> String {
