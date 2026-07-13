@@ -28,6 +28,12 @@ public enum CodexCredentialsParser {
             return nil
         }
 
+        if let apiKey = rootObject["OPENAI_API_KEY"] as? String
+            ?? rootObject["openai_api_key"] as? String,
+           !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return CodexCredentials(accessToken: apiKey)
+        }
+
         let tokens = rootObject["tokens"] as? [String: Any] ?? rootObject
 
         guard let accessToken = stringValue(in: tokens, snakeCase: "access_token", camelCase: "accessToken"),
