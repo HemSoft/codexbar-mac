@@ -177,6 +177,45 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(result.bars.isEmpty)
     }
 
+    func testCodexUsageProviderFallsBackToSavedKeychainCredentialWithoutAuthFile() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        let account = ProviderConfigurationStore.keychainAccount(for: configuration)
+        try secretStore.saveSecret(
+            CodexCredentialsParser.storedCredential(from: CodexCredentials(
+                accessToken: "keychain-access",
+                expiresAt: 2_000_003_600
+            )),
+            account: account
+        )
+
+        let authDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let authFilePath = authDirectory.appendingPathComponent("auth.json").path
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CodexUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            usageEndpoint: URL(string: "https://example.test/codex-usage")!,
+            authFilePath: authFilePath,
+            now: { now }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer keychain-access")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":18,"reset_at":2000007200,"limit_window_seconds":18000}}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 18)
+    }
+
     func testCodexUsageProviderProactivelyRefreshesAndPersistsRotation() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let authDirectory = FileManager.default.temporaryDirectory

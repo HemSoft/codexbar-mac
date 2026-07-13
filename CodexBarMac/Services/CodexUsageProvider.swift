@@ -247,7 +247,10 @@ public final class CodexUsageProvider: UsageProvider {
     private func credentialLocation(for configuration: ProviderAccountConfiguration) -> CredentialLocation {
         switch configuration.authMethod {
         case .codexAuthJSON:
-            return .authFile(authFilePath)
+            return .authFile(
+                authFilePath,
+                keychainAccount: ProviderConfigurationStore.keychainAccount(for: configuration)
+            )
         case .browserSession:
             return .browserSession
         default:
@@ -257,8 +260,15 @@ public final class CodexUsageProvider: UsageProvider {
 
     private func readCredentials(location: CredentialLocation) throws -> CodexCredentials? {
         switch location {
-        case .authFile(let path):
-            return CodexAuthFileStore.readCredentials(at: path)
+        case .authFile(let path, let keychainAccount):
+            if let credentials = CodexAuthFileStore.readCredentials(at: path) {
+                return credentials
+            }
+            guard let keychainAccount,
+                  let secret = try secretStore.readSecret(account: keychainAccount) else {
+                return nil
+            }
+            return CodexCredentialsParser.parse(secret)
         case .browserSession:
             return nil
         case .keychain(let account):
@@ -271,8 +281,15 @@ public final class CodexUsageProvider: UsageProvider {
 
     private func saveCredentials(_ credentials: CodexCredentials, location: CredentialLocation) throws {
         switch location {
-        case .authFile(let path):
-            try CodexAuthFileStore.writeCredentials(credentials, at: path)
+        case .authFile(let path, let keychainAccount):
+            if FileManager.default.fileExists(atPath: path) {
+                try CodexAuthFileStore.writeCredentials(credentials, at: path)
+            } else if let keychainAccount {
+                try secretStore.saveSecret(
+                    CodexCredentialsParser.storedCredential(from: credentials),
+                    account: keychainAccount
+                )
+            }
         case .browserSession:
             break
         case .keychain(let account):
@@ -332,14 +349,14 @@ public final class CodexUsageProvider: UsageProvider {
 }
 
 private enum CredentialLocation: Equatable {
-    case authFile(String)
+    case authFile(String, keychainAccount: String?)
     case browserSession
     case keychain(String)
 
     var coordinatorKey: String {
         switch self {
-        case .authFile(let path):
-            "auth-file:\(path)"
+        case .authFile(let path, let keychainAccount):
+            "auth-file:\(path)|keychain:\(keychainAccount ?? "")"
         case .browserSession:
             "browser-session"
         case .keychain(let account):
