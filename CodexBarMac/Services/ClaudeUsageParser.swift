@@ -316,8 +316,8 @@ public enum ClaudeUsageParser {
         dateTimeFormatter: UserFacingDateTimeFormatter
     ) -> UsageBar? {
         guard
-            let utilization = doubleHeader(fields[utilizationKey]),
-            let reset = epochHeader(fields[resetKey])
+            let utilization = doubleHeader(headerValue(fields, key: utilizationKey)),
+            let reset = epochHeader(headerValue(fields, key: resetKey))
         else {
             return nil
         }
@@ -564,6 +564,17 @@ public enum ClaudeUsageParser {
         let fractionalFormatter = ISO8601DateFormatter()
         fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractionalFormatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    private static func headerValue(_ fields: [AnyHashable: Any], key: String) -> Any? {
+        let normalizedKey = key.lowercased()
+        for (fieldKey, value) in fields {
+            guard let fieldKey = fieldKey as? String, fieldKey.lowercased() == normalizedKey else {
+                continue
+            }
+            return value
+        }
+        return nil
     }
 
     private static func doubleHeader(_ value: Any?) -> Double? {

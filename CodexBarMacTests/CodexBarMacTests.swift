@@ -538,6 +538,19 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.used), [42, 65, 88, 31])
     }
 
+    func testClaudeUsageParserMatchesRateLimitHeadersCaseInsensitively() throws {
+        let result = try XCTUnwrap(ClaudeUsageParser.parseRateLimitHeaders(
+            [
+                "Anthropic-Ratelimit-Unified-5H-Utilization": "0.42",
+                "ANTHROPIC-RATELIMIT-UNIFIED-5H-RESET": "1893456000",
+            ],
+            subscriptionType: "max"
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), ["5 hour usage limit"])
+        XCTAssertEqual(result.bars.first?.used, 42)
+    }
+
     func testClaudeCredentialStorePreservesFilePermissionsAndMetadata() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
