@@ -36,10 +36,18 @@ public final class LaunchAtLoginManager: ObservableObject {
                     requiresApproval = false
                 }
             } else {
-                isEnabled = false
-                requiresApproval = false
-                if Self.shouldUnregister(for: status) {
-                    setEnabled(false)
+                switch status {
+                case .enabled:
+                    defaults.set(true, forKey: preferenceKey)
+                    isEnabled = true
+                    requiresApproval = false
+                case .requiresApproval:
+                    defaults.set(true, forKey: preferenceKey)
+                    isEnabled = false
+                    requiresApproval = true
+                default:
+                    isEnabled = false
+                    requiresApproval = false
                 }
             }
         }
@@ -70,8 +78,19 @@ public final class LaunchAtLoginManager: ObservableObject {
                 requiresApproval = false
             }
         } else {
-            isEnabled = false
-            requiresApproval = false
+            switch status {
+            case .enabled:
+                defaults.set(true, forKey: preferenceKey)
+                isEnabled = true
+                requiresApproval = false
+            case .requiresApproval:
+                defaults.set(true, forKey: preferenceKey)
+                isEnabled = false
+                requiresApproval = true
+            default:
+                isEnabled = false
+                requiresApproval = false
+            }
         }
 
         lastError = nil
