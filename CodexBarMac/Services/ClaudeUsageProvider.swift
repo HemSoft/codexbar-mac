@@ -182,8 +182,14 @@ public final class ClaudeUsageProvider: UsageProvider {
                 storage: loaded.storage,
                 configuration: configuration
             ) {
-            case .refreshed(let refreshed):
+            case .refreshed(let refreshed), .unchanged(let refreshed):
                 guard let newToken = refreshed.accessToken, !newToken.isEmpty else {
+                    return OAuthUsageOutcome(
+                        result: failureResult("Claude credential was rejected. Sign in again.", configuration: configuration),
+                        permitsFallbackProbe: false
+                    )
+                }
+                guard newToken != accessToken else {
                     return OAuthUsageOutcome(
                         result: failureResult("Claude credential was rejected. Sign in again.", configuration: configuration),
                         permitsFallbackProbe: false
@@ -276,8 +282,11 @@ public final class ClaudeUsageProvider: UsageProvider {
                 storage: loaded.storage,
                 configuration: configuration
             ) {
-            case .refreshed(let refreshed):
+            case .refreshed(let refreshed), .unchanged(let refreshed):
                 guard let newToken = refreshed.accessToken, !newToken.isEmpty else {
+                    return failureResult("Claude credential expired or lacks Claude Code access.", configuration: configuration)
+                }
+                guard newToken != accessToken else {
                     return failureResult("Claude credential expired or lacks Claude Code access.", configuration: configuration)
                 }
                 loaded.credentials = refreshed
@@ -352,8 +361,10 @@ public final class ClaudeUsageProvider: UsageProvider {
         storage: ClaudeCredentialStore.Storage?,
         configuration: ProviderAccountConfiguration
     ) async -> ClaudeCredentialRefreshResult {
-        if let storage, let latest = ClaudeCredentialStore.readCredentials(from: storage), latest != credentials {
-            return credentialIsFresh(latest) ? .unchanged(latest) : .refreshed(latest)
+        if let storage,
+           let latest = ClaudeCredentialStore.readCredentials(from: storage),
+           latest != credentials {
+            return .refreshed(latest)
         }
 
         guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
