@@ -858,6 +858,70 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.label), ["Premium interactions (1,500 / 2,000)"])
     }
 
+    func testCopilotUsageParserToleratesSparseUnlimitedChatSnapshot() throws {
+        let payload = """
+        {
+          "login": "octocat",
+          "copilot_plan": "business",
+          "quota_snapshots": {
+            "premium_interactions": {
+              "entitlement": 2000,
+              "remaining": 500,
+              "unlimited": false
+            },
+            "chat": {
+              "unlimited": true
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CopilotUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(result.bars.map(\.label), ["Premium interactions (1,500 / 2,000)"])
+    }
+
+    func testCopilotUsageProviderUsesStoredGitHubCLIUsernameWhenLabelChanges() async throws {
+        let resolvedUsername = CopilotResolvedUsernameBox()
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            gitHubTokenResolver: { username in
+                resolvedUsername.value = username
+                return "github-token"
+            }
+        )
+        MockURLProtocol.handler = { request in
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("""
+                {
+                  "login": "octocat",
+                  "quota_snapshots": {
+                    "premium_interactions": {
+                      "entitlement": 100,
+                      "remaining": 40,
+                      "unlimited": false
+                    }
+                  }
+                }
+                """.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            accountLabel: "Work",
+            authMethod: .cliToken,
+            githubCLIUsername: "octocat"
+        )
+        _ = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(resolvedUsername.value, "octocat")
+    }
+
     func testLocalCredentialDiscoveryResolvesGitHubAuthToken() throws {
         let token = try XCTUnwrap(LocalCredentialDiscovery.gitHubAuthToken(for: "octocat") {
             (0, "gho_test_token\n", "")
@@ -898,7 +962,8 @@ final class CodexBarMacTests: XCTestCase {
         let configuration = ProviderAccountConfiguration(
             providerID: .copilot,
             accountLabel: "octocat",
-            authMethod: .cliToken
+            authMethod: .cliToken,
+            githubCLIUsername: "octocat"
         )
         let result = try await provider.fetchUsage(for: configuration)
 
@@ -947,13 +1012,24 @@ final class CodexBarMacTests: XCTestCase {
         let configuration = ProviderAccountConfiguration(
             providerID: .copilot,
             accountLabel: "octocat",
-            authMethod: .cliToken
+            authMethod: .cliToken,
+            githubCLIUsername: "octocat"
         )
         let result = try await provider.fetchUsage(for: configuration)
 
         XCTAssertEqual(tokenCounter.callCount, 2)
         XCTAssertEqual(usageRequestCount, 2)
         XCTAssertEqual(result.bars.first?.used, 60)
+    }
+}
+
+private final class CopilotResolvedUsernameBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: String?
+
+    var value: String? {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
     }
 }
 

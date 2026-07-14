@@ -217,8 +217,12 @@ public final class ProviderConfigurationStore: ObservableObject {
 
             if let index = configurations.firstIndex(where: {
                 $0.providerID == .copilot
-                    && $0.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-                        .localizedCaseInsensitiveCompare(username) == .orderedSame
+                    && (
+                        $0.githubCLIUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+                            .localizedCaseInsensitiveCompare(username) == .orderedSame
+                        || $0.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                            .localizedCaseInsensitiveCompare(username) == .orderedSame
+                    )
             }) {
                 if shouldApplyLocalAuthMethod(
                     current: configurations[index].authMethod,
@@ -227,6 +231,7 @@ public final class ProviderConfigurationStore: ObservableObject {
                 ) {
                     configurations[index].authMethod = .cliToken
                 }
+                configurations[index].githubCLIUsername = username
 
                 if configurations[index].authMethod == .cliToken {
                     nextHints[configurations[index].id] = "GitHub CLI (\(username))"
@@ -240,6 +245,7 @@ public final class ProviderConfigurationStore: ObservableObject {
                     for: configurations[index]
                 )
                 configurations[index].authMethod = .cliToken
+                configurations[index].githubCLIUsername = username
                 nextHints[configurations[index].id] = "GitHub CLI (\(username))"
                 continue
             }
@@ -249,6 +255,7 @@ public final class ProviderConfigurationStore: ObservableObject {
                 .withNewAccountID()
             configuration.accountLabel = uniqueAccountLabel(preferred: username, for: configuration)
             configuration.authMethod = .cliToken
+            configuration.githubCLIUsername = username
             configurations.append(configuration)
             nextHints[configuration.id] = "GitHub CLI (\(username))"
         }

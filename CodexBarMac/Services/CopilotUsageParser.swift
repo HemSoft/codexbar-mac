@@ -174,6 +174,19 @@ private struct CopilotQuotaSnapshot: Decodable {
     let entitlement: Int
     let remaining: Int
     let unlimited: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case entitlement
+        case remaining
+        case unlimited
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        entitlement = try container.decodeIfPresent(Int.self, forKey: .entitlement) ?? 0
+        remaining = try container.decodeIfPresent(Int.self, forKey: .remaining) ?? 0
+        unlimited = try container.decodeIfPresent(Bool.self, forKey: .unlimited) ?? false
+    }
 }
 
 private struct CopilotReset {

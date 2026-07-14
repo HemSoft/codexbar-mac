@@ -11,6 +11,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
     public var copilotAccountScope: CopilotAccountScope
     public var githubOrganization: String
     public var githubEnterprise: String
+    public var githubCLIUsername: String
     public var copilotTotalAllotment: Double?
     public var openCodeWorkspaceId: String
 
@@ -25,6 +26,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         copilotAccountScope: CopilotAccountScope = .personal,
         githubOrganization: String = "",
         githubEnterprise: String = "",
+        githubCLIUsername: String = "",
         copilotTotalAllotment: Double? = nil,
         openCodeWorkspaceId: String = ""
     ) {
@@ -38,6 +40,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         self.copilotAccountScope = copilotAccountScope
         self.githubOrganization = githubOrganization
         self.githubEnterprise = githubEnterprise
+        self.githubCLIUsername = githubCLIUsername
         self.copilotTotalAllotment = copilotTotalAllotment
         self.openCodeWorkspaceId = openCodeWorkspaceId
     }
@@ -63,6 +66,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
             copilotAccountScope: copilotAccountScope,
             githubOrganization: githubOrganization,
             githubEnterprise: githubEnterprise,
+            githubCLIUsername: githubCLIUsername,
             copilotTotalAllotment: copilotTotalAllotment,
             openCodeWorkspaceId: openCodeWorkspaceId
         )
@@ -79,6 +83,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         case copilotAccountScope
         case githubOrganization
         case githubEnterprise
+        case githubCLIUsername
         case copilotTotalAllotment
         case openCodeWorkspaceId
     }
@@ -96,6 +101,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         self.copilotAccountScope = try container.decodeIfPresent(CopilotAccountScope.self, forKey: .copilotAccountScope) ?? .personal
         self.githubOrganization = try container.decodeIfPresent(String.self, forKey: .githubOrganization) ?? ""
         self.githubEnterprise = try container.decodeIfPresent(String.self, forKey: .githubEnterprise) ?? ""
+        self.githubCLIUsername = try container.decodeIfPresent(String.self, forKey: .githubCLIUsername) ?? ""
         self.copilotTotalAllotment = try container.decodeIfPresent(Double.self, forKey: .copilotTotalAllotment)
         self.openCodeWorkspaceId = try container.decodeIfPresent(String.self, forKey: .openCodeWorkspaceId) ?? ""
     }

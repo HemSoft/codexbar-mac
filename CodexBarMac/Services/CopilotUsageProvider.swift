@@ -89,22 +89,25 @@ public final class CopilotUsageProvider: UsageProvider {
             return nil
         }
 
-        let username = configuration.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !username.isEmpty else {
+        let username = configuration.githubCLIUsername
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackUsername = configuration.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedUsername = username.isEmpty ? fallbackUsername : username
+        guard !resolvedUsername.isEmpty else {
             return nil
         }
 
-        if let cached = cliTokenCache.token(for: username) {
-            return ResolvedAccessToken(token: cached, source: .cli(username: username))
+        if let cached = cliTokenCache.token(for: resolvedUsername) {
+            return ResolvedAccessToken(token: cached, source: .cli(username: resolvedUsername))
         }
 
-        guard let token = try? gitHubTokenResolver(username)?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let token = try? gitHubTokenResolver(resolvedUsername)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !token.isEmpty else {
             return nil
         }
 
-        cliTokenCache.store(token, for: username)
-        return ResolvedAccessToken(token: token, source: .cli(username: username))
+        cliTokenCache.store(token, for: resolvedUsername)
+        return ResolvedAccessToken(token: token, source: .cli(username: resolvedUsername))
     }
 
     private func fetchPersonalUsage(
