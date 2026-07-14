@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GitHub Copilot reset countdown falls back to date-only reset fields when UTC timestamps are absent.
 - GitHub Copilot usage-based billing accounts label premium quota bars as AI credits.
 - GitHub Copilot falls back to the active GitHub CLI account when no stored CLI username is configured.
+- GitHub Copilot omits token-based placeholder snapshots that do not include usable quota data.
 
 ### Developer Experience
 

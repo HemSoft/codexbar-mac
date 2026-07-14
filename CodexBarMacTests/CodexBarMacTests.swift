@@ -990,6 +990,27 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.label), ["Premium interactions (50 / 300)"])
     }
 
+    func testCopilotUsageParserOmitsTokenBasedPlaceholderWithoutQuota() throws {
+        let payload = """
+        {
+          "login": "octocat",
+          "copilot_plan": "business",
+          "token_based_billing": true,
+          "quota_snapshots": {
+            "premium_interactions": {
+              "entitlement": 0,
+              "remaining": 0,
+              "unlimited": false
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CopilotUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
     func testCopilotUsageProviderPrefersCLITokenOverStaleKeychainSecret() async throws {
         let secretStore = InMemorySecretStore()
         let configuration = ProviderAccountConfiguration(

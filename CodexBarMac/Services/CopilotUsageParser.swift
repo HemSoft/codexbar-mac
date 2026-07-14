@@ -10,7 +10,8 @@ public enum CopilotUsageParser {
         let reset = parseReset(from: response, fetchedAt: fetchedAt)
         var bars: [UsageBar] = []
 
-        if let premium = response.quotaSnapshots?.premiumInteractions {
+        if let premium = response.quotaSnapshots?.premiumInteractions,
+           shouldIncludePremiumSnapshot(response: response, snapshot: premium) {
             let label = premiumInteractionsLabel(response: response, snapshot: premium)
             bars.append(makeUsageBar(snapshot: premium, label: label, reset: reset, fetchedAt: fetchedAt))
         }
@@ -41,6 +42,17 @@ public enum CopilotUsageParser {
 
     private static func usesAICredits(response: CopilotUserResponse, snapshot: CopilotQuotaSnapshot) -> Bool {
         response.tokenBasedBilling == true || snapshot.tokenBasedBilling == true
+    }
+
+    private static func shouldIncludePremiumSnapshot(
+        response: CopilotUserResponse,
+        snapshot: CopilotQuotaSnapshot
+    ) -> Bool {
+        guard usesAICredits(response: response, snapshot: snapshot) else {
+            return true
+        }
+
+        return !(snapshot.entitlement == 0 && snapshot.remaining == 0 && !snapshot.unlimited)
     }
 
     private static func makeUsageBar(
