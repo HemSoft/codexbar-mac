@@ -424,6 +424,15 @@ public final class ClaudeUsageProvider: UsageProvider {
             refreshToken: refreshed.refreshToken ?? credentials.refreshToken
         )
         do {
+            guard let latestCredentials = readLatestCredentials(
+                storage: storage,
+                configuration: configuration
+            ) else {
+                return .rejected
+            }
+            if latestCredentials != credentials {
+                return .refreshed(latestCredentials)
+            }
             try persistCredentials(updated, storage: storage, configuration: configuration)
         } catch {
             return .persistenceFailed
