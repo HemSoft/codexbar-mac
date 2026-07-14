@@ -881,6 +881,29 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.label), ["Premium interactions (1,500 / 2,000)"])
     }
 
+    func testCopilotUsageParserAcceptsFractionalResetTimestamps() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_893_369_600)
+        let payload = """
+        {
+          "login": "octocat",
+          "copilot_plan": "individual_pro",
+          "quota_reset_date_utc": "2030-01-03T00:00:00.000Z",
+          "quota_snapshots": {
+            "premium_interactions": {
+              "entitlement": 2000,
+              "remaining": 500,
+              "unlimited": false
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CopilotUsageParser.parse(Data(payload.utf8), fetchedAt: fetchedAt))
+
+        XCTAssertEqual(result.subtitle, "Resets in 3d")
+        XCTAssertEqual(result.bars.first?.resetsAt, Date(timeIntervalSince1970: 1_893_628_800))
+    }
+
     func testCopilotUsageProviderUsesStoredGitHubCLIUsernameWhenLabelChanges() async throws {
         let resolvedUsername = CopilotResolvedUsernameBox()
         let sessionConfiguration = URLSessionConfiguration.ephemeral

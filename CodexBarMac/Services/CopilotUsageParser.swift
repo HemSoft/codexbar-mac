@@ -99,10 +99,7 @@ public enum CopilotUsageParser {
     }
 
     private static func parseReset(_ resetDateUTC: String?, fetchedAt: Date) -> CopilotReset {
-        guard
-            let resetDateUTC,
-            let date = ISO8601DateFormatter().date(from: resetDateUTC)
-        else {
+        guard let resetDateUTC, let date = parseResetDate(resetDateUTC) else {
             return CopilotReset(date: nil, description: nil)
         }
 
@@ -121,6 +118,16 @@ public enum CopilotUsageParser {
         }
 
         return CopilotReset(date: date, description: description)
+    }
+
+    private static func parseResetDate(_ value: String) -> Date? {
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractionalFormatter.date(from: value) {
+            return date
+        }
+
+        return ISO8601DateFormatter().date(from: value)
     }
 
     private static func formatMonthlyReset(_ date: Date, fetchedAt: Date) -> String {
