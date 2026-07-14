@@ -1078,6 +1078,44 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.first?.used, 60)
     }
 
+    func testCopilotUsageProviderDoesNotCacheActiveCLIAccountToken() async throws {
+        let tokenCounter = CopilotTokenResolverCounter()
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            gitHubTokenResolver: { _ in tokenCounter.nextToken() }
+        )
+        MockURLProtocol.handler = { _ in
+            (
+                HTTPURLResponse(url: URL(string: "https://api.github.com/copilot_internal/user")!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("""
+                {
+                  "login": "octocat",
+                  "quota_snapshots": {
+                    "premium_interactions": {
+                      "entitlement": 100,
+                      "remaining": 40,
+                      "unlimited": false
+                    }
+                  }
+                }
+                """.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            accountLabel: "Work",
+            authMethod: .cliToken
+        )
+        _ = try await provider.fetchUsage(for: configuration)
+        _ = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(tokenCounter.callCount, 2)
+    }
+
     func testCopilotUsageProviderPrefersCLITokenOverStaleKeychainSecret() async throws {
         let secretStore = InMemorySecretStore()
         let configuration = ProviderAccountConfiguration(

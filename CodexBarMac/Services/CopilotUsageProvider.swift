@@ -121,7 +121,7 @@ public final class CopilotUsageProvider: UsageProvider {
         let cacheKey = explicitUsername.isEmpty ? Self.activeCLIAccountCacheKey : explicitUsername
         let resolverUsername: String? = explicitUsername.isEmpty ? nil : explicitUsername
 
-        if let cached = cliTokenCache.token(for: cacheKey) {
+        if !explicitUsername.isEmpty, let cached = cliTokenCache.token(for: cacheKey) {
             return ResolvedAccessToken(token: cached, source: .cli(username: cacheKey))
         }
 
@@ -133,7 +133,9 @@ public final class CopilotUsageProvider: UsageProvider {
             return nil
         }
 
-        cliTokenCache.store(token, for: cacheKey)
+        if !explicitUsername.isEmpty {
+            cliTokenCache.store(token, for: cacheKey)
+        }
         return ResolvedAccessToken(token: token, source: .cli(username: cacheKey))
     }
 
