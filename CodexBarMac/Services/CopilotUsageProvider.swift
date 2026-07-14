@@ -1,6 +1,8 @@
 import Foundation
 
 public final class CopilotUsageProvider: UsageProvider {
+    deinit {}
+
     private typealias GitHubTokenResolver = @Sendable (String) throws -> String?
 
     private static let editorVersion = "vscode/1.96.2"
@@ -41,7 +43,7 @@ public final class CopilotUsageProvider: UsageProvider {
             )
         }
 
-        guard let resolved = resolveAccessToken(for: configuration) else {
+        guard let resolved = await resolveAccessToken(for: configuration) else {
             return failureResult(
                 "Not configured - sign in with GitHub CLI or add a token.",
                 configuration: configuration
@@ -78,9 +80,9 @@ public final class CopilotUsageProvider: UsageProvider {
         let source: ResolvedTokenSource
     }
 
-    private func resolveAccessToken(for configuration: ProviderAccountConfiguration) -> ResolvedAccessToken? {
+    private func resolveAccessToken(for configuration: ProviderAccountConfiguration) async -> ResolvedAccessToken? {
         if configuration.authMethod == .cliToken,
-           let cliToken = resolveCLIToken(for: configuration) {
+           let cliToken = await resolveCLIToken(for: configuration) {
             return cliToken
         }
 
@@ -93,7 +95,7 @@ public final class CopilotUsageProvider: UsageProvider {
         return nil
     }
 
-    private func resolveCLIToken(for configuration: ProviderAccountConfiguration) -> ResolvedAccessToken? {
+    private func resolveCLIToken(for configuration: ProviderAccountConfiguration) async -> ResolvedAccessToken? {
         let username = configuration.githubCLIUsername
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackUsername = configuration.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -106,8 +108,11 @@ public final class CopilotUsageProvider: UsageProvider {
             return ResolvedAccessToken(token: cached, source: .cli(username: resolvedUsername))
         }
 
-        guard let token = try? gitHubTokenResolver(resolvedUsername)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !token.isEmpty else {
+        let resolver = gitHubTokenResolver
+        let token = await Task.detached(priority: .utility) {
+            try? resolver(resolvedUsername)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.value
+        guard let token, !token.isEmpty else {
             return nil
         }
 
@@ -136,7 +141,7 @@ public final class CopilotUsageProvider: UsageProvider {
         case 401 where canRetryWithFreshCLIToken:
             if case .cli(let username) = tokenSource {
                 cliTokenCache.invalidate(username: username)
-                guard let refreshed = resolveAccessToken(for: configuration) else {
+                guard let refreshed = await resolveAccessToken(for: configuration) else {
                     return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
                 }
                 guard refreshed.token != accessToken else {
@@ -193,6 +198,8 @@ public final class CopilotUsageProvider: UsageProvider {
 }
 
 private final class CopilotCLITokenCache: @unchecked Sendable {
+    deinit {}
+
     private let lock = NSLock()
     private var tokens: [String: String] = [:]
 

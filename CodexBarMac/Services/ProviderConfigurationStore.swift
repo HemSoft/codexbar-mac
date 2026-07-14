@@ -486,6 +486,12 @@ public final class ProviderConfigurationStore: ObservableObject {
             return
         }
 
+        let cliUsername = configuration.githubCLIUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cliUsername.isEmpty {
+            addSuppressedCopilotDiscoveryUsername(cliUsername)
+            return
+        }
+
         let label = configuration.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !label.isEmpty else {
             return

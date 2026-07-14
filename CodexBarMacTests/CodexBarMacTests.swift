@@ -970,6 +970,48 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.first?.used, 500)
     }
 
+    func testCopilotUsageProviderFallsBackToKeychainSecretWhenCLIResolverFails() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            accountLabel: "octocat",
+            authMethod: .cliToken,
+            githubCLIUsername: "octocat"
+        )
+        try secretStore.saveSecret("keychain-token", account: ProviderConfigurationStore.keychainAccount(for: configuration))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            gitHubTokenResolver: { _ in nil }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "token keychain-token")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("""
+                {
+                  "login": "octocat",
+                  "quota_snapshots": {
+                    "premium_interactions": {
+                      "entitlement": 100,
+                      "remaining": 40,
+                      "unlimited": false
+                    }
+                  }
+                }
+                """.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 60)
+    }
+
     func testCopilotUsageProviderUsesStoredGitHubCLIUsernameWhenLabelChanges() async throws {
         let resolvedUsername = CopilotResolvedUsernameBox()
         let sessionConfiguration = URLSessionConfiguration.ephemeral
