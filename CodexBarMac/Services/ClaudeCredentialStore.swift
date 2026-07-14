@@ -12,20 +12,37 @@ public enum ClaudeCredentialStore: Sendable {
         keychainAccount: String = NSUserName(),
         credentialsFilePath: String = LocalCredentialDiscovery.defaultClaudeCredentialsPath()
     ) -> (credentials: ClaudeCredentials, storage: Storage)? {
-        for service in keychainCredentialServices() {
-            if let secret = try? readGenericPassword(service: service, account: keychainAccount),
-               let credentials = ClaudeCredentialsParser.parse(secret),
-               credentials.accessToken?.isEmpty == false {
-                return (credentials, .keychain(service: service, account: keychainAccount))
+        let keychainCandidates = keychainCredentialServices().compactMap { service -> (ClaudeCredentials, Storage)? in
+            guard
+                let secret = try? readGenericPassword(service: service, account: keychainAccount),
+                let credentials = ClaudeCredentialsParser.parse(secret),
+                hasUsableAccessToken(credentials)
+            else {
+                return nil
             }
+            return (credentials, .keychain(service: service, account: keychainAccount))
         }
 
-        if let credentials = ClaudeCredentialsParser.parseCredentialsFile(at: credentialsFilePath),
-           credentials.accessToken?.isEmpty == false {
+        let fileCandidate: (ClaudeCredentials, Storage)? = {
+            guard
+                let credentials = ClaudeCredentialsParser.parseCredentialsFile(at: credentialsFilePath),
+                hasUsableAccessToken(credentials)
+            else {
+                return nil
+            }
             return (credentials, .file(credentialsFilePath))
-        }
+        }()
 
-        return nil
+        if let freshKeychain = keychainCandidates.first(where: { isCredentialFresh($0.0) }) {
+            return freshKeychain
+        }
+        if let fileCandidate, isCredentialFresh(fileCandidate.0) {
+            return fileCandidate
+        }
+        if let firstKeychain = keychainCandidates.first {
+            return firstKeychain
+        }
+        return fileCandidate
     }
 
     public static func saveCredentials(
@@ -81,15 +98,15 @@ public enum ClaudeCredentialStore: Sendable {
     }
 
     static func hasOAuthCredentialsInKeychain(account: String) -> Bool {
-        for service in keychainCredentialServices() {
-            guard let secret = try? readGenericPassword(service: service, account: account),
-                  let credentials = ClaudeCredentialsParser.parse(secret),
-                  credentials.accessToken?.isEmpty == false else {
-                continue
+        keychainCredentialServices().contains { service in
+            guard
+                let secret = try? readGenericPassword(service: service, account: account),
+                let credentials = ClaudeCredentialsParser.parse(secret)
+            else {
+                return false
             }
-            return true
+            return hasUsableAccessToken(credentials)
         }
-        return false
     }
 
     static func readCredentials(from storage: Storage) -> ClaudeCredentials? {
@@ -102,6 +119,28 @@ public enum ClaudeCredentialStore: Sendable {
         case .file(let path):
             return ClaudeCredentialsParser.parseCredentialsFile(at: path)
         }
+    }
+
+    private static func hasUsableAccessToken(_ credentials: ClaudeCredentials) -> Bool {
+        guard let accessToken = credentials.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return !accessToken.isEmpty
+    }
+
+    private static func isCredentialFresh(_ credentials: ClaudeCredentials, now: Date = Date()) -> Bool {
+        guard credentials.expiresAt > 0 else {
+            return true
+        }
+
+        let expiresAt = Date(
+            timeIntervalSince1970: TimeInterval(normalizeEpochToSeconds(credentials.expiresAt))
+        )
+        return expiresAt > now
+    }
+
+    private static func normalizeEpochToSeconds(_ value: Int64) -> Int64 {
+        value > 9_999_999_999 ? value / 1_000 : value
     }
 
     private static func enumerateKeychainCredentialServices() -> [String] {

@@ -2,7 +2,7 @@ import Foundation
 
 public final class ClaudeUsageProvider: UsageProvider {
     private static let usageEndpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
-    private static let tokenRefreshEndpoint = URL(string: "https://platform.claude.com/v1/oauth/token")!
+    private static let tokenRefreshEndpoint = URL(string: "https://console.anthropic.com/v1/oauth/token")!
     private static let messagesEndpoint = URL(string: "https://api.anthropic.com/v1/messages")!
     private static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     private static let refreshCoordinator = CredentialRefreshCoordinator<ClaudeCredentialRefreshResult>()
@@ -361,8 +361,7 @@ public final class ClaudeUsageProvider: UsageProvider {
         storage: ClaudeCredentialStore.Storage?,
         configuration: ProviderAccountConfiguration
     ) async -> ClaudeCredentialRefreshResult {
-        if let storage,
-           let latest = ClaudeCredentialStore.readCredentials(from: storage),
+        if let latest = readLatestCredentials(storage: storage, configuration: configuration),
            latest != credentials {
             return .refreshed(latest)
         }
@@ -396,7 +395,11 @@ public final class ClaudeUsageProvider: UsageProvider {
 
         guard (200..<300).contains(httpResponse.statusCode) else {
             if [400, 401, 403].contains(httpResponse.statusCode),
-               let external = externallyRefreshedCredentials(original: credentials, storage: storage) {
+               let external = externallyRefreshedCredentials(
+                original: credentials,
+                storage: storage,
+                configuration: configuration
+            ) {
                 return external
             }
             if [400, 401, 403].contains(httpResponse.statusCode) {
@@ -430,16 +433,33 @@ public final class ClaudeUsageProvider: UsageProvider {
 
     private func externallyRefreshedCredentials(
         original: ClaudeCredentials,
-        storage: ClaudeCredentialStore.Storage?
+        storage: ClaudeCredentialStore.Storage?,
+        configuration: ProviderAccountConfiguration
     ) -> ClaudeCredentialRefreshResult? {
-        guard let storage,
-              let latest = ClaudeCredentialStore.readCredentials(from: storage),
-              latest != original,
-              credentialIsFresh(latest) else {
+        guard
+            let latest = readLatestCredentials(storage: storage, configuration: configuration),
+            latest != original,
+            credentialIsFresh(latest)
+        else {
             return nil
         }
 
         return .refreshed(latest)
+    }
+
+    private func readLatestCredentials(
+        storage: ClaudeCredentialStore.Storage?,
+        configuration: ProviderAccountConfiguration
+    ) -> ClaudeCredentials? {
+        if let storage {
+            return ClaudeCredentialStore.readCredentials(from: storage)
+        }
+
+        let account = ProviderConfigurationStore.keychainAccount(for: configuration)
+        guard let secret = try? secretStore.readSecret(account: account) else {
+            return nil
+        }
+        return ClaudeCredentialsParser.parse(secret)
     }
 
     private func credentialIsFresh(_ credentials: ClaudeCredentials) -> Bool {

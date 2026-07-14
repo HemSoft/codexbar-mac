@@ -605,6 +605,29 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(oauth?["scopes"] as? [String], ["user:inference", "user:profile"])
     }
 
+    func testClaudeCredentialStoreRejectsWhitespaceOnlyAccessTokens() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data("""
+        {
+          "claudeAiOauth": {
+            "accessToken": "   ",
+            "refreshToken": "refresh-token",
+            "expiresAt": 4000000000000
+          }
+        }
+        """.utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        XCTAssertNil(ClaudeCredentialStore.readCredentials(
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)",
+            credentialsFilePath: credentialsPath
+        ))
+    }
+
     func testClaudeUsageProviderReadsLocalCredentialsFile() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
