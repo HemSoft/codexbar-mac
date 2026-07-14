@@ -24,3 +24,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `run.sh` script to build and launch the app from the command line.
 - `AGENTS.md` and `README.md` document build and run instructions.
+- `AGENTS.md` documents that Cursor Cloud (Linux) agents can only perform static review; build, run, and test require macOS with Xcode.
