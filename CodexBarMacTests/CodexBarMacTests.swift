@@ -626,6 +626,7 @@ final class CodexBarMacTests: XCTestCase {
             keychainAccount: "codexbar-tests-\(UUID().uuidString)",
             credentialsFilePath: credentialsPath
         ))
+        XCTAssertNil(ClaudeCredentialStore.readCredentials(from: .file(credentialsPath)))
     }
 
     func testClaudeUsageProviderReadsLocalCredentialsFile() async throws {

@@ -110,15 +110,20 @@ public enum ClaudeCredentialStore: Sendable {
     }
 
     static func readCredentials(from storage: Storage) -> ClaudeCredentials? {
+        let credentials: ClaudeCredentials?
         switch storage {
         case .keychain(let service, let account):
             guard let secret = try? readGenericPassword(service: service, account: account) else {
                 return nil
             }
-            return ClaudeCredentialsParser.parse(secret)
+            credentials = ClaudeCredentialsParser.parse(secret)
         case .file(let path):
-            return ClaudeCredentialsParser.parseCredentialsFile(at: path)
+            credentials = ClaudeCredentialsParser.parseCredentialsFile(at: path)
         }
+        guard let credentials, hasUsableAccessToken(credentials) else {
+            return nil
+        }
+        return credentials
     }
 
     private static func hasUsableAccessToken(_ credentials: ClaudeCredentials) -> Bool {
