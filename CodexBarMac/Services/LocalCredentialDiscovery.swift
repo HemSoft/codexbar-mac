@@ -206,6 +206,41 @@ public struct LocalCredentialDiscovery: Sendable {
         return "/usr/bin/env"
     }
 
+    static func gitHubAuthTokenArguments(for executable: String, username: String) -> [String] {
+        if executable == "/usr/bin/env" {
+            return ["gh", "auth", "token", "--user", username, "--hostname", "github.com"]
+        }
+
+        return ["auth", "token", "--user", username, "--hostname", "github.com"]
+    }
+
+    public static func gitHubAuthToken(
+        for username: String,
+        tokenRunner: (@Sendable () throws -> (exitCode: Int32, stdout: String, stderr: String))? = nil
+    ) throws -> String? {
+        let trimmedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedUsername.isEmpty else {
+            return nil
+        }
+
+        let runner = tokenRunner ?? {
+            let executable = resolveGitHubCLIExecutable()
+            return try ShellCommand.run(
+                executable: executable,
+                arguments: gitHubAuthTokenArguments(for: executable, username: trimmedUsername),
+                timeout: 10
+            )
+        }
+
+        let result = try runner()
+        guard result.exitCode == 0 else {
+            return nil
+        }
+
+        let token = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return token.isEmpty ? nil : token
+    }
+
     static func gitHubAuthStatusArguments(for executable: String) -> [String] {
         if executable == "/usr/bin/env" {
             return ["gh", "auth", "status", "--hostname", "github.com"]

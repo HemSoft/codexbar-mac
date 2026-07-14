@@ -772,6 +772,205 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(secondResult.bars.map(\.used), [25, 50])
         XCTAssertTrue(secondResult.subtitle.contains("Showing last known data."))
     }
+
+    func testCopilotCredentialsParserReadsStoredJSONAndRawToken() {
+        XCTAssertEqual(
+            CopilotCredentialsParser.parse(#"{"accessToken":"token","username":"octocat"}"#),
+            CopilotCredentials(accessToken: "token", username: "octocat")
+        )
+        XCTAssertEqual(
+            CopilotCredentialsParser.parse("gho_raw_token"),
+            CopilotCredentials(accessToken: "gho_raw_token")
+        )
+    }
+
+    func testCopilotUsageRequestMatchesWindowsCopilotHeaders() {
+        let provider = CopilotUsageProvider(
+            secretStore: InMemorySecretStore(),
+            usageEndpoint: URL(string: "https://api.github.com/copilot_internal/user")!
+        )
+
+        let request = provider.makeUsageRequest(accessToken: "github-token")
+
+        XCTAssertEqual(request.url?.absoluteString, "https://api.github.com/copilot_internal/user")
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "token github-token")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "GitHubCopilotChat/0.26.7")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Editor-Version"), "vscode/1.96.2")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Editor-Plugin-Version"), "copilot-chat/0.26.7")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Github-Api-Version"), "2025-04-01")
+    }
+
+    func testCopilotUsageParserReadsQuotaSnapshots() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_893_369_600)
+        let payload = """
+        {
+          "login": "octocat",
+          "copilot_plan": "individual_pro",
+          "quota_reset_date_utc": "2030-01-03T00:00:00Z",
+          "quota_snapshots": {
+            "premium_interactions": {
+              "entitlement": 2000,
+              "remaining": 500,
+              "unlimited": false
+            },
+            "chat": {
+              "entitlement": 100,
+              "remaining": 12,
+              "unlimited": false
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CopilotUsageParser.parse(Data(payload.utf8), fetchedAt: fetchedAt))
+
+        XCTAssertEqual(result.providerID, .copilot)
+        XCTAssertEqual(result.title, "GitHub Copilot (octocat) - Pro")
+        XCTAssertEqual(result.bars.map(\.label), ["Premium interactions (1,500 / 2,000)", "Chat (88 / 100)"])
+        XCTAssertEqual(result.bars.map(\.usageText), ["75%", "88%"])
+        XCTAssertEqual(result.subtitle, "Resets in 3d")
+    }
+
+    func testCopilotUsageParserOmitsUnlimitedChatQuota() throws {
+        let payload = """
+        {
+          "login": "fphemmer",
+          "copilot_plan": "business",
+          "quota_snapshots": {
+            "premium_interactions": {
+              "entitlement": 2000,
+              "remaining": 500,
+              "unlimited": false
+            },
+            "chat": {
+              "entitlement": 0,
+              "remaining": 0,
+              "unlimited": true
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CopilotUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(result.bars.map(\.label), ["Premium interactions (1,500 / 2,000)"])
+    }
+
+    func testLocalCredentialDiscoveryResolvesGitHubAuthToken() throws {
+        let token = try XCTUnwrap(LocalCredentialDiscovery.gitHubAuthToken(for: "octocat") {
+            (0, "gho_test_token\n", "")
+        })
+
+        XCTAssertEqual(token, "gho_test_token")
+    }
+
+    func testCopilotUsageProviderReadsGitHubCLIToken() async throws {
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            gitHubTokenResolver: { _ in "github-token" }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/copilot_internal/user")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "token github-token")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("""
+                {
+                  "login": "octocat",
+                  "copilot_plan": "individual_pro",
+                  "quota_snapshots": {
+                    "premium_interactions": {
+                      "entitlement": 2000,
+                      "remaining": 1500,
+                      "unlimited": false
+                    }
+                  }
+                }
+                """.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            accountLabel: "octocat",
+            authMethod: .cliToken
+        )
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.title, "octocat")
+        XCTAssertEqual(result.bars.first?.used, 500)
+    }
+
+    func testCopilotUsageProviderRetriesWithFreshGitHubCLITokenAfter401() async throws {
+        let tokenCounter = CopilotTokenResolverCounter()
+        var usageRequestCount = 0
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            gitHubTokenResolver: { _ in tokenCounter.nextToken() }
+        )
+        MockURLProtocol.handler = { request in
+            usageRequestCount += 1
+            if usageRequestCount == 1 {
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "token stale-token")
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 401, httpVersion: nil, headerFields: nil)!,
+                    Data()
+                )
+            }
+
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "token fresh-token")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("""
+                {
+                  "login": "octocat",
+                  "quota_snapshots": {
+                    "premium_interactions": {
+                      "entitlement": 100,
+                      "remaining": 40,
+                      "unlimited": false
+                    }
+                  }
+                }
+                """.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            accountLabel: "octocat",
+            authMethod: .cliToken
+        )
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(tokenCounter.callCount, 2)
+        XCTAssertEqual(usageRequestCount, 2)
+        XCTAssertEqual(result.bars.first?.used, 60)
+    }
+}
+
+private final class CopilotTokenResolverCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var callCount: Int {
+        lock.withLock { count }
+    }
+
+    func nextToken() -> String {
+        lock.withLock {
+            count += 1
+            return count == 1 ? "stale-token" : "fresh-token"
+        }
+    }
 }
 
 private func requestBodyData(from request: URLRequest) -> Data? {
