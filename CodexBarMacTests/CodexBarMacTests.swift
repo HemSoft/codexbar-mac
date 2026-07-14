@@ -462,6 +462,47 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.used), [42, 81])
     }
 
+    func testClaudeUsageParserSurfacesOAuthAppsWeeklyLimitSeparately() throws {
+        let payload = """
+        {
+          "five_hour": {
+            "utilization": 12,
+            "resets_at": "2030-01-01T00:00:00Z"
+          },
+          "seven_day": {
+            "utilization": 34,
+            "resets_at": "2030-01-08T00:00:00Z"
+          },
+          "seven_day_oauth_apps": {
+            "utilization": 61,
+            "resets_at": "2030-01-08T12:00:00Z"
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(payload.utf8),
+            subscriptionType: "pro"
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), [
+            "5 hour usage limit",
+            "Weekly usage limit",
+            "OAuth apps weekly usage limit",
+        ])
+        XCTAssertEqual(result.bars.map(\.used), [12, 34, 61])
+    }
+
+    func testClaudeUsageParserLabelsOAuthAppsWeeklyLimitWhenAllModelWeeklyIsAbsent() throws {
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"seven_day_oauth_apps":{"utilization":55,"resets_at":"2030-01-08T00:00:00Z"}}"#.utf8),
+            subscriptionType: "pro"
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), ["OAuth apps weekly usage limit"])
+        XCTAssertEqual(result.bars.map(\.used), [55])
+    }
+
     func testClaudeUsageParserPreservesSubOnePercentOAuthUtilization() throws {
         let result = try XCTUnwrap(ClaudeUsageParser.parse(
             Data(#"{"five_hour":{"utilization":0.5,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8),
@@ -661,6 +702,75 @@ final class CodexBarMacTests: XCTestCase {
         let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
 
         XCTAssertEqual(result.bars.map(\.used), [25, 50])
+    }
+
+    func testClaudeUsageProviderPreservesSnapshotAfter401TriggeredRefresh() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 4_000_000_000_000,
+            accessToken: "old-access",
+            refreshToken: "refresh-token"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .claude)
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = ClaudeUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            credentialsFilePath: credentialsPath,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)"
+        )
+        var usageRequestCount = 0
+
+        MockURLProtocol.handler = { request in
+            if request.url?.path == "/v1/oauth/token" {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"access_token":"new-access","refresh_token":"refresh-token","expires_in":3600}"#.utf8)
+                )
+            }
+
+            XCTAssertEqual(request.url?.path, "/api/oauth/usage")
+            usageRequestCount += 1
+            if usageRequestCount == 1 {
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer old-access")
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 401, httpVersion: nil, headerFields: nil)!,
+                    Data()
+                )
+            }
+
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer new-access")
+            if usageRequestCount == 2 {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"five_hour":{"utilization":25,"resets_at":"2030-01-01T00:00:00Z"},"seven_day":{"utilization":50,"resets_at":"2030-01-08T00:00:00Z"}}"#.utf8)
+                )
+            }
+
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 429,
+                    httpVersion: nil,
+                    headerFields: ["Retry-After": "60"]
+                )!,
+                Data()
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let firstResult = try await provider.fetchUsage(for: configuration)
+        XCTAssertEqual(firstResult.bars.map(\.used), [25, 50])
+
+        let secondResult = try await provider.fetchUsage(for: configuration)
+        XCTAssertEqual(secondResult.bars.map(\.used), [25, 50])
+        XCTAssertTrue(secondResult.subtitle.contains("Showing last known data."))
     }
 }
 

@@ -2,6 +2,7 @@ import Foundation
 
 enum ClaudeUsageIdentity {
     static let allModelsWeeklyStableKey = "weekly-all"
+    static let oauthAppsWeeklyStableKey = "weekly-oauth-apps"
     static let allModelsWeeklyLegacyKey = "weekly-usage-limit"
     static let sonnetWeeklyLegacyKey = "sonnet-weekly-limit"
     static let opusWeeklyLegacyKey = "opus-weekly-limit"
@@ -192,7 +193,17 @@ public enum ClaudeUsageParser {
             label: hasScopedWeeklyLimit
                 ? "All models weekly usage limit"
                 : "Weekly usage limit",
-            window: usage.sevenDay ?? usage.sevenDayOAuthApps,
+            window: usage.sevenDay,
+            durationSeconds: 604_800,
+            semanticKeys: &semanticKeys,
+            bars: &bars,
+            fetchedAt: fetchedAt,
+            dateTimeFormatter: dateTimeFormatter
+        )
+        appendLegacyBar(
+            key: ClaudeUsageIdentity.oauthAppsWeeklyStableKey,
+            label: "OAuth apps weekly usage limit",
+            window: usage.sevenDayOAuthApps,
             durationSeconds: 604_800,
             semanticKeys: &semanticKeys,
             bars: &bars,
@@ -540,7 +551,9 @@ public enum ClaudeUsageParser {
         case "session":
             window = usage.fiveHour
         case "weekly-all":
-            window = usage.sevenDay ?? usage.sevenDayOAuthApps
+            window = usage.sevenDay
+        case "weekly-oauth-apps":
+            window = usage.sevenDayOAuthApps
         case "weekly-scoped-sonnet":
             window = usage.sevenDaySonnet
         case "weekly-scoped-opus":

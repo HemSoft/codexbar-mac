@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Native Settings window for appearance, auto-refresh, launch at login, and per-provider account management with immediate dashboard updates.
 - Keychain-backed API key storage and local CLI credential discovery for Codex (`~/.codex/auth.json`), GitHub CLI (`gh auth status`), and Claude Code (`~/.claude/.credentials.json`).
 - Live ChatGPT / Codex usage fetching from local CLI credentials with proactive token refresh, 5-hour and weekly usage windows, and reset countdowns.
-- Live Claude usage fetching from Claude Code OAuth credentials with session, weekly, and model-scoped limit bars.
+- Live Claude usage fetching from Claude Code OAuth credentials with session, weekly, OAuth-app weekly, and model-scoped limit bars.
 
 ### Developer Experience
 

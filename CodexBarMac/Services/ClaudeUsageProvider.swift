@@ -197,6 +197,10 @@ public final class ClaudeUsageProvider: UsageProvider {
                 }
                 loaded.credentials = refreshed
                 accessToken = newToken
+                await snapshotCache.adoptRotatedCredential(
+                    accountID: configuration.id,
+                    credential: newToken
+                )
                 return try await fetchOAuthUsage(
                     configuration: configuration,
                     loaded: &loaded,
@@ -291,6 +295,10 @@ public final class ClaudeUsageProvider: UsageProvider {
                 }
                 loaded.credentials = refreshed
                 accessToken = newToken
+                await snapshotCache.adoptRotatedCredential(
+                    accountID: configuration.id,
+                    credential: newToken
+                )
                 return try await fetchRateLimitUsage(
                     configuration: configuration,
                     loaded: &loaded,
@@ -618,6 +626,10 @@ private actor ClaudeUsageSnapshotCache {
             results[accountID] = nil
             retryDates[accountID] = nil
         }
+        credentials[accountID] = credential
+    }
+
+    func adoptRotatedCredential(accountID: String, credential: String) {
         credentials[accountID] = credential
     }
 
