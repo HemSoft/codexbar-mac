@@ -2,7 +2,7 @@ import Foundation
 
 public final class ClaudeUsageProvider: UsageProvider {
     private static let usageEndpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
-    private static let tokenRefreshEndpoint = URL(string: "https://console.anthropic.com/v1/oauth/token")!
+    private static let tokenRefreshEndpoint = URL(string: "https://platform.claude.com/v1/oauth/token")!
     private static let messagesEndpoint = URL(string: "https://api.anthropic.com/v1/messages")!
     private static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     private static let refreshCoordinator = CredentialRefreshCoordinator<ClaudeCredentialRefreshResult>()
