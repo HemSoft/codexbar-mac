@@ -1011,6 +1011,73 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(result.bars.isEmpty)
     }
 
+    func testCopilotUsageParserSurfacesExhaustedPooledQuota() throws {
+        let payload = """
+        {
+          "login": "octocat",
+          "copilot_plan": "business",
+          "token_based_billing": true,
+          "quota_snapshots": {
+            "premium_interactions": {
+              "entitlement": 0,
+              "remaining": 0,
+              "unlimited": true,
+              "has_quota": false
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CopilotUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(result.bars.map(\.label), ["AI credits - pool exhausted"])
+        XCTAssertEqual(result.bars.first?.usageText, "100%")
+    }
+
+    func testCopilotUsageProviderPrefersKeychainWhenNoCLIUsernameBound() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            accountLabel: "Saved Token",
+            authMethod: .cliToken
+        )
+        try secretStore.saveSecret("saved-token", account: ProviderConfigurationStore.keychainAccount(for: configuration))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            gitHubTokenResolver: { _ in
+                XCTFail("Active CLI fallback should not run when a saved token exists")
+                return "active-cli-token"
+            }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "token saved-token")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("""
+                {
+                  "login": "octocat",
+                  "quota_snapshots": {
+                    "premium_interactions": {
+                      "entitlement": 100,
+                      "remaining": 40,
+                      "unlimited": false
+                    }
+                  }
+                }
+                """.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 60)
+    }
+
     func testCopilotUsageProviderPrefersCLITokenOverStaleKeychainSecret() async throws {
         let secretStore = InMemorySecretStore()
         let configuration = ProviderAccountConfiguration(

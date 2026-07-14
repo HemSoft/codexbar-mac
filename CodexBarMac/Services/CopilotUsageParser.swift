@@ -61,6 +61,16 @@ public enum CopilotUsageParser {
         reset: CopilotReset,
         fetchedAt: Date
     ) -> UsageBar {
+        if snapshot.unlimited && snapshot.hasQuota == false {
+            return UsageBar(
+                label: "\(label) - pool exhausted",
+                used: 1,
+                limit: 1,
+                resetDescription: reset.description,
+                resetsAt: reset.date
+            )
+        }
+
         guard snapshot.entitlement > 0 else {
             return UsageBar(
                 label: snapshot.unlimited ? "\(label) - unlimited" : "\(label) - no quota",
@@ -228,12 +238,14 @@ private struct CopilotQuotaSnapshot: Decodable {
     let entitlement: Int
     let remaining: Int
     let unlimited: Bool
+    let hasQuota: Bool?
     let tokenBasedBilling: Bool?
 
     enum CodingKeys: String, CodingKey {
         case entitlement
         case remaining
         case unlimited
+        case hasQuota = "has_quota"
         case tokenBasedBilling = "token_based_billing"
     }
 
@@ -242,6 +254,7 @@ private struct CopilotQuotaSnapshot: Decodable {
         entitlement = try container.decodeIfPresent(Int.self, forKey: .entitlement) ?? 0
         remaining = try container.decodeIfPresent(Int.self, forKey: .remaining) ?? 0
         unlimited = try container.decodeIfPresent(Bool.self, forKey: .unlimited) ?? false
+        hasQuota = try container.decodeIfPresent(Bool.self, forKey: .hasQuota)
         tokenBasedBilling = try container.decodeIfPresent(Bool.self, forKey: .tokenBasedBilling)
     }
 }

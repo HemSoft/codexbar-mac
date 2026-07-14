@@ -82,11 +82,30 @@ public final class CopilotUsageProvider: UsageProvider {
     }
 
     private func resolveAccessToken(for configuration: ProviderAccountConfiguration) async -> ResolvedAccessToken? {
-        if configuration.authMethod == .cliToken,
-           let cliToken = await resolveCLIToken(for: configuration) {
-            return cliToken
+        if configuration.authMethod == .cliToken {
+            let cliUsername = configuration.githubCLIUsername
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let prefersCLI = !cliUsername.isEmpty
+
+            if prefersCLI, let cliToken = await resolveCLIToken(for: configuration) {
+                return cliToken
+            }
+
+            if let keychainToken = resolveKeychainToken(for: configuration) {
+                return keychainToken
+            }
+
+            if !prefersCLI, let cliToken = await resolveCLIToken(for: configuration) {
+                return cliToken
+            }
+
+            return nil
         }
 
+        return resolveKeychainToken(for: configuration)
+    }
+
+    private func resolveKeychainToken(for configuration: ProviderAccountConfiguration) -> ResolvedAccessToken? {
         let keychainAccount = ProviderConfigurationStore.keychainAccount(for: configuration)
         if let storedSecret = try? secretStore.readSecret(account: keychainAccount),
            let credentials = CopilotCredentialsParser.parse(storedSecret) {
