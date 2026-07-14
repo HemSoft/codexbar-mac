@@ -54,3 +54,24 @@ open CodexBarMac.xcodeproj
 
 The app is a menu bar agent (`LSUIElement`); it does not appear in the Dock.
 Look for the chart.bar.fill SF Symbol in the menu bar after launch.
+
+## Cursor Cloud specific instructions
+
+Cursor Cloud agents run on a **Linux** VM. This project is a **macOS-only Xcode
+app** and **cannot be built, run, or tested on the Cloud Agent VM**:
+
+- Building requires **Xcode 16 / `xcodebuild`** (macOS-only). There is no
+ `Package.swift`, so `swift build` is not an option either.
+- Sources import macOS-only frameworks (`SwiftUI`, `AppKit`, `Combine`,
+ `Security`, `ServiceManagement`, `Darwin`). Even the pure-logic parsers depend
+ transitively on `SwiftUI` (e.g. `UsageBar.severity` → `UsageSeverity.tint` →
+ `Color`), so no meaningful subset compiles with a Swift-on-Linux toolchain.
+- The `CodexBarMacTests` XCTest bundle is host-based (`TEST_HOST`/`BUNDLE_LOADER`
+ point at the built `.app`) and imports `Darwin`, so tests also require macOS.
+
+On the Linux Cloud VM, only **static code review** of the Swift sources is
+possible. To actually build/run/test (`./run.sh`, `xcodebuild ... build`,
+`xcodebuild ... test`), use a **macOS 14+ host with Xcode 16+** as documented in
+`README.md` and the Build & Run section above. There are no package-manager
+dependencies to install (only Apple system frameworks), so no dependency setup
+step is needed.
