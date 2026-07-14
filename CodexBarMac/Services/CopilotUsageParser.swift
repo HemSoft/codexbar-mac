@@ -11,7 +11,8 @@ public enum CopilotUsageParser {
         var bars: [UsageBar] = []
 
         if let premium = response.quotaSnapshots?.premiumInteractions {
-            bars.append(makeUsageBar(snapshot: premium, label: "Premium interactions", reset: reset, fetchedAt: fetchedAt))
+            let label = premiumInteractionsLabel(response: response, snapshot: premium)
+            bars.append(makeUsageBar(snapshot: premium, label: label, reset: reset, fetchedAt: fetchedAt))
         }
 
         if let chat = response.quotaSnapshots?.chat, !chat.unlimited, chat.entitlement > 0 {
@@ -29,6 +30,17 @@ public enum CopilotUsageParser {
 
     public static func username(from data: Data) -> String? {
         (try? JSONDecoder().decode(CopilotUserResponse.self, from: data))?.login
+    }
+
+    private static func premiumInteractionsLabel(
+        response: CopilotUserResponse,
+        snapshot: CopilotQuotaSnapshot
+    ) -> String {
+        usesAICredits(response: response, snapshot: snapshot) ? "AI credits" : "Premium interactions"
+    }
+
+    private static func usesAICredits(response: CopilotUserResponse, snapshot: CopilotQuotaSnapshot) -> Bool {
+        response.tokenBasedBilling == true || snapshot.tokenBasedBilling == true
     }
 
     private static func makeUsageBar(
@@ -175,6 +187,7 @@ public enum CopilotUsageParser {
 private struct CopilotUserResponse: Decodable {
     let login: String?
     let copilotPlan: String?
+    let tokenBasedBilling: Bool?
     let quotaResetDate: String?
     let quotaResetDateUTC: String?
     let quotaSnapshots: CopilotQuotaSnapshots?
@@ -182,6 +195,7 @@ private struct CopilotUserResponse: Decodable {
     enum CodingKeys: String, CodingKey {
         case login
         case copilotPlan = "copilot_plan"
+        case tokenBasedBilling = "token_based_billing"
         case quotaResetDate = "quota_reset_date"
         case quotaResetDateUTC = "quota_reset_date_utc"
         case quotaSnapshots = "quota_snapshots"
@@ -202,11 +216,13 @@ private struct CopilotQuotaSnapshot: Decodable {
     let entitlement: Int
     let remaining: Int
     let unlimited: Bool
+    let tokenBasedBilling: Bool?
 
     enum CodingKeys: String, CodingKey {
         case entitlement
         case remaining
         case unlimited
+        case tokenBasedBilling = "token_based_billing"
     }
 
     init(from decoder: Decoder) throws {
@@ -214,6 +230,7 @@ private struct CopilotQuotaSnapshot: Decodable {
         entitlement = try container.decodeIfPresent(Int.self, forKey: .entitlement) ?? 0
         remaining = try container.decodeIfPresent(Int.self, forKey: .remaining) ?? 0
         unlimited = try container.decodeIfPresent(Bool.self, forKey: .unlimited) ?? false
+        tokenBasedBilling = try container.decodeIfPresent(Bool.self, forKey: .tokenBasedBilling)
     }
 }
 

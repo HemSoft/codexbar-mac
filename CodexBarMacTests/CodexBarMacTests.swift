@@ -927,6 +927,69 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.first?.resetsAt, Date(timeIntervalSince1970: 1_893_628_800))
     }
 
+    func testCopilotUsageParserLabelsTokenBasedBillingAsAICredits() throws {
+        let payload = """
+        {
+          "login": "octocat",
+          "copilot_plan": "individual_pro",
+          "token_based_billing": true,
+          "quota_snapshots": {
+            "premium_interactions": {
+              "entitlement": 7000,
+              "remaining": 4846,
+              "unlimited": false
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CopilotUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(result.bars.map(\.label), ["AI credits (2,154 / 7,000)"])
+    }
+
+    func testCopilotUsageParserUsesSnapshotBillingMarkerForAICredits() throws {
+        let payload = """
+        {
+          "login": "octocat",
+          "copilot_plan": "business",
+          "quota_snapshots": {
+            "premium_interactions": {
+              "entitlement": 3000,
+              "remaining": 2500,
+              "unlimited": false,
+              "token_based_billing": true
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CopilotUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(result.bars.map(\.label), ["AI credits (500 / 3,000)"])
+    }
+
+    func testCopilotUsageParserKeepsPremiumInteractionsLabelForLegacyBilling() throws {
+        let payload = """
+        {
+          "login": "octocat",
+          "copilot_plan": "individual_pro",
+          "token_based_billing": false,
+          "quota_snapshots": {
+            "premium_interactions": {
+              "entitlement": 300,
+              "remaining": 250,
+              "unlimited": false
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CopilotUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(result.bars.map(\.label), ["Premium interactions (50 / 300)"])
+    }
+
     func testCopilotUsageProviderPrefersCLITokenOverStaleKeychainSecret() async throws {
         let secretStore = InMemorySecretStore()
         let configuration = ProviderAccountConfiguration(
