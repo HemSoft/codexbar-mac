@@ -42,6 +42,9 @@
 		100000000000000000000022 /* CodexTokenRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000024 /* CodexTokenRefresh.swift */; };
 		100000000000000000000023 /* CodexUsageParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000025 /* CodexUsageParser.swift */; };
 		100000000000000000000024 /* CodexUsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000026 /* CodexUsageProvider.swift */; };
+		100000000000000000000027 /* ClaudeUsageParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000029 /* ClaudeUsageParser.swift */; };
+		100000000000000000000028 /* ClaudeUsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002A /* ClaudeUsageProvider.swift */; };
+		100000000000000000000029 /* ClaudeCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002B /* ClaudeCredentialStore.swift */; };
 		100000000000000000000025 /* CodexBarMacTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000028 /* CodexBarMacTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -83,6 +86,9 @@
 		200000000000000000000024 /* CodexTokenRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTokenRefresh.swift; sourceTree = "<group>"; };
 		200000000000000000000025 /* CodexUsageParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexUsageParser.swift; sourceTree = "<group>"; };
 		200000000000000000000026 /* CodexUsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexUsageProvider.swift; sourceTree = "<group>"; };
+		200000000000000000000029 /* ClaudeUsageParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeUsageParser.swift; sourceTree = "<group>"; };
+		20000000000000000000002A /* ClaudeUsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeUsageProvider.swift; sourceTree = "<group>"; };
+		20000000000000000000002B /* ClaudeCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCredentialStore.swift; sourceTree = "<group>"; };
 		200000000000000000000027 /* CodexBarMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000028 /* CodexBarMacTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarMacTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -199,6 +205,9 @@
 				200000000000000000000024 /* CodexTokenRefresh.swift */,
 				200000000000000000000025 /* CodexUsageParser.swift */,
 				200000000000000000000026 /* CodexUsageProvider.swift */,
+				200000000000000000000029 /* ClaudeUsageParser.swift */,
+				20000000000000000000002A /* ClaudeUsageProvider.swift */,
+				20000000000000000000002B /* ClaudeCredentialStore.swift */,
 				200000000000000000000018 /* LaunchAtLoginManager.swift */,
 			);
 			path = Services;
@@ -368,6 +377,9 @@
 				100000000000000000000022 /* CodexTokenRefresh.swift in Sources */,
 				100000000000000000000023 /* CodexUsageParser.swift in Sources */,
 				100000000000000000000024 /* CodexUsageProvider.swift in Sources */,
+				100000000000000000000027 /* ClaudeUsageParser.swift in Sources */,
+				100000000000000000000028 /* ClaudeUsageProvider.swift in Sources */,
+				100000000000000000000029 /* ClaudeCredentialStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

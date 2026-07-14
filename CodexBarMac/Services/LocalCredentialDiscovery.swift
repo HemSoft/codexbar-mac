@@ -96,18 +96,7 @@ public struct LocalCredentialDiscovery: Sendable {
     }
 
     static func hasClaudeOAuthCredentialsInKeychain(account: String) -> Bool {
-        for service in ["Claude Code-credentials", "Claude Code"] {
-            guard let secret = try? readGenericPassword(service: service, account: account),
-                  let credentials = ClaudeCredentialsParser.parse(secret),
-                  let accessToken = credentials.accessToken?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !accessToken.isEmpty else {
-                continue
-            }
-
-            return true
-        }
-
-        return false
+        ClaudeCredentialStore.hasOAuthCredentialsInKeychain(account: account)
     }
 
     static func readGenericPassword(service: String, account: String) throws -> String? {
