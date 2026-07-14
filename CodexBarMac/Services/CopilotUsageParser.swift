@@ -7,7 +7,7 @@ public enum CopilotUsageParser {
         }
 
         let title = formatDisplayName(username: response.login, plan: response.copilotPlan)
-        let reset = parseReset(response.quotaResetDateUTC, fetchedAt: fetchedAt)
+        let reset = parseReset(from: response, fetchedAt: fetchedAt)
         var bars: [UsageBar] = []
 
         if let premium = response.quotaSnapshots?.premiumInteractions {
@@ -98,11 +98,21 @@ public enum CopilotUsageParser {
         return "\(base) - \(planLabel)"
     }
 
-    private static func parseReset(_ resetDateUTC: String?, fetchedAt: Date) -> CopilotReset {
-        guard let resetDateUTC, let date = parseResetDate(resetDateUTC) else {
-            return CopilotReset(date: nil, description: nil)
+    private static func parseReset(from response: CopilotUserResponse, fetchedAt: Date) -> CopilotReset {
+        if let resetDateUTC = response.quotaResetDateUTC,
+           let date = parseResetDate(resetDateUTC) {
+            return makeReset(date: date, fetchedAt: fetchedAt)
         }
 
+        if let resetDate = response.quotaResetDate,
+           let date = parseDateOnlyReset(resetDate) {
+            return makeReset(date: date, fetchedAt: fetchedAt)
+        }
+
+        return CopilotReset(date: nil, description: nil)
+    }
+
+    private static func makeReset(date: Date, fetchedAt: Date) -> CopilotReset {
         let remaining = date.timeIntervalSince(fetchedAt)
         let description: String
         if remaining < 0 {
@@ -118,6 +128,15 @@ public enum CopilotUsageParser {
         }
 
         return CopilotReset(date: date, description: description)
+    }
+
+    private static func parseDateOnlyReset(_ value: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: value)
     }
 
     private static func parseResetDate(_ value: String) -> Date? {
@@ -156,12 +175,14 @@ public enum CopilotUsageParser {
 private struct CopilotUserResponse: Decodable {
     let login: String?
     let copilotPlan: String?
+    let quotaResetDate: String?
     let quotaResetDateUTC: String?
     let quotaSnapshots: CopilotQuotaSnapshots?
 
     enum CodingKeys: String, CodingKey {
         case login
         case copilotPlan = "copilot_plan"
+        case quotaResetDate = "quota_reset_date"
         case quotaResetDateUTC = "quota_reset_date_utc"
         case quotaSnapshots = "quota_snapshots"
     }

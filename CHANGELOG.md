@@ -19,6 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Live Claude usage fetching from Claude Code OAuth credentials with session, weekly, OAuth-app weekly, and model-scoped limit bars.
 - Live GitHub Copilot usage fetching from GitHub CLI credentials with premium and chat quota bars per account.
 
+### Fixed
+
+- GitHub Copilot CLI accounts prefer fresh GitHub CLI tokens over stale saved Keychain secrets.
+- GitHub Copilot reset countdown falls back to date-only reset fields when UTC timestamps are absent.
+
 ### Developer Experience
 
 - `CodexBarMacTests` target with parser and provider unit tests using redacted fixtures.

@@ -79,16 +79,21 @@ public final class CopilotUsageProvider: UsageProvider {
     }
 
     private func resolveAccessToken(for configuration: ProviderAccountConfiguration) -> ResolvedAccessToken? {
+        if configuration.authMethod == .cliToken,
+           let cliToken = resolveCLIToken(for: configuration) {
+            return cliToken
+        }
+
         let keychainAccount = ProviderConfigurationStore.keychainAccount(for: configuration)
         if let storedSecret = try? secretStore.readSecret(account: keychainAccount),
            let credentials = CopilotCredentialsParser.parse(storedSecret) {
             return ResolvedAccessToken(token: credentials.accessToken, source: .keychain)
         }
 
-        guard configuration.authMethod == .cliToken else {
-            return nil
-        }
+        return nil
+    }
 
+    private func resolveCLIToken(for configuration: ProviderAccountConfiguration) -> ResolvedAccessToken? {
         let username = configuration.githubCLIUsername
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackUsername = configuration.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)

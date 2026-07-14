@@ -904,6 +904,72 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.first?.resetsAt, Date(timeIntervalSince1970: 1_893_628_800))
     }
 
+    func testCopilotUsageParserFallsBackToDateOnlyResetField() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_893_369_600)
+        let payload = """
+        {
+          "login": "octocat",
+          "copilot_plan": "individual_pro",
+          "quota_reset_date": "2030-01-03",
+          "quota_snapshots": {
+            "premium_interactions": {
+              "entitlement": 2000,
+              "remaining": 500,
+              "unlimited": false
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CopilotUsageParser.parse(Data(payload.utf8), fetchedAt: fetchedAt))
+
+        XCTAssertEqual(result.subtitle, "Resets in 3d")
+        XCTAssertEqual(result.bars.first?.resetsAt, Date(timeIntervalSince1970: 1_893_628_800))
+    }
+
+    func testCopilotUsageProviderPrefersCLITokenOverStaleKeychainSecret() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            accountLabel: "octocat",
+            authMethod: .cliToken,
+            githubCLIUsername: "octocat"
+        )
+        try secretStore.saveSecret("stale-token", account: ProviderConfigurationStore.keychainAccount(for: configuration))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            gitHubTokenResolver: { _ in "github-token" }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "token github-token")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("""
+                {
+                  "login": "octocat",
+                  "copilot_plan": "individual_pro",
+                  "quota_snapshots": {
+                    "premium_interactions": {
+                      "entitlement": 2000,
+                      "remaining": 1500,
+                      "unlimited": false
+                    }
+                  }
+                }
+                """.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 500)
+    }
+
     func testCopilotUsageProviderUsesStoredGitHubCLIUsernameWhenLabelChanges() async throws {
         let resolvedUsername = CopilotResolvedUsernameBox()
         let sessionConfiguration = URLSessionConfiguration.ephemeral
