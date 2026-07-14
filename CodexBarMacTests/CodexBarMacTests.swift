@@ -439,11 +439,11 @@ final class CodexBarMacTests: XCTestCase {
         let payload = """
         {
           "five_hour": {
-            "utilization": 0.42,
+            "utilization": 42,
             "resets_at": "2030-01-01T00:00:00Z"
           },
           "seven_day": {
-            "utilization": 0.81,
+            "utilization": 81,
             "resets_at": "2030-01-08T00:00:00Z"
           }
         }
@@ -460,6 +460,15 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.title, "Claude (Pro)")
         XCTAssertEqual(result.bars.map(\.label), ["5 hour usage limit", "Weekly usage limit"])
         XCTAssertEqual(result.bars.map(\.used), [42, 81])
+    }
+
+    func testClaudeUsageParserPreservesSubOnePercentOAuthUtilization() throws {
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"five_hour":{"utilization":0.5,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8),
+            subscriptionType: "pro"
+        ))
+
+        XCTAssertEqual(result.bars.first?.used, 0.5)
     }
 
     func testClaudeUsageParserReadsStructuredAndScopedLimitsWithoutDuplicates() throws {
@@ -612,14 +621,15 @@ final class CodexBarMacTests: XCTestCase {
         sessionConfiguration.protocolClasses = [MockURLProtocol.self]
         let provider = ClaudeUsageProvider(
             session: URLSession(configuration: sessionConfiguration),
-            credentialsFilePath: credentialsPath
+            credentialsFilePath: credentialsPath,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)"
         )
         MockURLProtocol.handler = { request in
             XCTAssertEqual(request.url?.path, "/api/oauth/usage")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer claude-access")
             return (
                 HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(#"{"five_hour":{"utilization":0.25,"resets_at":"2030-01-01T00:00:00Z"},"seven_day":{"utilization":0.5,"resets_at":"2030-01-08T00:00:00Z"}}"#.utf8)
+                Data(#"{"five_hour":{"utilization":25,"resets_at":"2030-01-01T00:00:00Z"},"seven_day":{"utilization":50,"resets_at":"2030-01-08T00:00:00Z"}}"#.utf8)
             )
         }
         defer { MockURLProtocol.handler = nil }

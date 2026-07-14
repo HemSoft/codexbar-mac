@@ -423,9 +423,9 @@ public enum ClaudeUsageParser {
         bars.append(bar)
     }
 
-    // Current OAuth windows use percentages; values below 1 retain legacy fraction compatibility.
+    // OAuth window utilization is expressed on a 0-100 percentage scale.
     private static func normalizedOAuthPercent(_ value: Double) -> Double {
-        sanitizedPercent(value < 1 ? value * 100 : value)
+        sanitizedPercent(value)
     }
 
     private static func normalizedHeaderPercent(_ value: Double) -> Double {
