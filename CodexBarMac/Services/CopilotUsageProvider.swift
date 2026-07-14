@@ -3,7 +3,8 @@ import Foundation
 public final class CopilotUsageProvider: UsageProvider {
     deinit {}
 
-    private typealias GitHubTokenResolver = @Sendable (String) throws -> String?
+    private static let activeCLIAccountCacheKey = "__active__"
+    private typealias GitHubTokenResolver = @Sendable (String?) throws -> String?
 
     private static let editorVersion = "vscode/1.96.2"
     private static let editorPluginVersion = "copilot-chat/0.26.7"
@@ -23,7 +24,7 @@ public final class CopilotUsageProvider: UsageProvider {
         secretStore: any SecretStore = KeychainService(),
         session: URLSession = .shared,
         usageEndpoint: URL = URL(string: "https://api.github.com/copilot_internal/user")!,
-        gitHubTokenResolver: (@Sendable (String) throws -> String?)? = nil,
+        gitHubTokenResolver: (@Sendable (String?) throws -> String?)? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.secretStore = secretStore
@@ -96,28 +97,25 @@ public final class CopilotUsageProvider: UsageProvider {
     }
 
     private func resolveCLIToken(for configuration: ProviderAccountConfiguration) async -> ResolvedAccessToken? {
-        let username = configuration.githubCLIUsername
+        let explicitUsername = configuration.githubCLIUsername
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallbackUsername = configuration.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedUsername = username.isEmpty ? fallbackUsername : username
-        guard !resolvedUsername.isEmpty else {
-            return nil
-        }
+        let cacheKey = explicitUsername.isEmpty ? Self.activeCLIAccountCacheKey : explicitUsername
+        let resolverUsername: String? = explicitUsername.isEmpty ? nil : explicitUsername
 
-        if let cached = cliTokenCache.token(for: resolvedUsername) {
-            return ResolvedAccessToken(token: cached, source: .cli(username: resolvedUsername))
+        if let cached = cliTokenCache.token(for: cacheKey) {
+            return ResolvedAccessToken(token: cached, source: .cli(username: cacheKey))
         }
 
         let resolver = gitHubTokenResolver
         let token = await Task.detached(priority: .utility) {
-            try? resolver(resolvedUsername)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            try? resolver(resolverUsername)?.trimmingCharacters(in: .whitespacesAndNewlines)
         }.value
         guard let token, !token.isEmpty else {
             return nil
         }
 
-        cliTokenCache.store(token, for: resolvedUsername)
-        return ResolvedAccessToken(token: token, source: .cli(username: resolvedUsername))
+        cliTokenCache.store(token, for: cacheKey)
+        return ResolvedAccessToken(token: token, source: .cli(username: cacheKey))
     }
 
     private func fetchPersonalUsage(

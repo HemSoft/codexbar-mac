@@ -1124,6 +1124,57 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(token, "gho_test_token")
     }
 
+    func testLocalCredentialDiscoveryResolvesActiveGitHubAuthToken() throws {
+        let token = try XCTUnwrap(LocalCredentialDiscovery.gitHubAuthToken(for: nil) {
+            (0, "gho_active_token\n", "")
+        })
+
+        XCTAssertEqual(token, "gho_active_token")
+    }
+
+    func testCopilotUsageProviderUsesActiveGitHubCLIAccountWhenUsernameMissing() async throws {
+        let resolvedUsername = CopilotResolvedUsernameBox()
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            gitHubTokenResolver: { username in
+                resolvedUsername.value = username
+                return "github-token"
+            }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "token github-token")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data("""
+                {
+                  "login": "octocat",
+                  "quota_snapshots": {
+                    "premium_interactions": {
+                      "entitlement": 100,
+                      "remaining": 40,
+                      "unlimited": false
+                    }
+                  }
+                }
+                """.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            accountLabel: "Work",
+            authMethod: .cliToken
+        )
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertTrue(resolvedUsername.wasCalled)
+        XCTAssertNil(resolvedUsername.value)
+        XCTAssertEqual(result.bars.first?.used, 60)
+    }
+
     func testCopilotUsageProviderReadsGitHubCLIToken() async throws {
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [MockURLProtocol.self]
@@ -1220,10 +1271,20 @@ final class CodexBarMacTests: XCTestCase {
 private final class CopilotResolvedUsernameBox: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: String?
+    private var wasSet = false
+
+    var wasCalled: Bool {
+        lock.withLock { wasSet }
+    }
 
     var value: String? {
         get { lock.withLock { stored } }
-        set { lock.withLock { stored = newValue } }
+        set {
+            lock.withLock {
+                stored = newValue
+                wasSet = true
+            }
+        }
     }
 }
 
