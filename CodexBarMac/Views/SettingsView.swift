@@ -66,6 +66,9 @@ struct SettingsView: View {
                                     },
                                     onCredentialsChanged: {
                                         await model.handleAccountsChanged()
+                                    },
+                                    onAccountRefresh: { configuration in
+                                        await model.refreshAccount(configuration)
                                     }
                                 )
                             } label: {
