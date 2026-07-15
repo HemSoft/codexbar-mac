@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Live Claude usage fetching from Claude Code OAuth credentials with session, weekly, OAuth-app weekly, and model-scoped limit bars.
 - Live GitHub Copilot usage fetching from GitHub CLI credentials with premium and chat quota bars per account.
 - Live OpenRouter credit balance fetching from Keychain-stored management API keys.
+- Live Cursor plan usage fetching from Keychain-stored browser sessions or the local Cursor app auth file, with PKCE browser sign-in and session-expiry prompts.
 
 ### Fixed
 

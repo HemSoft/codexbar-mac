@@ -1543,6 +1543,358 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertNil(result.creditsRemaining)
         XCTAssertTrue(result.bars.isEmpty)
     }
+
+    func testCursorAuthURLUsesBrowserPollingFlow() throws {
+        let url = CursorWebAuthService.authorizationURL(
+            uuid: "request-id",
+            codeChallenge: "challenge"
+        )
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.scheme, "https")
+        XCTAssertEqual(components.host, "cursor.com")
+        XCTAssertEqual(components.path, "/loginDeepControl")
+        XCTAssertEqual(components.queryItemValue(named: "challenge"), "challenge")
+        XCTAssertEqual(components.queryItemValue(named: "uuid"), "request-id")
+        XCTAssertEqual(components.queryItemValue(named: "mode"), "login")
+        XCTAssertEqual(components.queryItemValue(named: "redirectTarget"), "cli")
+    }
+
+    func testCursorPollRequestUsesPKCEVerifier() throws {
+        let request = CursorWebAuthService.pollRequest(uuid: "request-id", codeVerifier: "verifier")
+        let url = try XCTUnwrap(request.url)
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.scheme, "https")
+        XCTAssertEqual(components.host, "api2.cursor.sh")
+        XCTAssertEqual(components.path, "/auth/poll")
+        XCTAssertEqual(components.queryItemValue(named: "uuid"), "request-id")
+        XCTAssertEqual(components.queryItemValue(named: "verifier"), "verifier")
+        XCTAssertEqual(request.httpMethod, "GET")
+    }
+
+    @MainActor
+    func testCursorBrowserSignInPollsAndStoresSessionShape() async throws {
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let service = CursorWebAuthService(
+            session: session,
+            pollIntervalNanoseconds: 1,
+            maxPollAttempts: 1
+        )
+
+        MockURLProtocol.handler = { request in
+            let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+            XCTAssertEqual(components.host, "api2.cursor.sh")
+            XCTAssertEqual(components.path, "/auth/poll")
+            XCTAssertNotNil(components.queryItemValue(named: "uuid"))
+            XCTAssertNotNil(components.queryItemValue(named: "verifier"))
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"accessToken":"cursor-access","refreshToken":"cursor-refresh","authId":"auth0|user-id"}"#.utf8)
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        var presentedURL: URL?
+        let result = try await service.signIn { url in
+            presentedURL = url
+            return true
+        }
+        let authURL = try XCTUnwrap(presentedURL)
+        let authComponents = try XCTUnwrap(URLComponents(url: authURL, resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(authComponents.host, "cursor.com")
+        XCTAssertEqual(result.accessToken, "cursor-access")
+        XCTAssertEqual(result.refreshToken, "cursor-refresh")
+        XCTAssertTrue(result.storedCredential.contains(#""accessToken": "cursor-access""#))
+    }
+
+#if canImport(AuthenticationServices) && canImport(AppKit)
+    @MainActor
+    func testCursorBrowserSessionUsesEphemeralStorage() {
+        let session = CursorWebAuthenticationPresenter.makeSession(
+            url: URL(string: "https://cursor.com/loginDeepControl")!
+        ) { _ in }
+
+        XCTAssertTrue(session.prefersEphemeralWebBrowserSession)
+    }
+#endif
+
+    func testCursorBrowserSessionIgnoresStaleCompletionAfterRetry() {
+        var generation = CursorWebAuthenticationSessionGeneration()
+        let firstSessionID = generation.start()
+        let retrySessionID = generation.start()
+
+        XCTAssertFalse(generation.complete(firstSessionID))
+        XCTAssertTrue(generation.complete(retrySessionID))
+        XCTAssertFalse(generation.complete(retrySessionID))
+    }
+
+    func testCursorNormalizesPastedAuthJSONAndBearerHeader() {
+        XCTAssertEqual(
+            CursorUsageProvider.normalizedAccessToken(from: #"{"accessToken":"cursor-token","refreshToken":"refresh"}"#),
+            "cursor-token"
+        )
+        XCTAssertEqual(
+            CursorUsageProvider.normalizedAccessToken(from: "Authorization: Bearer cursor-token"),
+            "cursor-token"
+        )
+        XCTAssertEqual(
+            CursorUsageProvider.normalizedAccessToken(from: "\"cursor-quoted\""),
+            "cursor-quoted"
+        )
+    }
+
+    func testCursorUsageParserReadsDashboardUsage() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_783_667_520)
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .cursor)
+        configuration.accountLabel = "Cursor Pro"
+        let payload = """
+        {
+          "billingCycleStart": "1783036800000",
+          "billingCycleEnd": "1784332800000",
+          "planUsage": {
+            "autoPercentUsed": 42.4,
+            "apiPercentUsed": 18.2,
+            "totalPercentUsed": 62.6
+          },
+          "spendLimitUsage": {
+            "individualLimit": 2000,
+            "individualRemaining": 800
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CursorUsageProvider.parseUsage(
+            Data(payload.utf8),
+            configuration: configuration,
+            fetchedAt: fetchedAt
+        ))
+
+        XCTAssertEqual(result.providerID, .cursor)
+        XCTAssertEqual(result.title, "Cursor Pro")
+        XCTAssertEqual(result.subtitle, "Included usage - Auto 42% - API 18%")
+        XCTAssertEqual(result.bars.map(\.label), [
+            "Total",
+            "Auto",
+            "API",
+            "On-demand $12.00 / $20.00",
+        ])
+        XCTAssertEqual(result.bars.map(\.usageText), ["63%", "42%", "18%", "60%"])
+        XCTAssertTrue(result.bars.allSatisfy(\.showProjectionOnCurrentBar))
+        XCTAssertEqual(
+            result.bars.compactMap(\.projectionPeriodStart),
+            Array(repeating: Date(timeIntervalSince1970: 1_783_036_800), count: 4)
+        )
+        XCTAssertEqual(
+            result.bars.compactMap(\.projectionPeriodEnd),
+            Array(repeating: Date(timeIntervalSince1970: 1_784_332_800), count: 4)
+        )
+        XCTAssertEqual(try XCTUnwrap(result.bars[0].projectionCurrent), 0.626, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(result.bars[1].projectionCurrent), 0.424, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(result.bars[2].projectionCurrent), 0.182, accuracy: 0.000_001)
+        XCTAssertEqual(result.bars[3].projectionCurrent, 1_200)
+        XCTAssertEqual(result.bars.compactMap(\.projectionLimit), [1, 1, 1, 2_000])
+        XCTAssertTrue(try XCTUnwrap(result.bars[0].projectionDescription(at: fetchedAt)).hasPrefix(
+            "Projected 100% at current pace - Limit hit "
+        ))
+        XCTAssertEqual(result.bars[2].projectionDescription(at: fetchedAt), "Projected to stay under limit")
+        XCTAssertTrue(try XCTUnwrap(result.bars[3].projectionDescription(at: fetchedAt)).hasPrefix(
+            "Projected 100% at current pace - Limit hit "
+        ))
+    }
+
+    func testCursorUsageParserSuppressesPredictionsWithoutValidCurrentBillingPeriod() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_783_667_520)
+        let invalidPeriods = [
+            #""billingCycleEnd": "1784332800000","#,
+            #""billingCycleStart": "invalid", "billingCycleEnd": "1784332800000","#,
+            #""billingCycleStart": "1784332800000", "billingCycleEnd": "1781740800000","#,
+            #""billingCycleStart": "1784332800000", "billingCycleEnd": "1786924800000","#,
+        ]
+
+        for periodFields in invalidPeriods {
+            let payload = """
+            {
+              \(periodFields)
+              "planUsage": {
+                "autoPercentUsed": 10,
+                "apiPercentUsed": 5,
+                "totalPercentUsed": 25
+              },
+              "spendLimitUsage": {
+                "individualLimit": 2000,
+                "individualRemaining": 1500
+              }
+            }
+            """
+
+            let result = try XCTUnwrap(CursorUsageProvider.parseUsage(
+                Data(payload.utf8),
+                configuration: .defaultConfiguration(for: .cursor),
+                fetchedAt: fetchedAt
+            ))
+
+            XCTAssertEqual(result.bars.count, 4)
+            XCTAssertTrue(result.bars.allSatisfy { !$0.showProjectionOnCurrentBar })
+            XCTAssertTrue(result.bars.allSatisfy { $0.projectionDescription(at: fetchedAt) == nil })
+        }
+    }
+
+    func testCursorProviderFetchesDashboardUsage() async throws {
+        let secretStore = InMemorySecretStore()
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .cursor)
+        configuration.accountLabel = "Cursor"
+        try secretStore.saveSecret(
+            #"{"accessToken":"cursor-token"}"#,
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let provider = CursorUsageProvider(secretStore: secretStore, session: session)
+
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage")
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer cursor-token")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Connect-Protocol-Version"), "1")
+            XCTAssertEqual(requestBodyData(from: request), Data("{}".utf8))
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"planUsage":{"totalPercentUsed":25,"autoPercentUsed":10,"apiPercentUsed":5}}"#.utf8)
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.providerID, .cursor)
+        XCTAssertEqual(result.title, "Cursor")
+        XCTAssertEqual(result.bars.map(\.label), ["Total", "Auto", "API"])
+        XCTAssertEqual(result.bars.first?.usageText, "25%")
+    }
+
+    func testCursorProviderReadsLocalAuthFileWhenKeychainIsEmpty() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        let authPath = temporaryDirectory.appendingPathComponent("auth.json").path
+        try Data(#"{"accessToken":"local-cursor-token"}"#.utf8).write(to: URL(fileURLWithPath: authPath))
+
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let provider = CursorUsageProvider(
+            secretStore: InMemorySecretStore(),
+            session: session,
+            authFilePath: authPath
+        )
+
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer local-cursor-token")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"planUsage":{"totalPercentUsed":12,"autoPercentUsed":4,"apiPercentUsed":2}}"#.utf8)
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .cursor))
+
+        XCTAssertEqual(result.bars.first?.usageText, "12%")
+    }
+
+    func testCursorProviderWithoutCredentialIsNotDemoData() async throws {
+        let provider = CursorUsageProvider(secretStore: InMemorySecretStore(), authFilePath: "/tmp/missing-cursor-auth.json")
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .cursor)
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.providerID, .cursor)
+        XCTAssertEqual(result.accountID, configuration.id)
+        XCTAssertEqual(result.subtitle, "Not configured - sign in with Cursor.")
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testCursorProviderRejectedSessionShowsReauthPrompt() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .cursor)
+        try secretStore.saveSecret(
+            #"{"accessToken":"expired-token"}"#,
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let provider = CursorUsageProvider(secretStore: secretStore, session: session)
+
+        MockURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 401,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data("{}".utf8)
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.subtitle, "Cursor rejected this session token. Sign in again.")
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testCursorCredentialsParserReadsAuthFile() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        let authPath = temporaryDirectory.appendingPathComponent("auth.json").path
+        try Data(#"{"accessToken":"redacted-token","refreshToken":"redacted-refresh"}"#.utf8)
+            .write(to: URL(fileURLWithPath: authPath))
+
+        let credentials = try XCTUnwrap(CursorCredentialsParser.parseAuthFile(at: authPath))
+        XCTAssertEqual(credentials.accessToken, "redacted-token")
+        XCTAssertTrue(CursorCredentialsParser.hasSession(at: authPath))
+    }
 }
 
 private final class CopilotResolvedUsernameBox: @unchecked Sendable {
@@ -1644,6 +1996,12 @@ private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+}
+
+private extension URLComponents {
+    func queryItemValue(named name: String) -> String? {
+        queryItems?.first { $0.name == name }?.value
+    }
 }
 
 private extension String {

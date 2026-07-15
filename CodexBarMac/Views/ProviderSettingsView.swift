@@ -8,6 +8,13 @@ struct ProviderSettingsView: View {
 
     @State private var configuration: ProviderAccountConfiguration
     @State private var secret = ""
+    @State private var isSigningInWithCursor = false
+    @State private var cursorAuthError: String?
+    @State private var cursorSignInTask: Task<Void, Never>?
+#if canImport(AuthenticationServices) && canImport(AppKit)
+    @State private var cursorAuthPresenter = CursorWebAuthenticationPresenter()
+#endif
+    private let cursorAuthService = CursorWebAuthService()
 
     init(
         configurationStore: ProviderConfigurationStore,
@@ -48,7 +55,9 @@ struct ProviderSettingsView: View {
 
                 credentialStatusView
 
-                if configuration.requiresSecret {
+                if providerID == .cursor {
+                    cursorCredentialControls
+                } else if configuration.requiresSecret {
                     SecureField(secretPlaceholder, text: $secret)
                         .textFieldStyle(.roundedBorder)
 
@@ -58,7 +67,7 @@ struct ProviderSettingsView: View {
                     .disabled(secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
 
-                if configurationStore.hasSecret(for: configuration) {
+                if configurationStore.hasSecret(for: configuration), providerID != .cursor {
                     Button("Remove Saved Key", role: .destructive) {
                         removeSecret()
                     }
@@ -77,6 +86,12 @@ struct ProviderSettingsView: View {
         .onAppear {
             configurationStore.refreshSecretAvailability(including: [configuration])
         }
+        .onDisappear {
+            cursorSignInTask?.cancel()
+#if canImport(AuthenticationServices) && canImport(AppKit)
+            cursorAuthPresenter.finish()
+#endif
+        }
         .onChange(of: configuration) { oldValue, newValue in
             guard configurationStore.update(newValue) else {
                 configuration = oldValue
@@ -92,6 +107,35 @@ struct ProviderSettingsView: View {
             Task {
                 await onAccountsChanged()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var cursorCredentialControls: some View {
+        Button {
+            startCursorSignIn()
+        } label: {
+            if isSigningInWithCursor {
+                ProgressView()
+            } else {
+                Text(
+                    configurationStore.hasSecret(for: configuration)
+                        ? "Switch Cursor Account"
+                        : "Sign in with Cursor"
+                )
+            }
+        }
+        .disabled(isSigningInWithCursor)
+
+        if configurationStore.hasSecret(for: configuration) {
+            Button("Sign Out", role: .destructive) {
+                signOutOfCursor()
+            }
+        }
+
+        if let cursorAuthError {
+            Text(cursorAuthError)
+                .foregroundStyle(.red)
         }
     }
 
@@ -122,8 +166,10 @@ struct ProviderSettingsView: View {
             [.cliToken, .browserSession]
         case .openRouter, .openCodeZen:
             [.apiKey]
-        case .claude, .cursor:
+        case .claude:
             [.browserSession, .oauth]
+        case .cursor:
+            [.browserSession]
         }
     }
 
@@ -144,7 +190,7 @@ struct ProviderSettingsView: View {
         case .openCodeZen:
             "Store an OpenCode ZEN API key in the Keychain."
         case .cursor:
-            "Cursor browser or local session auth will be added in issue #11."
+            "Cursor can use the local Cursor app session from ~/Library/Application Support/Cursor/auth.json, or sign in through the browser."
         }
     }
 
@@ -166,6 +212,69 @@ struct ProviderSettingsView: View {
         configurationStore.saveSecret("", for: configuration)
         secret = ""
 
+        Task {
+            await onCredentialsChanged()
+        }
+    }
+
+    @MainActor
+    private func startCursorSignIn() {
+        guard cursorSignInTask == nil else {
+            return
+        }
+        cursorSignInTask = Task { @MainActor in
+            await signInWithCursor()
+        }
+    }
+
+    @MainActor
+    private func signInWithCursor() async {
+        isSigningInWithCursor = true
+        cursorAuthError = nil
+        defer {
+#if canImport(AuthenticationServices) && canImport(AppKit)
+            cursorAuthPresenter.finish()
+#endif
+            cursorSignInTask = nil
+            isSigningInWithCursor = false
+        }
+
+        do {
+            let result = try await cursorAuthService.signIn { url in
+#if canImport(AuthenticationServices) && canImport(AppKit)
+                return cursorAuthPresenter.present(url: url) {
+                    cursorSignInTask?.cancel()
+                }
+#else
+                _ = url
+                return false
+#endif
+            }
+            guard let connectedConfiguration = configurationStore.connectCursorAccount(
+                configuration,
+                credential: result.storedCredential
+            ) else {
+                cursorAuthError = configurationStore.lastError
+                return
+            }
+            configuration = connectedConfiguration
+            secret = ""
+            await onCredentialsChanged()
+        } catch {
+            cursorAuthError = Task.isCancelled
+                ? "Cursor sign-in canceled. The existing account was not changed."
+                : error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func signOutOfCursor() {
+        cursorAuthError = nil
+        guard let disconnectedConfiguration = configurationStore.disconnectCursorAccount(configuration) else {
+            cursorAuthError = configurationStore.lastError
+            return
+        }
+        configuration = disconnectedConfiguration
         Task {
             await onCredentialsChanged()
         }
