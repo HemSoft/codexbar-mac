@@ -1392,6 +1392,132 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(usageRequestCount, 2)
         XCTAssertEqual(result.bars.first?.used, 60)
     }
+
+    func testOpenRouterCreditsParserCalculatesBalance() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_783_667_520)
+        let configuration = ProviderAccountConfiguration(
+            providerID: .openRouter,
+            accountLabel: "OpenRouter API",
+            authMethod: .apiKey
+        )
+        let payload = """
+        {
+          "data": {
+            "total_credits": 25.5,
+            "total_usage": 7.25
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(OpenRouterUsageProvider.parseCredits(
+            Data(payload.utf8),
+            configuration: configuration,
+            fetchedAt: fetchedAt
+        ))
+
+        XCTAssertEqual(result.providerID, .openRouter)
+        XCTAssertEqual(result.title, "OpenRouter API")
+        XCTAssertEqual(result.subtitle, "Credit balance")
+        XCTAssertEqual(result.creditsRemaining, 18.25)
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testOpenRouterCreditsParserRejectsMissingCreditFields() throws {
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openRouter)
+        let payload = """
+        {
+          "data": {
+            "usage": 7.25
+          }
+        }
+        """
+
+        let result = OpenRouterUsageProvider.parseCredits(
+            Data(payload.utf8),
+            configuration: configuration
+        )
+
+        XCTAssertNil(result)
+    }
+
+    func testOpenRouterProviderFetchesKeyBalance() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openRouter)
+        try secretStore.saveSecret("Bearer sk-or-test", account: ProviderConfigurationStore.keychainAccount(for: configuration))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = OpenRouterUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration)
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://openrouter.ai/api/v1/credits")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-or-test")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "CodexBarMac/1.0")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Title"), "CodexBar")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"data":{"total_credits":100,"total_usage":12.34}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.providerID, .openRouter)
+        XCTAssertEqual(try XCTUnwrap(result.creditsRemaining), 87.66, accuracy: 0.0001)
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testOpenRouterProviderRejectsInvalidAPIKey() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openRouter)
+        try secretStore.saveSecret("sk-or-invalid", account: ProviderConfigurationStore.keychainAccount(for: configuration))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = OpenRouterUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration)
+        )
+        MockURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 401, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.subtitle, "OpenRouter rejected this API key.")
+        XCTAssertNil(result.creditsRemaining)
+    }
+
+    func testOpenRouterNormalizesPastedAuthorizationHeader() {
+        XCTAssertEqual(
+            OpenRouterUsageProvider.normalizedAPIKey(from: "Authorization: Bearer sk-or-test"),
+            "sk-or-test"
+        )
+        XCTAssertEqual(
+            OpenRouterUsageProvider.normalizedAPIKey(from: "\"sk-or-quoted\""),
+            "sk-or-quoted"
+        )
+    }
+
+    func testOpenRouterProviderWithoutCredentialShowsActionableError() async throws {
+        let provider = OpenRouterUsageProvider(secretStore: InMemorySecretStore())
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openRouter)
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.providerID, .openRouter)
+        XCTAssertEqual(result.accountID, configuration.id)
+        XCTAssertEqual(result.subtitle, "Not configured - enter API key.")
+        XCTAssertNil(result.creditsRemaining)
+        XCTAssertTrue(result.bars.isEmpty)
+    }
 }
 
 private final class CopilotResolvedUsernameBox: @unchecked Sendable {
