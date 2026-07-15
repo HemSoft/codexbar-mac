@@ -55,6 +55,9 @@
 		100000000000000000000031 /* CursorCredentialsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000033 /* CursorCredentialsParser.swift */; };
 		100000000000000000000032 /* OpenCodeZenUsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000034 /* OpenCodeZenUsageProvider.swift */; };
 		100000000000000000000033 /* OpenCodeZenBootstrapImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000035 /* OpenCodeZenBootstrapImporter.swift */; };
+		100000000000000000000034 /* UsageAlertSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000036 /* UsageAlertSettings.swift */; };
+		100000000000000000000035 /* UsageAlertEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000037 /* UsageAlertEvaluator.swift */; };
+		100000000000000000000036 /* LocalUsageAlertNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000038 /* LocalUsageAlertNotifier.swift */; };
 		100000000000000000000025 /* CodexBarMacTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000028 /* CodexBarMacTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -109,6 +112,9 @@
 		200000000000000000000033 /* CursorCredentialsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorCredentialsParser.swift; sourceTree = "<group>"; };
 		200000000000000000000034 /* OpenCodeZenUsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeZenUsageProvider.swift; sourceTree = "<group>"; };
 		200000000000000000000035 /* OpenCodeZenBootstrapImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeZenBootstrapImporter.swift; sourceTree = "<group>"; };
+		200000000000000000000036 /* UsageAlertSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAlertSettings.swift; sourceTree = "<group>"; };
+		200000000000000000000037 /* UsageAlertEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAlertEvaluator.swift; sourceTree = "<group>"; };
+		200000000000000000000038 /* LocalUsageAlertNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalUsageAlertNotifier.swift; sourceTree = "<group>"; };
 		200000000000000000000027 /* CodexBarMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000028 /* CodexBarMacTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarMacTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -197,6 +203,7 @@
 				20000000000000000000001E /* ClaudeCredentials.swift */,
 				20000000000000000000002C /* CopilotCredentials.swift */,
 				200000000000000000000021 /* CredentialReadiness.swift */,
+				200000000000000000000036 /* UsageAlertSettings.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -238,6 +245,8 @@
 				200000000000000000000033 /* CursorCredentialsParser.swift */,
 				200000000000000000000034 /* OpenCodeZenUsageProvider.swift */,
 				200000000000000000000035 /* OpenCodeZenBootstrapImporter.swift */,
+				200000000000000000000037 /* UsageAlertEvaluator.swift */,
+				200000000000000000000038 /* LocalUsageAlertNotifier.swift */,
 				200000000000000000000018 /* LaunchAtLoginManager.swift */,
 			);
 			path = Services;
@@ -420,6 +429,9 @@
 				100000000000000000000031 /* CursorCredentialsParser.swift in Sources */,
 				100000000000000000000032 /* OpenCodeZenUsageProvider.swift in Sources */,
 				100000000000000000000033 /* OpenCodeZenBootstrapImporter.swift in Sources */,
+				100000000000000000000034 /* UsageAlertSettings.swift in Sources */,
+				100000000000000000000035 /* UsageAlertEvaluator.swift in Sources */,
+				100000000000000000000036 /* LocalUsageAlertNotifier.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObservedObject var model: AppModel
 
     @State private var isConfirmingReset = false
+    @State private var alertPermissionMessage: String?
 
     private var configurationStore: ProviderConfigurationStore {
         model.configurationStore
@@ -38,6 +39,29 @@ struct SettingsView: View {
                         Text(launchError)
                             .font(.footnote)
                             .foregroundStyle(.red)
+                    }
+                }
+
+                Section("Alerts") {
+                    Toggle("Usage Alerts", isOn: usageAlertsEnabledBinding)
+
+                    Stepper(value: usageAlertUsagePercentBinding, in: 50...100, step: 5) {
+                        Text("Usage at \(Int((configurationStore.usageAlertSettings.usageThreshold * 100).rounded()))%")
+                    }
+                    .disabled(!configurationStore.usageAlertSettings.isEnabled)
+
+                    Stepper(value: usageAlertBalanceBinding, in: 1...100, step: 1) {
+                        Text("Balance below \(formattedBalanceThreshold)")
+                    }
+                    .disabled(!configurationStore.usageAlertSettings.isEnabled)
+
+                    Toggle("Warning and Critical Alerts", isOn: usageAlertSeverityBinding)
+                        .disabled(!configurationStore.usageAlertSettings.isEnabled)
+
+                    if let alertPermissionMessage {
+                        Text(alertPermissionMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -171,6 +195,54 @@ struct SettingsView: View {
             get: { model.launchAtLoginManager.isToggleOn },
             set: { model.launchAtLoginManager.setEnabled($0) }
         )
+    }
+
+    private var usageAlertsEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { configurationStore.usageAlertSettings.isEnabled },
+            set: { isEnabled in
+                if isEnabled {
+                    Task {
+                        let granted = await model.requestUsageAlertAuthorization()
+                        configurationStore.updateUsageAlertsEnabled(granted)
+                        alertPermissionMessage = granted ? nil : "Notifications are disabled for CodexBar."
+                    }
+                } else {
+                    configurationStore.updateUsageAlertsEnabled(false)
+                    alertPermissionMessage = nil
+                }
+            }
+        )
+    }
+
+    private var usageAlertUsagePercentBinding: Binding<Double> {
+        Binding(
+            get: { configurationStore.usageAlertSettings.usageThreshold * 100 },
+            set: { configurationStore.updateUsageAlertUsageThreshold($0 / 100) }
+        )
+    }
+
+    private var usageAlertBalanceBinding: Binding<Double> {
+        Binding(
+            get: { configurationStore.usageAlertSettings.balanceThreshold },
+            set: { configurationStore.updateUsageAlertBalanceThreshold($0) }
+        )
+    }
+
+    private var usageAlertSeverityBinding: Binding<Bool> {
+        Binding(
+            get: { configurationStore.usageAlertSettings.includesSeverityAlerts },
+            set: { configurationStore.updateUsageAlertIncludesSeverityAlerts($0) }
+        )
+    }
+
+    private var formattedBalanceThreshold: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: configurationStore.usageAlertSettings.balanceThreshold))
+            ?? "$\(Int(configurationStore.usageAlertSettings.balanceThreshold.rounded()))"
     }
 
     private func resetAccounts() {

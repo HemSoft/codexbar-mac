@@ -36,6 +36,13 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
     }
 
     public func highestSeverity(at now: Date = Date()) -> UsageSeverity {
-        bars.map { $0.effectiveSeverity(at: now) }.max() ?? .normal
+        max(
+            bars.map { $0.effectiveSeverity(at: now) }.max() ?? .normal,
+            hasReachedSpendLimit ? .critical : .normal
+        )
+    }
+
+    public var hasReachedSpendLimit: Bool {
+        false
     }
 }

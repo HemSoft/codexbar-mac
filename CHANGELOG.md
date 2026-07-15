@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Live OpenRouter credit balance fetching from Keychain-stored management API keys.
 - Live Cursor plan usage fetching from Keychain-stored browser sessions or the local Cursor app auth file, with PKCE browser sign-in and session-expiry prompts.
 - Live OpenCode ZEN credit balance fetching from Keychain-stored dashboard auth values and workspace IDs, with Windows settings JSON import support.
+- Configurable usage alerts via macOS notifications with threshold crossing detection, per-provider enable/disable respect, and warning/critical severity alerts.
 
 ### Fixed
 

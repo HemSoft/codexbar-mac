@@ -22,6 +22,7 @@ public struct UsageProjectionDescriptionParts: Equatable, Sendable {
 
 public struct UsageBar: Identifiable, Equatable, Sendable {
     public let id: UUID
+    public let stableKey: String?
     public let label: String
     public let used: Double
     public let limit: Double
@@ -37,6 +38,7 @@ public struct UsageBar: Identifiable, Equatable, Sendable {
 
     public init(
         id: UUID = UUID(),
+        stableKey: String? = nil,
         label: String,
         used: Double,
         limit: Double,
@@ -51,6 +53,7 @@ public struct UsageBar: Identifiable, Equatable, Sendable {
         projectionDescriptionOverride: String? = nil
     ) {
         self.id = id
+        self.stableKey = stableKey
         self.label = label
         self.used = used
         self.limit = limit
