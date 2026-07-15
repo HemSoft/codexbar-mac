@@ -1418,7 +1418,7 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.providerID, .openRouter)
         XCTAssertEqual(result.title, "OpenRouter API")
         XCTAssertEqual(result.subtitle, "Credit balance")
-        XCTAssertEqual(result.creditsRemaining, 18.25)
+        XCTAssertEqual(try XCTUnwrap(result.creditsRemaining), 18.25, accuracy: 0.0001)
         XCTAssertTrue(result.bars.isEmpty)
     }
 
