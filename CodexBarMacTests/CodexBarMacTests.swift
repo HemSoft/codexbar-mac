@@ -2640,7 +2640,7 @@ final class CodexBarMacTests: XCTestCase {
 
         XCTAssertEqual(evaluation.notifications.count, 1)
         XCTAssertEqual(evaluation.notifications.first?.title, "Cursor Warning alert")
-        XCTAssertTrue(evaluation.activeAlertIDs.contains("severity.cursor.main"))
+        XCTAssertTrue(evaluation.activeAlertIDs.contains("severity.cursor.main.1"))
         XCTAssertEqual(evaluation.activeAlerts.first?.message, "Total is currently at 76%.")
     }
 
@@ -2712,7 +2712,7 @@ final class CodexBarMacTests: XCTestCase {
         )
 
         XCTAssertEqual(first.notifications.map(\.title), ["Codex Weekly usage limit alert", "Codex Critical alert"])
-        XCTAssertEqual(first.activeAlertIDs, ["usage.codex.personal.weekly-usage-limit", "severity.codex.personal"])
+        XCTAssertEqual(first.activeAlertIDs, ["usage.codex.personal.weekly-usage-limit", "severity.codex.personal.2"])
         XCTAssertEqual(first.activeAlerts.map(\.accountID), ["codex.personal", "codex.personal"])
         XCTAssertTrue(repeated.notifications.isEmpty)
     }
@@ -2747,6 +2747,52 @@ final class CodexBarMacTests: XCTestCase {
 
         XCTAssertTrue(evaluation.notifications.isEmpty)
         XCTAssertEqual(evaluation.activeAlertIDs, [legacyAlertID])
+    }
+
+    func testUsageAlertEvaluatorNotifiesWhenSeverityEscalates() {
+        let warningResult = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(label: "Weekly", used: 76, limit: 100),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+        )
+        let criticalResult = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(label: "Weekly", used: 95, limit: 100),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_783_667_580)
+        )
+        let settings = UsageAlertSettings(
+            isEnabled: true,
+            usageThreshold: 0.90,
+            includesSeverityAlerts: true
+        )
+
+        let warningEvaluation = UsageAlertEvaluator.evaluate(
+            results: [warningResult],
+            settings: settings,
+            activeAlertIDs: []
+        )
+        let criticalEvaluation = UsageAlertEvaluator.evaluate(
+            results: [criticalResult],
+            settings: settings,
+            activeAlertIDs: warningEvaluation.activeAlertIDs
+        )
+
+        XCTAssertEqual(warningEvaluation.notifications.map(\.kind), [.severity])
+        XCTAssertEqual(
+            criticalEvaluation.notifications.filter { $0.kind == .severity }.map(\.title),
+            ["Codex Critical alert"]
+        )
+        XCTAssertTrue(criticalEvaluation.activeAlertIDs.contains("severity.codex.personal.2"))
     }
 }
 

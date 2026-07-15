@@ -166,6 +166,7 @@ public enum ClaudeUsageParser {
             }
             bars.append(usageBar(
                 label: definition.label,
+                stableKey: definition.key,
                 usedPercent: sanitizedPercent(percent),
                 reset: parseReset(limit.resetsAt)
                     ?? definition.legacyFallbackKey.flatMap { legacyReset(for: $0, usage: usage) },
@@ -253,6 +254,7 @@ public enum ClaudeUsageParser {
         var bars: [UsageBar] = []
         if let bar = usageBarFromHeaders(
             label: "5 hour usage limit",
+            stableKey: "session",
             utilizationKey: "anthropic-ratelimit-unified-5h-utilization",
             resetKey: "anthropic-ratelimit-unified-5h-reset",
             durationSeconds: 18_000,
@@ -265,6 +267,7 @@ public enum ClaudeUsageParser {
 
         if let bar = usageBarFromHeaders(
             label: "Weekly usage limit",
+            stableKey: ClaudeUsageIdentity.allModelsWeeklyStableKey,
             utilizationKey: "anthropic-ratelimit-unified-7d-utilization",
             resetKey: "anthropic-ratelimit-unified-7d-reset",
             durationSeconds: 604_800,
@@ -298,6 +301,7 @@ public enum ClaudeUsageParser {
 
     private static func usageBar(
         label: String,
+        stableKey: String? = nil,
         window: UsageWindow?,
         durationSeconds: TimeInterval,
         fetchedAt: Date,
@@ -309,6 +313,7 @@ public enum ClaudeUsageParser {
 
         return usageBar(
             label: label,
+            stableKey: stableKey,
             usedPercent: normalizedOAuthPercent(utilization),
             reset: parseReset(window?.resetsAt),
             durationSeconds: durationSeconds,
@@ -319,6 +324,7 @@ public enum ClaudeUsageParser {
 
     private static func usageBarFromHeaders(
         label: String,
+        stableKey: String? = nil,
         utilizationKey: String,
         resetKey: String,
         durationSeconds: TimeInterval,
@@ -335,6 +341,7 @@ public enum ClaudeUsageParser {
 
         return usageBar(
             label: label,
+            stableKey: stableKey,
             usedPercent: normalizedHeaderPercent(utilization),
             reset: reset,
             durationSeconds: durationSeconds,
@@ -364,6 +371,7 @@ public enum ClaudeUsageParser {
             for variant in model.keyVariants {
                 if let bar = usageBarFromHeaders(
                     label: model.label,
+                    stableKey: "weekly-scoped-\(variant)",
                     utilizationKey: "anthropic-ratelimit-unified-\(variant)-utilization",
                     resetKey: "anthropic-ratelimit-unified-\(variant)-reset",
                     durationSeconds: 604_800,
@@ -383,6 +391,7 @@ public enum ClaudeUsageParser {
 
     private static func usageBar(
         label: String,
+        stableKey: String? = nil,
         usedPercent: Double,
         reset: Date?,
         durationSeconds: TimeInterval,
@@ -390,6 +399,7 @@ public enum ClaudeUsageParser {
         dateTimeFormatter: UserFacingDateTimeFormatter
     ) -> UsageBar {
         return UsageBar(
+            stableKey: stableKey,
             label: label,
             used: usedPercent,
             limit: 100,
@@ -422,6 +432,7 @@ public enum ClaudeUsageParser {
             !semanticKeys.contains(key),
             let bar = usageBar(
                 label: label,
+                stableKey: key,
                 window: window,
                 durationSeconds: durationSeconds,
                 fetchedAt: fetchedAt,

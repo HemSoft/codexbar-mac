@@ -73,6 +73,7 @@ public enum UsageAlertEvaluator {
         knownAccountIDs.first { accountID in
             alertID == "balance.\(accountID)"
                 || alertID == "severity.\(accountID)"
+                || alertID.hasPrefix("severity.\(accountID).")
                 || alertID.hasPrefix("usage.\(accountID).")
         }
     }
@@ -156,7 +157,7 @@ public enum UsageAlertEvaluator {
             if settings.includesSeverityAlerts,
                highestSeverity >= .warning
             {
-                let alertID = "severity.\(result.accountID)"
+                let alertID = "severity.\(result.accountID).\(highestSeverity.rawValue)"
                 nextActiveAlertIDs.insert(alertID)
 
                 let detail = severityAlertDetail(
