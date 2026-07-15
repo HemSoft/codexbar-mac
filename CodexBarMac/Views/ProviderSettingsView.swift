@@ -5,12 +5,15 @@ struct ProviderSettingsView: View {
     let accountID: String
     var onAccountsChanged: @MainActor () async -> Void = {}
     var onCredentialsChanged: @MainActor () async -> Void = {}
+    var onAccountRefresh: @MainActor (ProviderAccountConfiguration) async -> ProviderUsageResult? = { _ in nil }
 
     @State private var configuration: ProviderAccountConfiguration
     @State private var secret = ""
     @State private var isSigningInWithCursor = false
     @State private var cursorAuthError: String?
     @State private var cursorSignInTask: Task<Void, Never>?
+    @State private var isRefreshingOpenCode = false
+    @State private var openCodeCredentialMessage: String?
 #if canImport(AuthenticationServices) && canImport(AppKit)
     @State private var cursorAuthPresenter = CursorWebAuthenticationPresenter()
 #endif
@@ -20,12 +23,14 @@ struct ProviderSettingsView: View {
         configurationStore: ProviderConfigurationStore,
         accountID: String,
         onAccountsChanged: @escaping @MainActor () async -> Void = {},
-        onCredentialsChanged: @escaping @MainActor () async -> Void = {}
+        onCredentialsChanged: @escaping @MainActor () async -> Void = {},
+        onAccountRefresh: @escaping @MainActor (ProviderAccountConfiguration) async -> ProviderUsageResult? = { _ in nil }
     ) {
         self.configurationStore = configurationStore
         self.accountID = accountID
         self.onAccountsChanged = onAccountsChanged
         self.onCredentialsChanged = onCredentialsChanged
+        self.onAccountRefresh = onAccountRefresh
         self._configuration = State(
             initialValue: configurationStore.configuration(accountID: accountID)
                 ?? ProviderID(rawValue: accountID).map(ProviderAccountConfiguration.defaultConfiguration)
@@ -46,6 +51,11 @@ struct ProviderSettingsView: View {
                         Text(method.displayName).tag(method)
                     }
                 }
+
+                if providerID == .openCodeZen {
+                    TextField("Workspace ID", text: $configuration.openCodeWorkspaceId)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
 
             Section("Credentials") {
@@ -57,6 +67,8 @@ struct ProviderSettingsView: View {
 
                 if providerID == .cursor {
                     cursorCredentialControls
+                } else if providerID == .openCodeZen {
+                    openCodeCredentialControls
                 } else if configuration.requiresSecret {
                     SecureField(secretPlaceholder, text: $secret)
                         .textFieldStyle(.roundedBorder)
@@ -67,7 +79,7 @@ struct ProviderSettingsView: View {
                     .disabled(secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
 
-                if configurationStore.hasSecret(for: configuration), providerID != .cursor {
+                if configurationStore.hasSecret(for: configuration), providerID != .cursor, providerID != .openCodeZen {
                     Button("Remove Saved Key", role: .destructive) {
                         removeSecret()
                     }
@@ -107,6 +119,48 @@ struct ProviderSettingsView: View {
             Task {
                 await onAccountsChanged()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var openCodeCredentialControls: some View {
+        SecureField(secretPlaceholder, text: $secret)
+            .textFieldStyle(.roundedBorder)
+
+        Button(configurationStore.hasSecret(for: configuration) ? "Update and Refresh" : "Save and Refresh") {
+            saveOpenCodeCredential()
+        }
+        .disabled(secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+        if configurationStore.hasSecret(for: configuration) {
+            Button {
+                Task {
+                    await refreshOpenCode()
+                }
+            } label: {
+                if isRefreshingOpenCode {
+                    ProgressView()
+                } else {
+                    Label("Refresh Now", systemImage: "arrow.clockwise")
+                }
+            }
+            .disabled(isRefreshingOpenCode)
+        }
+
+        if configurationStore.hasSecret(for: configuration) {
+            Button("Remove Saved Credential", role: .destructive) {
+                configurationStore.saveSecret("", for: configuration)
+                openCodeCredentialMessage = "OpenCode credential removed."
+                Task {
+                    await onCredentialsChanged()
+                }
+            }
+        }
+
+        if let openCodeCredentialMessage {
+            Text(openCodeCredentialMessage)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -174,7 +228,13 @@ struct ProviderSettingsView: View {
     }
 
     private var secretPlaceholder: String {
-        configurationStore.hasSecret(for: configuration) ? "Credential saved" : "Paste API key or token"
+        if providerID == .openCodeZen {
+            return configurationStore.hasSecret(for: configuration)
+                ? "OpenCode dashboard auth value saved"
+                : "Paste OpenCode dashboard auth value"
+        }
+
+        return configurationStore.hasSecret(for: configuration) ? "Credential saved" : "Paste API key or token"
     }
 
     private var credentialGuidance: String {
@@ -188,7 +248,7 @@ struct ProviderSettingsView: View {
         case .openRouter:
             "Store an OpenRouter management API key in the Keychain. Inference-only keys cannot read credit balance."
         case .openCodeZen:
-            "Store an OpenCode ZEN API key in the Keychain."
+            "Enter the OpenCode workspace ID and dashboard auth value. You can paste the Windows settings JSON or OPENCODE_GO_AUTH_COOKIE value."
         case .cursor:
             "Cursor can use the local Cursor app session from ~/Library/Application Support/Cursor/auth.json, or sign in through the browser."
         }
@@ -215,6 +275,56 @@ struct ProviderSettingsView: View {
         Task {
             await onCredentialsChanged()
         }
+    }
+
+    @MainActor
+    private func saveOpenCodeCredential() {
+        guard configurationStore.update(configuration) else {
+            openCodeCredentialMessage = configurationStore.lastError
+            return
+        }
+
+        configurationStore.saveSecret(secret, for: configuration)
+        guard configurationStore.lastError == nil else {
+            openCodeCredentialMessage = configurationStore.lastError
+            return
+        }
+
+        secret = ""
+        openCodeCredentialMessage = configuration.openCodeWorkspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "OpenCode dashboard auth value saved. Enter the workspace ID, then refresh."
+            : "OpenCode dashboard auth value saved. Refreshing..."
+        Task {
+            await refreshOpenCode()
+        }
+    }
+
+    @MainActor
+    private func refreshOpenCode() async {
+        guard !isRefreshingOpenCode else {
+            return
+        }
+
+        isRefreshingOpenCode = true
+        openCodeCredentialMessage = "Refreshing OpenCode ZEN..."
+        defer {
+            isRefreshingOpenCode = false
+        }
+
+        guard let result = await onAccountRefresh(configuration) else {
+            openCodeCredentialMessage = "Refresh finished. Check the dashboard."
+            await onCredentialsChanged()
+            return
+        }
+
+        if let balance = result.creditsRemaining {
+            let formatted = Self.openCodeBalanceFormatter.string(from: NSNumber(value: balance)) ?? "$\(balance)"
+            openCodeCredentialMessage = "OpenCode ZEN balance refreshed: \(formatted)"
+        } else {
+            openCodeCredentialMessage = result.subtitle
+        }
+
+        await onCredentialsChanged()
     }
 
     @MainActor
@@ -279,4 +389,13 @@ struct ProviderSettingsView: View {
             await onCredentialsChanged()
         }
     }
+
+    private static let openCodeBalanceFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        return formatter
+    }()
 }

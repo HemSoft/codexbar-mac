@@ -102,6 +102,7 @@ final class AppModel: ObservableObject {
     }
 
     func activate() async {
+        OpenCodeZenBootstrapImporter.importIfNeeded(configurationStore: configurationStore)
         await discoverLocalCredentials()
         updateAutoRefresh()
         await refresh()
@@ -153,6 +154,10 @@ final class AppModel: ObservableObject {
     func handleAccountsChanged() async {
         updateAutoRefresh()
         await refresh()
+    }
+
+    func refreshAccount(_ configuration: ProviderAccountConfiguration) async -> ProviderUsageResult? {
+        await refreshService.refresh(configuration: configuration)
     }
 
     func quit() {

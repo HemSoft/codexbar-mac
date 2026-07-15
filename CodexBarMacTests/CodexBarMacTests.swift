@@ -1895,6 +1895,247 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(credentials.accessToken, "redacted-token")
         XCTAssertTrue(CursorCredentialsParser.hasSession(at: authPath))
     }
+
+    func testOpenCodeZenBalanceParserReadsJSONBalance() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_783_667_520)
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        configuration.accountLabel = "OpenCode ZEN API"
+        let payload = """
+        {
+          "data": {
+            "balance": 42.5,
+            "currency": "USD"
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(OpenCodeZenUsageProvider.parseBalance(
+            Data(payload.utf8),
+            configuration: configuration,
+            fetchedAt: fetchedAt
+        ))
+
+        XCTAssertEqual(result.providerID, .openCodeZen)
+        XCTAssertEqual(result.title, "OpenCode ZEN API")
+        XCTAssertEqual(result.subtitle, "Credit balance")
+        XCTAssertEqual(result.creditsRemaining, 42.5)
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testOpenCodeZenBalanceParserReadsDashboardNanodollarBalance() throws {
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        let payload = #"initial:{balance:1250000000,credits:[]}"#
+
+        let result = try XCTUnwrap(OpenCodeZenUsageProvider.parseBalance(
+            Data(payload.utf8),
+            configuration: configuration
+        ))
+
+        XCTAssertEqual(result.providerID, .openCodeZen)
+        XCTAssertEqual(try XCTUnwrap(result.creditsRemaining), 12.5, accuracy: 0.0001)
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testOpenCodeZenProviderFetchesDashboardBillingBalance() async throws {
+        let secretStore = InMemorySecretStore()
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        configuration.openCodeWorkspaceId = "wrk_test"
+        try secretStore.saveSecret(
+            "opencode-dashboard-token",
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let provider = OpenCodeZenUsageProvider(secretStore: secretStore, session: session)
+
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.scheme, "https")
+            XCTAssertEqual(request.url?.host, "opencode.ai")
+            XCTAssertEqual(request.url?.path, "/workspace/wrk_test/billing")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "auth=opencode-dashboard-token")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/html")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/html"]
+                )!,
+                Data(#"<html>data balance:2575000000 more</html>"#.utf8)
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.providerID, .openCodeZen)
+        XCTAssertEqual(try XCTUnwrap(result.creditsRemaining), 25.75, accuracy: 0.0001)
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testOpenCodeZenProviderExplainsModelAPIKeyCannotFetchBalanceAfterDashboardRejectsIt() async throws {
+        let secretStore = InMemorySecretStore()
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        configuration.openCodeWorkspaceId = "wrk_test"
+        try secretStore.saveSecret(
+            "sk-opencode-model-key",
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let provider = OpenCodeZenUsageProvider(secretStore: secretStore, session: session)
+
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "auth=sk-opencode-model-key")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"<html><title>OpenAuth</title></html>"#.utf8)
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.providerID, .openCodeZen)
+        XCTAssertEqual(
+            result.subtitle,
+            "OpenCode ZEN API keys are valid for models, but OpenCode does not expose balance to API keys."
+        )
+        XCTAssertNil(result.creditsRemaining)
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testOpenCodeZenProviderReadsWindowsSettingsJSONCredentialAndWorkspace() async throws {
+        let secretStore = InMemorySecretStore()
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        configuration.openCodeWorkspaceId = ""
+        let windowsSettings = """
+        {
+          "openCodeGoWorkspaceId": "wrk_from_windows",
+          "providers": {
+            "OpenCodeGo": {
+              "enabled": true,
+              "apiKey": "go-dashboard-token"
+            },
+            "OpenCodeZen": {
+              "enabled": true
+            }
+          }
+        }
+        """
+        try secretStore.saveSecret(
+            windowsSettings,
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let provider = OpenCodeZenUsageProvider(secretStore: secretStore, session: session)
+
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/workspace/wrk_from_windows/billing")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "auth=go-dashboard-token")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"<html>balance:625000000</html>"#.utf8)
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.providerID, .openCodeZen)
+        XCTAssertEqual(try XCTUnwrap(result.creditsRemaining), 6.25, accuracy: 0.0001)
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    @MainActor
+    func testOpenCodeZenBootstrapImporterStoresWindowsSettingsJSON() throws {
+        let suiteName = "OpenCodeZenBootstrapImporter-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let secretStore = InMemorySecretStore()
+        let configurationStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        let payload = """
+        {
+          "openCodeGoWorkspaceId": "wrk_from_windows",
+          "providers": {
+            "OpenCodeGo": {
+              "apiKey": "go-dashboard-token"
+            }
+          }
+        }
+        """
+
+        XCTAssertTrue(OpenCodeZenBootstrapImporter.importPayload(payload, configurationStore: configurationStore))
+
+        let configuration = try XCTUnwrap(configurationStore.configurations(for: .openCodeZen).first)
+        XCTAssertEqual(configuration.openCodeWorkspaceId, "wrk_from_windows")
+        XCTAssertEqual(configuration.accountLabel, "OpenCode ZEN")
+        XCTAssertEqual(
+            try secretStore.readSecret(account: ProviderConfigurationStore.keychainAccount(for: configuration)),
+            "go-dashboard-token"
+        )
+    }
+
+    func testOpenCodeZenNormalizesPastedBalanceCredential() {
+        XCTAssertEqual(
+            OpenCodeZenUsageProvider.normalizedBalanceCredential(from: "Authorization: Bearer oczen-test-key"),
+            "oczen-test-key"
+        )
+        XCTAssertEqual(
+            OpenCodeZenUsageProvider.normalizedBalanceCredential(from: "\"quoted-key\""),
+            "quoted-key"
+        )
+        XCTAssertEqual(
+            OpenCodeZenUsageProvider.normalizedBalanceCredential(from: "auth=oczen-legacy-shaped-key; other=value"),
+            "oczen-legacy-shaped-key"
+        )
+        XCTAssertEqual(
+            OpenCodeZenUsageProvider.normalizedWorkspaceId(from: "https://opencode.ai/workspace/wrk_test/billing"),
+            "wrk_test"
+        )
+    }
+
+    func testOpenCodeZenProviderWithoutWorkspaceIsNotConfigured() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        try secretStore.saveSecret("oczen-test-key", account: ProviderConfigurationStore.keychainAccount(for: configuration))
+
+        let provider = OpenCodeZenUsageProvider(secretStore: secretStore)
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.providerID, .openCodeZen)
+        XCTAssertEqual(result.subtitle, "Not configured - enter OpenCode workspace ID.")
+        XCTAssertNil(result.creditsRemaining)
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testOpenCodeZenProviderWithoutCredentialIsNotDemoData() async throws {
+        let provider = OpenCodeZenUsageProvider(secretStore: InMemorySecretStore())
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        configuration.openCodeWorkspaceId = "wrk_test"
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.providerID, .openCodeZen)
+        XCTAssertEqual(result.subtitle, "Not configured - enter OpenCode dashboard auth value.")
+        XCTAssertTrue(result.bars.isEmpty)
+    }
 }
 
 private final class CopilotResolvedUsernameBox: @unchecked Sendable {

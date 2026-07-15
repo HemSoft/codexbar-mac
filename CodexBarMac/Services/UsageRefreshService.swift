@@ -318,12 +318,14 @@ public extension UsageRefreshService {
             CopilotUsageProvider(secretStore: secretStore),
             OpenRouterUsageProvider(secretStore: secretStore),
             CursorUsageProvider(secretStore: secretStore),
+            OpenCodeZenUsageProvider(secretStore: secretStore),
         ] + DemoUsageProvider.samples.filter {
             $0.providerID != .codex
                 && $0.providerID != .claude
                 && $0.providerID != .copilot
                 && $0.providerID != .openRouter
                 && $0.providerID != .cursor
+                && $0.providerID != .openCodeZen
         }
 
         return UsageRefreshService(providers: providers)
