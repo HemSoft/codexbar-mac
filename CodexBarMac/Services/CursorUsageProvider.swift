@@ -176,14 +176,15 @@ public final class CursorUsageProvider: UsageProvider {
         {
             let used = max(0, limit - remaining)
             bars.append(UsageBar(
+                stableKey: "on-demand",
                 label: "On-demand \(formatCents(used)) / \(formatCents(limit))",
-                used: used,
-                limit: limit,
+                used: Double(used) / 100,
+                limit: Double(limit) / 100,
                 resetDescription: resetDescription,
                 resetsAt: reset,
                 resetDisplayStyle: .shortLocalDate,
-                projectionCurrent: billingPeriod == nil ? nil : used,
-                projectionLimit: billingPeriod == nil ? nil : limit,
+                projectionCurrent: billingPeriod == nil ? nil : Double(used) / 100,
+                projectionLimit: billingPeriod == nil ? nil : Double(limit) / 100,
                 projectionPeriodStart: billingPeriod?.start,
                 projectionPeriodEnd: billingPeriod?.end,
                 showProjectionOnCurrentBar: billingPeriod != nil

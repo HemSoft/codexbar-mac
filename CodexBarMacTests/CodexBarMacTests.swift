@@ -1702,8 +1702,8 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(result.bars[0].projectionCurrent), 0.626, accuracy: 0.000_001)
         XCTAssertEqual(try XCTUnwrap(result.bars[1].projectionCurrent), 0.424, accuracy: 0.000_001)
         XCTAssertEqual(try XCTUnwrap(result.bars[2].projectionCurrent), 0.182, accuracy: 0.000_001)
-        XCTAssertEqual(result.bars[3].projectionCurrent, 1_200)
-        XCTAssertEqual(result.bars.compactMap(\.projectionLimit), [1, 1, 1, 2_000])
+        XCTAssertEqual(result.bars[3].projectionCurrent, 12)
+        XCTAssertEqual(result.bars.compactMap(\.projectionLimit), [1, 1, 1, 20])
         XCTAssertTrue(try XCTUnwrap(result.bars[0].projectionDescription(at: fetchedAt)).hasPrefix(
             "Projected 100% at current pace - Limit hit "
         ))
