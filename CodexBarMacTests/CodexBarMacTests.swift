@@ -2421,6 +2421,7 @@ final class CodexBarMacTests: XCTestCase {
             bars: [
                 UsageBar(
                     id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
+                    stableKey: "on-demand",
                     label: "On-demand $12.00 / $20.00",
                     used: 12,
                     limit: 20
@@ -2436,6 +2437,7 @@ final class CodexBarMacTests: XCTestCase {
             bars: [
                 UsageBar(
                     id: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!,
+                    stableKey: "on-demand",
                     label: "On-demand $14.00 / $20.00",
                     used: 14,
                     limit: 20
@@ -2465,8 +2467,8 @@ final class CodexBarMacTests: XCTestCase {
             title: "Cursor",
             subtitle: "Live usage",
             bars: [
-                UsageBar(label: "On-demand $12.00 / $20.00", used: 12, limit: 20),
-                UsageBar(label: "On-demand $18.00 / $30.00", used: 18, limit: 30),
+                UsageBar(stableKey: "on-demand", label: "On-demand $12.00 / $20.00", used: 12, limit: 20),
+                UsageBar(stableKey: "on-demand", label: "On-demand $18.00 / $30.00", used: 18, limit: 30),
             ],
             fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
         )
@@ -2793,6 +2795,57 @@ final class CodexBarMacTests: XCTestCase {
             ["Codex Critical alert"]
         )
         XCTAssertTrue(criticalEvaluation.activeAlertIDs.contains("severity.codex.personal.2"))
+    }
+
+    func testUsageAlertEvaluatorAlertsWhenNewWindowStartsAboveThreshold() {
+        let previousWindowReset = Date(timeIntervalSince1970: 1_783_600_000)
+        let nextWindowReset = Date(timeIntervalSince1970: 1_784_200_000)
+        let settings = UsageAlertSettings(
+            isEnabled: true,
+            usageThreshold: 0.80,
+            includesSeverityAlerts: false
+        )
+        let previousWindow = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    label: "Weekly",
+                    used: 95,
+                    limit: 100,
+                    resetsAt: previousWindowReset
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+        )
+        let nextWindow = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    label: "Weekly",
+                    used: 95,
+                    limit: 100,
+                    resetsAt: nextWindowReset
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_784_000_000)
+        )
+
+        let first = UsageAlertEvaluator.evaluate(results: [previousWindow], settings: settings, activeAlertIDs: [])
+        let second = UsageAlertEvaluator.evaluate(
+            results: [nextWindow],
+            settings: settings,
+            activeAlertIDs: first.activeAlertIDs
+        )
+
+        XCTAssertEqual(first.notifications.count, 1)
+        XCTAssertEqual(second.notifications.count, 1)
+        XCTAssertNotEqual(first.activeAlertIDs, second.activeAlertIDs)
     }
 }
 

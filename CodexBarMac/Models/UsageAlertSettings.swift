@@ -6,6 +6,26 @@ public struct UsageAlertSettings: Codable, Equatable, Sendable {
     public var balanceThreshold: Double
     public var includesSeverityAlerts: Bool
 
+    enum CodingKeys: String, CodingKey {
+        case isEnabled
+        case usageThreshold
+        case balanceThreshold
+        case includesSeverityAlerts
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            isEnabled: try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false,
+            usageThreshold: try container.decodeIfPresent(Double.self, forKey: .usageThreshold)
+                ?? Self.defaultUsageThreshold,
+            balanceThreshold: try container.decodeIfPresent(Double.self, forKey: .balanceThreshold)
+                ?? Self.defaultBalanceThreshold,
+            includesSeverityAlerts: try container.decodeIfPresent(Bool.self, forKey: .includesSeverityAlerts)
+                ?? true
+        )
+    }
+
     public init(
         isEnabled: Bool = false,
         usageThreshold: Double = Self.defaultUsageThreshold,

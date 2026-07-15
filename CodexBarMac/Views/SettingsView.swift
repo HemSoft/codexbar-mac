@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
@@ -166,6 +167,7 @@ struct SettingsView: View {
             model.launchAtLoginManager.refreshFromSystem()
             Task {
                 await model.discoverLocalCredentials()
+                await syncUsageAlertAuthorizationState()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -243,6 +245,32 @@ struct SettingsView: View {
         formatter.maximumFractionDigits = 0
         return formatter.string(from: NSNumber(value: configurationStore.usageAlertSettings.balanceThreshold))
             ?? "$\(Int(configurationStore.usageAlertSettings.balanceThreshold.rounded()))"
+    }
+
+    @MainActor
+    private func syncUsageAlertAuthorizationState() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            alertPermissionMessage = nil
+        case .denied:
+            if configurationStore.usageAlertSettings.isEnabled {
+                configurationStore.updateUsageAlertsEnabled(false)
+            }
+            alertPermissionMessage = "Notifications are disabled for CodexBar."
+        case .notDetermined:
+            if configurationStore.usageAlertSettings.isEnabled {
+                let granted = await model.requestUsageAlertAuthorization()
+                if !granted {
+                    configurationStore.updateUsageAlertsEnabled(false)
+                    alertPermissionMessage = "Notifications are disabled for CodexBar."
+                }
+            }
+        @unknown default:
+            break
+        }
     }
 
     private func resetAccounts() {

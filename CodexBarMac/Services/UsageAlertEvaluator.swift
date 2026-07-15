@@ -261,7 +261,11 @@ public enum UsageAlertEvaluator {
     }
 
     private static func alertID(for result: ProviderUsageResult, bar: UsageBar) -> String {
-        "usage.\(result.accountID).\(stableUsageKey(for: bar))"
+        let stableKey = stableUsageKey(for: bar)
+        if let resetsAt = bar.resetsAt {
+            return "usage.\(result.accountID).\(stableKey).\(Int(resetsAt.timeIntervalSince1970))"
+        }
+        return "usage.\(result.accountID).\(stableKey)"
     }
 
     private static func stableUsageKey(for bar: UsageBar) -> String {
