@@ -40,8 +40,13 @@ public final class OpenRouterUsageProvider: UsageProvider {
         case 200..<300:
             return Self.parseCredits(data, configuration: configuration, fetchedAt: now())
                 ?? failureResult("Could not parse OpenRouter balance.", configuration: configuration)
-        case 401, 403:
+        case 401:
             return failureResult("OpenRouter rejected this API key.", configuration: configuration)
+        case 403:
+            return failureResult(
+                Self.managementKeyRequiredMessage(from: data),
+                configuration: configuration
+            )
         case 429:
             return failureResult("OpenRouter rate limit reached. Try again later.", configuration: configuration)
         default:
@@ -125,6 +130,28 @@ public final class OpenRouterUsageProvider: UsageProvider {
         default:
             nil
         }
+    }
+
+    private static func managementKeyRequiredMessage(from data: Data) -> String {
+        if let message = apiErrorMessage(from: data),
+           message.localizedCaseInsensitiveContains("management key") {
+            return "OpenRouter requires a management API key for credit balance."
+        }
+
+        return "OpenRouter rejected this API key."
+    }
+
+    private static func apiErrorMessage(from data: Data) -> String? {
+        guard
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let error = root["error"] as? [String: Any],
+            let message = error["message"] as? String
+        else {
+            return nil
+        }
+
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func failureResult(_ message: String, configuration: ProviderAccountConfiguration) -> ProviderUsageResult {

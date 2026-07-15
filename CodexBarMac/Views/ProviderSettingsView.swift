@@ -140,7 +140,7 @@ struct ProviderSettingsView: View {
         case .claude:
             "Claude Code OAuth credentials from the macOS Keychain or ~/.claude/.credentials.json are preferred when available. Browser sign-in remains the fallback."
         case .openRouter:
-            "Store an OpenRouter API key in the Keychain."
+            "Store an OpenRouter management API key in the Keychain. Inference-only keys cannot read credit balance."
         case .openCodeZen:
             "Store an OpenCode ZEN API key in the Keychain."
         case .cursor:

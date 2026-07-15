@@ -1495,6 +1495,31 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertNil(result.creditsRemaining)
     }
 
+    func testOpenRouterProviderExplainsManagementKeyRequirement() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openRouter)
+        try secretStore.saveSecret("sk-or-inference", account: ProviderConfigurationStore.keychainAccount(for: configuration))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = OpenRouterUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration)
+        )
+        MockURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"error":{"message":"Only management keys can perform this operation"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.subtitle, "OpenRouter requires a management API key for credit balance.")
+        XCTAssertNil(result.creditsRemaining)
+    }
+
     func testOpenRouterNormalizesPastedAuthorizationHeader() {
         XCTAssertEqual(
             OpenRouterUsageProvider.normalizedAPIKey(from: "Authorization: Bearer sk-or-test"),
