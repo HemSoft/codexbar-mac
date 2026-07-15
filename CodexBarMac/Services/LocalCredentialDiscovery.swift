@@ -7,23 +7,27 @@ public struct LocalCredentialDiscovery: Sendable {
         public let githubUsernames: [String]
         public let claudeOAuthAvailable: Bool
         public let claudeCredentialSource: String?
+        public let cursorSessionAvailable: Bool
 
         public init(
             codexAuthAvailable: Bool,
             githubUsernames: [String],
             claudeOAuthAvailable: Bool,
-            claudeCredentialSource: String? = nil
+            claudeCredentialSource: String? = nil,
+            cursorSessionAvailable: Bool = false
         ) {
             self.codexAuthAvailable = codexAuthAvailable
             self.githubUsernames = githubUsernames
             self.claudeOAuthAvailable = claudeOAuthAvailable
             self.claudeCredentialSource = claudeCredentialSource
+            self.cursorSessionAvailable = cursorSessionAvailable
         }
     }
 
     public static func discover(
         codexAuthPath: String = defaultCodexAuthPath(),
         claudeCredentialsPath: String = defaultClaudeCredentialsPath(),
+        cursorAuthPath: String = CursorCredentialsParser.defaultAuthPath(),
         claudeKeychainAccount: String = NSUserName(),
         ghStatusRunner: (@Sendable () throws -> (exitCode: Int32, stdout: String, stderr: String))? = nil
     ) -> Result {
@@ -36,7 +40,8 @@ public struct LocalCredentialDiscovery: Sendable {
             codexAuthAvailable: CodexCredentialsParser.parseAuthFile(at: codexAuthPath) != nil,
             githubUsernames: discoverGitHubUsernames(using: runner),
             claudeOAuthAvailable: claudeCredentialSource != nil,
-            claudeCredentialSource: claudeCredentialSource
+            claudeCredentialSource: claudeCredentialSource,
+            cursorSessionAvailable: CursorCredentialsParser.hasSession(at: cursorAuthPath)
         )
     }
 
