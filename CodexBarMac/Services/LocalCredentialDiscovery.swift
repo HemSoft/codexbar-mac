@@ -206,6 +206,47 @@ public struct LocalCredentialDiscovery: Sendable {
         return "/usr/bin/env"
     }
 
+    static func gitHubAuthTokenArguments(for executable: String, username: String?) -> [String] {
+        var arguments: [String]
+        if executable == "/usr/bin/env" {
+            arguments = ["gh", "auth", "token"]
+        } else {
+            arguments = ["auth", "token"]
+        }
+
+        if let username {
+            let trimmedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedUsername.isEmpty {
+                arguments.append(contentsOf: ["--user", trimmedUsername])
+            }
+        }
+
+        arguments.append(contentsOf: ["--hostname", "github.com"])
+        return arguments
+    }
+
+    public static func gitHubAuthToken(
+        for username: String? = nil,
+        tokenRunner: (@Sendable () throws -> (exitCode: Int32, stdout: String, stderr: String))? = nil
+    ) throws -> String? {
+        let runner = tokenRunner ?? {
+            let executable = resolveGitHubCLIExecutable()
+            return try ShellCommand.run(
+                executable: executable,
+                arguments: gitHubAuthTokenArguments(for: executable, username: username),
+                timeout: 10
+            )
+        }
+
+        let result = try runner()
+        guard result.exitCode == 0 else {
+            return nil
+        }
+
+        let token = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return token.isEmpty ? nil : token
+    }
+
     static func gitHubAuthStatusArguments(for executable: String) -> [String] {
         if executable == "/usr/bin/env" {
             return ["gh", "auth", "status", "--hostname", "github.com"]

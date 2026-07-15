@@ -17,6 +17,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Keychain-backed API key storage and local CLI credential discovery for Codex (`~/.codex/auth.json`), GitHub CLI (`gh auth status`), and Claude Code (`~/.claude/.credentials.json`).
 - Live ChatGPT / Codex usage fetching from local CLI credentials with proactive token refresh, 5-hour and weekly usage windows, and reset countdowns.
 - Live Claude usage fetching from Claude Code OAuth credentials with session, weekly, OAuth-app weekly, and model-scoped limit bars.
+- Live GitHub Copilot usage fetching from GitHub CLI credentials with premium and chat quota bars per account.
+
+### Fixed
+
+- GitHub Copilot CLI accounts prefer fresh GitHub CLI tokens over stale saved Keychain secrets.
+- GitHub Copilot reset countdown falls back to date-only reset fields when UTC timestamps are absent.
+- GitHub Copilot usage-based billing accounts label premium quota bars as AI credits.
+- GitHub Copilot falls back to the active GitHub CLI account when no stored CLI username is configured.
+- GitHub Copilot omits token-based placeholder snapshots that do not include usable quota data.
+- GitHub Copilot saved tokens take precedence over the active GitHub CLI account when no CLI username is bound.
+- GitHub Copilot pooled quota exhaustion is shown when GitHub reports unlimited snapshots with no remaining quota.
 
 ### Developer Experience
 

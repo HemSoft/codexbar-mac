@@ -315,7 +315,8 @@ public extension UsageRefreshService {
         let providers: [any UsageProvider] = [
             CodexUsageProvider(secretStore: secretStore),
             ClaudeUsageProvider(secretStore: secretStore),
-        ] + DemoUsageProvider.samples.filter { $0.providerID != .codex && $0.providerID != .claude }
+            CopilotUsageProvider(secretStore: secretStore),
+        ] + DemoUsageProvider.samples.filter { $0.providerID != .codex && $0.providerID != .claude && $0.providerID != .copilot }
 
         return UsageRefreshService(providers: providers)
     }

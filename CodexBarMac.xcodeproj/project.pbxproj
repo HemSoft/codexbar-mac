@@ -45,6 +45,10 @@
 		100000000000000000000027 /* ClaudeUsageParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000029 /* ClaudeUsageParser.swift */; };
 		100000000000000000000028 /* ClaudeUsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002A /* ClaudeUsageProvider.swift */; };
 		100000000000000000000029 /* ClaudeCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002B /* ClaudeCredentialStore.swift */; };
+		10000000000000000000002A /* CopilotCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002C /* CopilotCredentials.swift */; };
+		10000000000000000000002B /* CopilotCredentialsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002D /* CopilotCredentialsParser.swift */; };
+		10000000000000000000002C /* CopilotUsageParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002E /* CopilotUsageParser.swift */; };
+		10000000000000000000002D /* CopilotUsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002F /* CopilotUsageProvider.swift */; };
 		100000000000000000000025 /* CodexBarMacTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000028 /* CodexBarMacTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -89,6 +93,10 @@
 		200000000000000000000029 /* ClaudeUsageParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeUsageParser.swift; sourceTree = "<group>"; };
 		20000000000000000000002A /* ClaudeUsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeUsageProvider.swift; sourceTree = "<group>"; };
 		20000000000000000000002B /* ClaudeCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCredentialStore.swift; sourceTree = "<group>"; };
+		20000000000000000000002C /* CopilotCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotCredentials.swift; sourceTree = "<group>"; };
+		20000000000000000000002D /* CopilotCredentialsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotCredentialsParser.swift; sourceTree = "<group>"; };
+		20000000000000000000002E /* CopilotUsageParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotUsageParser.swift; sourceTree = "<group>"; };
+		20000000000000000000002F /* CopilotUsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotUsageProvider.swift; sourceTree = "<group>"; };
 		200000000000000000000027 /* CodexBarMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000028 /* CodexBarMacTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarMacTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -175,6 +183,7 @@
 				20000000000000000000000C /* AppAppearance.swift */,
 				20000000000000000000001C /* CodexCredentials.swift */,
 				20000000000000000000001E /* ClaudeCredentials.swift */,
+				20000000000000000000002C /* CopilotCredentials.swift */,
 				200000000000000000000021 /* CredentialReadiness.swift */,
 			);
 			path = Models;
@@ -208,6 +217,9 @@
 				200000000000000000000029 /* ClaudeUsageParser.swift */,
 				20000000000000000000002A /* ClaudeUsageProvider.swift */,
 				20000000000000000000002B /* ClaudeCredentialStore.swift */,
+				20000000000000000000002D /* CopilotCredentialsParser.swift */,
+				20000000000000000000002E /* CopilotUsageParser.swift */,
+				20000000000000000000002F /* CopilotUsageProvider.swift */,
 				200000000000000000000018 /* LaunchAtLoginManager.swift */,
 			);
 			path = Services;
@@ -380,6 +392,10 @@
 				100000000000000000000027 /* ClaudeUsageParser.swift in Sources */,
 				100000000000000000000028 /* ClaudeUsageProvider.swift in Sources */,
 				100000000000000000000029 /* ClaudeCredentialStore.swift in Sources */,
+				10000000000000000000002A /* CopilotCredentials.swift in Sources */,
+				10000000000000000000002B /* CopilotCredentialsParser.swift in Sources */,
+				10000000000000000000002C /* CopilotUsageParser.swift in Sources */,
+				10000000000000000000002D /* CopilotUsageProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
