@@ -316,7 +316,13 @@ public extension UsageRefreshService {
             CodexUsageProvider(secretStore: secretStore),
             ClaudeUsageProvider(secretStore: secretStore),
             CopilotUsageProvider(secretStore: secretStore),
-        ] + DemoUsageProvider.samples.filter { $0.providerID != .codex && $0.providerID != .claude && $0.providerID != .copilot }
+            OpenRouterUsageProvider(secretStore: secretStore),
+        ] + DemoUsageProvider.samples.filter {
+            $0.providerID != .codex
+                && $0.providerID != .claude
+                && $0.providerID != .copilot
+                && $0.providerID != .openRouter
+        }
 
         return UsageRefreshService(providers: providers)
     }
