@@ -2060,6 +2060,49 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(result.bars.isEmpty)
     }
 
+    func testOpenCodeZenProviderPrefersGoDashboardCredentialOverZenModelKey() async throws {
+        let secretStore = InMemorySecretStore()
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        configuration.openCodeWorkspaceId = "wrk_from_windows"
+        let windowsSettings = """
+        {
+          "openCodeGoWorkspaceId": "wrk_from_windows",
+          "providers": {
+            "OpenCodeGo": {
+              "apiKey": "go-dashboard-token"
+            },
+            "OpenCodeZen": {
+              "apiKey": "sk-opencode-model-key"
+            }
+          }
+        }
+        """
+        try secretStore.saveSecret(
+            windowsSettings,
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let provider = OpenCodeZenUsageProvider(secretStore: secretStore, session: session)
+
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "auth=go-dashboard-token")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"<html>balance:100000000</html>"#.utf8)
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(try XCTUnwrap(result.creditsRemaining), 1.0, accuracy: 0.0001)
+    }
+
     @MainActor
     func testOpenCodeZenBootstrapImporterStoresWindowsSettingsJSON() throws {
         let suiteName = "OpenCodeZenBootstrapImporter-\(UUID().uuidString)"

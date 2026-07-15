@@ -273,8 +273,18 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
         }
 
         let providers = root["providers"] as? [String: Any]
-        return providerAPIKey(named: "OpenCodeZen", in: providers)
-            ?? providerAPIKey(named: "OpenCodeGo", in: providers)
+        if let goCredential = providerAPIKey(named: "OpenCodeGo", in: providers) {
+            return goCredential
+        }
+
+        if
+            let zenCredential = providerAPIKey(named: "OpenCodeZen", in: providers),
+            !looksLikeZenModelAPIKey(zenCredential)
+        {
+            return zenCredential
+        }
+
+        return nil
     }
 
     private static func openCodeWorkspaceId(fromSettingsJSON value: String) -> String? {
