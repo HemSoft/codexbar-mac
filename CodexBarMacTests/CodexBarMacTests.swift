@@ -2135,6 +2135,88 @@ final class CodexBarMacTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testOpenCodeZenBootstrapImporterRetainsFileForInvalidPayload() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+
+        let importURL = tempDirectory.appendingPathComponent(OpenCodeZenBootstrapImporter.importFileName)
+        try Data().write(to: importURL)
+
+        let configurationStore = ProviderConfigurationStore(
+            defaults: UserDefaults(suiteName: "OpenCodeZenBootstrapImporter-invalid-\(UUID().uuidString)")!,
+            secretStore: InMemorySecretStore()
+        )
+
+        OpenCodeZenBootstrapImporter.importIfNeeded(
+            configurationStore: configurationStore,
+            importDirectory: tempDirectory
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: importURL.path))
+    }
+
+    @MainActor
+    func testOpenCodeZenBootstrapImporterDeletesFileAfterSuccessfulImport() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+
+        let importURL = tempDirectory.appendingPathComponent(OpenCodeZenBootstrapImporter.importFileName)
+        let payload = """
+        {
+          "openCodeGoWorkspaceId": "wrk_from_windows",
+          "providers": {
+            "OpenCodeGo": {
+              "apiKey": "go-dashboard-token"
+            }
+          }
+        }
+        """
+        try Data(payload.utf8).write(to: importURL)
+
+        let configurationStore = ProviderConfigurationStore(
+            defaults: UserDefaults(suiteName: "OpenCodeZenBootstrapImporter-success-\(UUID().uuidString)")!,
+            secretStore: InMemorySecretStore()
+        )
+
+        OpenCodeZenBootstrapImporter.importIfNeeded(
+            configurationStore: configurationStore,
+            importDirectory: tempDirectory
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: importURL.path))
+    }
+
+    @MainActor
+    func testOpenCodeZenBootstrapImporterReturnsFalseWhenSecretSaveFails() throws {
+        let secretStore = FailingSecretStore()
+        let configurationStore = ProviderConfigurationStore(
+            defaults: UserDefaults(suiteName: "OpenCodeZenBootstrapImporter-failure-\(UUID().uuidString)")!,
+            secretStore: secretStore
+        )
+        let payload = """
+        {
+          "openCodeGoWorkspaceId": "wrk_from_windows",
+          "providers": {
+            "OpenCodeGo": {
+              "apiKey": "go-dashboard-token"
+            }
+          }
+        }
+        """
+
+        XCTAssertFalse(OpenCodeZenBootstrapImporter.importPayload(payload, configurationStore: configurationStore))
+        XCTAssertNil(configurationStore.readSavedSecret(for: .defaultConfiguration(for: .openCodeZen)))
+    }
+
     func testOpenCodeZenNormalizesPastedBalanceCredential() {
         XCTAssertEqual(
             OpenCodeZenUsageProvider.normalizedBalanceCredential(from: "Authorization: Bearer oczen-test-key"),
@@ -2179,6 +2261,18 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.subtitle, "Not configured - enter OpenCode dashboard auth value.")
         XCTAssertTrue(result.bars.isEmpty)
     }
+}
+
+private final class FailingSecretStore: SecretStore, @unchecked Sendable {
+    func readSecret(account: String) throws -> String? {
+        nil
+    }
+
+    func saveSecret(_ secret: String, account: String) throws {
+        throw KeychainError.unhandledStatus(errSecDuplicateItem)
+    }
+
+    func deleteSecret(account: String) throws {}
 }
 
 private final class CopilotResolvedUsernameBox: @unchecked Sendable {

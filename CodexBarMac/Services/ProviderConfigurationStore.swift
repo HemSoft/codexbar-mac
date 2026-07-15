@@ -263,6 +263,10 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
     }
 
+    public func readSavedSecret(for configuration: ProviderAccountConfiguration) -> String? {
+        try? secretStore.readSecret(account: Self.keychainAccount(for: configuration))
+    }
+
     public func hasSecret(for configuration: ProviderAccountConfiguration) -> Bool {
         secretAvailability[configuration.id] ?? false
     }

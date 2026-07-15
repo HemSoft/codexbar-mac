@@ -291,9 +291,14 @@ struct ProviderSettingsView: View {
         }
 
         secret = ""
-        openCodeCredentialMessage = configuration.openCodeWorkspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "OpenCode dashboard auth value saved. Enter the workspace ID, then refresh."
-            : "OpenCode dashboard auth value saved. Refreshing..."
+        let workspaceConfigured = !configuration.openCodeWorkspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        openCodeCredentialMessage = workspaceConfigured
+            ? "OpenCode dashboard auth value saved. Refreshing..."
+            : "OpenCode dashboard auth value saved. Enter the workspace ID, then refresh."
+        guard workspaceConfigured else {
+            return
+        }
+
         Task {
             await refreshOpenCode()
         }

@@ -18,10 +18,6 @@ enum OpenCodeZenBootstrapImporter {
             return
         }
 
-        defer {
-            try? fileManager.removeItem(at: importURL)
-        }
-
         guard
             let data = try? Data(contentsOf: importURL),
             let payload = String(data: data, encoding: .utf8)
@@ -29,7 +25,11 @@ enum OpenCodeZenBootstrapImporter {
             return
         }
 
-        importPayload(payload, configurationStore: configurationStore)
+        guard importPayload(payload, configurationStore: configurationStore) else {
+            return
+        }
+
+        try? fileManager.removeItem(at: importURL)
     }
 
     @discardableResult
@@ -62,6 +62,14 @@ enum OpenCodeZenBootstrapImporter {
         }
 
         configurationStore.saveSecret(credential, for: configuration)
-        return configurationStore.hasSecret(for: configuration)
+        guard configurationStore.lastError == nil else {
+            return false
+        }
+
+        guard configurationStore.readSavedSecret(for: configuration) == credential else {
+            return false
+        }
+
+        return true
     }
 }

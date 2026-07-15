@@ -77,7 +77,7 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
                 return Self.parseBalance(data, configuration: configuration)
                     ?? failureResult("Could not parse OpenCode ZEN balance.", configuration: configuration)
             case 401, 403:
-                return failureResult("OpenCode ZEN rejected this API key.", configuration: configuration)
+                return failureResult("OpenCode ZEN rejected this dashboard authentication.", configuration: configuration)
             case 429:
                 return failureResult("OpenCode ZEN rate limit reached. Try again later.", configuration: configuration)
             default:
