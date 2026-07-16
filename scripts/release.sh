@@ -39,8 +39,8 @@ Usage: ./scripts/release.sh [options]
 
 Options:
   --version <ver>     Marketing version (default: MARKETING_VERSION from the project)
-  --skip-notarize     Sign and zip without notarytool (not Gatekeeper-clean)
-  --publish           After packaging, create/update GitHub Release v<ver>
+  --skip-notarize     Sign and zip without notarytool (not Gatekeeper-clean; incompatible with --publish)
+  --publish           After packaging, create/update GitHub Release v<ver> (requires clean worktree + notarization)
   --dry-run           Print the plan and verify prerequisites; do not build
   -h, --help          Show this help
 EOF
@@ -125,6 +125,19 @@ require_cmd python3
 
 if [[ "$PUBLISH" -eq 1 ]]; then
   require_cmd gh
+fi
+
+if [[ "$PUBLISH" -eq 1 && "$SKIP_NOTARIZE" -eq 1 ]]; then
+  echo "Refusing to publish with --skip-notarize. Notarize first, or omit --publish." >&2
+  exit 1
+fi
+
+if [[ "$PUBLISH" -eq 1 && "$DRY_RUN" -eq 0 ]]; then
+  if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+    echo "Refusing to publish from a dirty worktree. Commit or stash changes first." >&2
+    git -C "$ROOT" status --short >&2
+    exit 1
+  fi
 fi
 
 if [[ "$DRY_RUN" -eq 0 ]]; then
