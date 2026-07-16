@@ -350,9 +350,9 @@ public enum ClaudeUsageParser {
         )
     }
 
-    private static let scopedWeeklyHeaderModels: [(label: String, keyVariants: [String])] = [
-        ("Sonnet weekly usage limit", ["7d-sonnet", "7d_sonnet"]),
-        ("Opus weekly usage limit", ["7d-opus", "7d_opus"]),
+    private static let scopedWeeklyHeaderModels: [(label: String, stableKey: String, keyVariants: [String])] = [
+        ("Sonnet weekly usage limit", "weekly-scoped-sonnet", ["7d-sonnet", "7d_sonnet"]),
+        ("Opus weekly usage limit", "weekly-scoped-opus", ["7d-opus", "7d_opus"]),
     ]
 
     private static func scopedWeeklyBarsFromHeaders(
@@ -371,7 +371,7 @@ public enum ClaudeUsageParser {
             for variant in model.keyVariants {
                 if let bar = usageBarFromHeaders(
                     label: model.label,
-                    stableKey: "weekly-scoped-\(variant)",
+                    stableKey: model.stableKey,
                     utilizationKey: "anthropic-ratelimit-unified-\(variant)-utilization",
                     resetKey: "anthropic-ratelimit-unified-\(variant)-reset",
                     durationSeconds: 604_800,

@@ -538,6 +538,7 @@ final class CodexBarMacTests: XCTestCase {
             "Claude Sonnet 4.5 weekly usage limit",
         ])
         XCTAssertEqual(result.bars.map(\.used), [15, 36, 71, 49])
+        XCTAssertEqual(result.bars.last?.stableKey, "weekly-scoped-claudesonnet45")
     }
 
     func testClaudeUsageParserShowsObservedInactiveFableWeeklyLimit() throws {
@@ -586,6 +587,12 @@ final class CodexBarMacTests: XCTestCase {
             "Opus weekly usage limit",
         ])
         XCTAssertEqual(result.bars.map(\.used), [42, 65, 88, 31])
+        XCTAssertEqual(result.bars.map(\.stableKey), [
+            "session",
+            "weekly-all",
+            "weekly-scoped-sonnet",
+            "weekly-scoped-opus",
+        ])
     }
 
     func testClaudeUsageParserMatchesRateLimitHeadersCaseInsensitively() throws {

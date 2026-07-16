@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Cursor on-demand alerts now format spend amounts in dollars instead of raw cents.
 - GitHub Copilot CLI accounts prefer fresh GitHub CLI tokens over stale saved Keychain secrets.
 - GitHub Copilot reset countdown falls back to date-only reset fields when UTC timestamps are absent.
 - GitHub Copilot usage-based billing accounts label premium quota bars as AI credits.
