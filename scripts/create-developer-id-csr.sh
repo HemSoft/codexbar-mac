@@ -8,7 +8,7 @@
 #      (type: Developer ID Application)
 #   2. Download the .cer and import it:
 #        ./scripts/with-codexbar-keychain.sh security import ~/Downloads/*.cer \
-#          -k ~/Library/Keychains/codexbar-dev.keychain-db
+#          -k "$CODEXBAR_SIGNING_KEYCHAIN"
 #   3. Verify:
 #        ./scripts/with-codexbar-keychain.sh security find-identity -v -p codesigning
 
@@ -20,6 +20,8 @@ CSR_PATH="$OUT_DIR/CodexBarMac-DeveloperID.certSigningRequest"
 KEY_NAME="CodexBar Mac Developer ID Application"
 EMAIL="${CODEXBAR_CSR_EMAIL:-}"
 COMMON_NAME="${CODEXBAR_CSR_COMMON_NAME:-CodexBar Mac Developer ID}"
+SIGNING_KEYCHAIN="${CODEXBAR_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/codexbar-dev.keychain-db}"
+export CODEXBAR_SIGNING_KEYCHAIN="$SIGNING_KEYCHAIN"
 
 mkdir -p "$OUT_DIR"
 "$ROOT/scripts/unlock-codexbar-keychain.sh"
@@ -34,7 +36,7 @@ fi
 
 # Create the key pair in the signing keychain, then emit a CSR to disk.
 "$ROOT/scripts/with-codexbar-keychain.sh" security delete-key -a "$KEY_NAME" \
-  "$HOME/Library/Keychains/codexbar-dev.keychain-db" >/dev/null 2>&1 || true
+  "$SIGNING_KEYCHAIN" >/dev/null 2>&1 || true
 
 "$ROOT/scripts/with-codexbar-keychain.sh" /usr/bin/openssl req -new -newkey rsa:2048 -nodes \
   -keyout "$OUT_DIR/CodexBarMac-DeveloperID.key" \
@@ -45,10 +47,10 @@ fi
 # Import then delete the on-disk key if import succeeds.
 if "$ROOT/scripts/with-codexbar-keychain.sh" security import \
   "$OUT_DIR/CodexBarMac-DeveloperID.key" \
-  -k "$HOME/Library/Keychains/codexbar-dev.keychain-db" \
+  -k "$SIGNING_KEYCHAIN" \
   -T /usr/bin/codesign -T /usr/bin/security >/dev/null 2>&1; then
   rm -f "$OUT_DIR/CodexBarMac-DeveloperID.key"
-  echo "Imported private key into codexbar-dev.keychain-db and removed the on-disk key."
+  echo "Imported private key into $SIGNING_KEYCHAIN and removed the on-disk key."
 else
   echo "WARNING: Could not import the private key into the signing keychain." >&2
   echo "Keep $OUT_DIR/CodexBarMac-DeveloperID.key secure and never commit it." >&2
@@ -56,4 +58,5 @@ fi
 
 chmod 600 "$CSR_PATH" 2>/dev/null || true
 echo "CSR written to $CSR_PATH"
-echo "Upload it as a Developer ID Application certificate, then import the .cer."
+echo "Upload it as a Developer ID Application certificate, then import the .cer into:"
+echo "  $SIGNING_KEYCHAIN"

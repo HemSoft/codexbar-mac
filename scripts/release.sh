@@ -258,14 +258,16 @@ echo "Notes:    $NOTES_PATH"
 
 if [[ "$PUBLISH" -eq 1 ]]; then
   TAG="v$VERSION"
-  echo "Publishing GitHub Release $TAG..."
+  TARGET_SHA="$(git -C "$ROOT" rev-parse HEAD)"
+  echo "Publishing GitHub Release $TAG at $TARGET_SHA..."
   if gh release view "$TAG" >/dev/null 2>&1; then
     gh release upload "$TAG" "$ZIP_PATH" --clobber
     gh release edit "$TAG" --notes-file "$NOTES_PATH"
   else
     gh release create "$TAG" "$ZIP_PATH" \
       --title "CodexBar for Mac $VERSION" \
-      --notes-file "$NOTES_PATH"
+      --notes-file "$NOTES_PATH" \
+      --target "$TARGET_SHA"
   fi
   echo "Published: $(gh release view "$TAG" --json url --jq .url)"
 fi
