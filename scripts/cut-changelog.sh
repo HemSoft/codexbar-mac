@@ -79,6 +79,17 @@ def section_body(start_idx: int) -> str:
     end = matches[start_idx + 1].start() if start_idx + 1 < len(matches) else len(text)
     return text[start:end].strip("\n")
 
+def has_substantive_notes(body: str) -> bool:
+    """True when body has content beyond blank lines and markdown headings."""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        return True
+    return False
+
 unreleased_idx = next((i for i, m in enumerate(matches) if m.group(1).strip() == "Unreleased"), None)
 version_prefix = f"{version} -"
 version_idx = next(
@@ -95,11 +106,11 @@ if unreleased_idx is None and version_idx is None:
 
 if version_idx is not None:
     notes = section_body(version_idx).strip()
-    if not notes:
+    if not has_substantive_notes(notes):
         raise SystemExit(f"Version section {matches[version_idx].group(1)!r} is empty")
 else:
     notes = section_body(unreleased_idx).strip()
-    if not notes:
+    if not has_substantive_notes(notes):
         raise SystemExit("Unreleased section is empty; nothing to release")
 
     if write:

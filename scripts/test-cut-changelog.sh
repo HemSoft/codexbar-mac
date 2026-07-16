@@ -58,4 +58,11 @@ assert "### Added" in body
 print("cut-changelog smoke OK")
 PY
 
+# Heading-only Unreleased (post-cut template) must not publish empty notes.
+if "$TMP/repo/scripts/cut-changelog.sh" --notes-out "$TMP/notes3.md" 1.1 >/dev/null 2>"$TMP/err.txt"; then
+  echo "expected heading-only Unreleased to fail" >&2
+  exit 1
+fi
+grep -q 'nothing to release' "$TMP/err.txt"
+
 echo "scripts/test-cut-changelog.sh passed"
