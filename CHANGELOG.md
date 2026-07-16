@@ -41,7 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `./test.sh` runs the same local `xcodebuild test` flow used by CI.
 - Additional Mac-specific coverage for `UsageRefreshService` success/disabled-account handling and GitHub CLI credential discovery parsing.
 - Developer ID release tooling: dedicated `codexbar-dev` keychain helpers, `scripts/release.sh` (sign / notarize / staple / zip / optional GitHub Release), `scripts/cut-changelog.sh`, and release docs in `AGENTS.md`.
-- App signing team set to `W2A23PX5BP` with hardened-runtime entitlements for network client access.
+- App Release signing team set to `W2A23PX5BP` with hardened-runtime entitlements for network client access (Debug remains team-agnostic for local builds).
 - `run.sh` script to build and launch the app from the command line.
 - `AGENTS.md` and `README.md` document build and run instructions.
 - `AGENTS.md` documents that Cursor Cloud (Linux) agents can only perform static review; build, run, and test require macOS with Xcode.
