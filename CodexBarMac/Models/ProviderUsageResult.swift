@@ -7,6 +7,8 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
     public let subtitle: String
     public let bars: [UsageBar]
     public let creditsRemaining: Double?
+    public let hasReachedSpendLimit: Bool
+    public let isIncompleteRefresh: Bool
     public let fetchedAt: Date
 
     public init(
@@ -16,6 +18,8 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
         subtitle: String,
         bars: [UsageBar],
         creditsRemaining: Double? = nil,
+        hasReachedSpendLimit: Bool = false,
+        isIncompleteRefresh: Bool = false,
         fetchedAt: Date
     ) {
         self.accountID = accountID ?? providerID.rawValue
@@ -24,6 +28,8 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
         self.subtitle = subtitle
         self.bars = bars
         self.creditsRemaining = creditsRemaining
+        self.hasReachedSpendLimit = hasReachedSpendLimit
+        self.isIncompleteRefresh = isIncompleteRefresh
         self.fetchedAt = fetchedAt
     }
 
@@ -36,6 +42,9 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
     }
 
     public func highestSeverity(at now: Date = Date()) -> UsageSeverity {
-        bars.map { $0.effectiveSeverity(at: now) }.max() ?? .normal
+        max(
+            bars.map { $0.effectiveSeverity(at: now) }.max() ?? .normal,
+            hasReachedSpendLimit ? .critical : .normal
+        )
     }
 }

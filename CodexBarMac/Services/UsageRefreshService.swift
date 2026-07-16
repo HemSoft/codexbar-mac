@@ -5,9 +5,14 @@ import Foundation
 public final class UsageRefreshService: ObservableObject {
     @Published public private(set) var results: [ProviderUsageResult] = []
     @Published public private(set) var isRefreshing = false
+    @Published public private(set) var incompleteRefreshAccountIDs: Set<String> = []
 
     private let providers: [any UsageProvider]
     private var autoRefreshTask: Task<Void, Never>?
+
+    public var successfulRefreshResults: [ProviderUsageResult] {
+        results.filter { !incompleteRefreshAccountIDs.contains($0.accountID) }
+    }
 
     public init(
         providers: [any UsageProvider],
@@ -35,31 +40,38 @@ public final class UsageRefreshService: ObservableObject {
         let enabledConfigurations = configurations.filter(\.isEnabled)
         let enabledAccountIDs = Set(enabledConfigurations.map(\.id))
         var nextResults: [ProviderUsageResult] = []
+        var incompleteAccountIDs = Set<String>()
 
-        await withTaskGroup(of: ProviderUsageResult?.self) { group in
+        await withTaskGroup(of: (String, ProviderUsageResult?).self) { group in
             for configuration in enabledConfigurations {
                 guard let provider = providers.first(where: { $0.providerID == configuration.providerID }) else {
-                    nextResults.append(
-                        Self.errorResult(for: configuration, error: MissingUsageProviderError())
-                    )
+                    let errorResult = Self.errorResult(for: configuration, error: MissingUsageProviderError())
+                    nextResults.append(errorResult)
+                    incompleteAccountIDs.insert(configuration.id)
                     continue
                 }
 
                 group.addTask {
-                    guard let result = await Self.fetchUsageWithTimeout(provider: provider, configuration: configuration) else {
-                        return nil
-                    }
-                    return result
+                    let result = await Self.fetchUsageWithTimeout(provider: provider, configuration: configuration)
+                    return (configuration.id, result)
                 }
             }
 
-            for await result in group {
-                if let result {
-                    nextResults.append(result)
+            for await (accountID, result) in group {
+                guard let result else {
+                    incompleteAccountIDs.insert(accountID)
+                    continue
                 }
+
+                if result.isIncompleteRefresh {
+                    incompleteAccountIDs.insert(accountID)
+                }
+
+                nextResults.append(result)
             }
         }
 
+        incompleteRefreshAccountIDs = incompleteAccountIDs
         applyBulkResults(nextResults, enabledAccountIDs: enabledAccountIDs)
         return true
     }
@@ -185,6 +197,7 @@ public final class UsageRefreshService: ObservableObject {
             title: configuration.displayName,
             subtitle: "Refresh failed: \(error.localizedDescription)",
             bars: [],
+            isIncompleteRefresh: true,
             fetchedAt: Date()
         )
     }

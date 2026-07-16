@@ -1,10 +1,14 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
 
     @State private var isConfirmingReset = false
+    @State private var alertPermissionMessage: String?
+    @State private var alertAuthorizationGeneration = 0
+    @State private var alertAuthorizationTask: Task<Void, Never>?
 
     private var configurationStore: ProviderConfigurationStore {
         model.configurationStore
@@ -38,6 +42,29 @@ struct SettingsView: View {
                         Text(launchError)
                             .font(.footnote)
                             .foregroundStyle(.red)
+                    }
+                }
+
+                Section("Alerts") {
+                    Toggle("Usage Alerts", isOn: usageAlertsEnabledBinding)
+
+                    Stepper(value: usageAlertUsagePercentBinding, in: 50...100, step: 5) {
+                        Text("Usage at \(Int((configurationStore.usageAlertSettings.usageThreshold * 100).rounded()))%")
+                    }
+                    .disabled(!configurationStore.usageAlertSettings.isEnabled)
+
+                    Stepper(value: usageAlertBalanceBinding, in: 1...100, step: 1) {
+                        Text("Balance below \(formattedBalanceThreshold)")
+                    }
+                    .disabled(!configurationStore.usageAlertSettings.isEnabled)
+
+                    Toggle("Warning and Critical Alerts", isOn: usageAlertSeverityBinding)
+                        .disabled(!configurationStore.usageAlertSettings.isEnabled)
+
+                    if let alertPermissionMessage {
+                        Text(alertPermissionMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -142,7 +169,12 @@ struct SettingsView: View {
             model.launchAtLoginManager.refreshFromSystem()
             Task {
                 await model.discoverLocalCredentials()
+                await syncUsageAlertAuthorizationState()
             }
+        }
+        .onDisappear {
+            alertAuthorizationTask?.cancel()
+            alertAuthorizationTask = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.launchAtLoginManager.refreshFromSystem()
@@ -171,6 +203,99 @@ struct SettingsView: View {
             get: { model.launchAtLoginManager.isToggleOn },
             set: { model.launchAtLoginManager.setEnabled($0) }
         )
+    }
+
+    private var usageAlertsEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { configurationStore.usageAlertSettings.isEnabled },
+            set: { isEnabled in
+                if isEnabled {
+                    requestUsageAlertAuthorization()
+                } else {
+                    alertAuthorizationGeneration += 1
+                    alertAuthorizationTask?.cancel()
+                    alertAuthorizationTask = nil
+                    configurationStore.updateUsageAlertsEnabled(false)
+                    alertPermissionMessage = nil
+                }
+            }
+        )
+    }
+
+    private var usageAlertUsagePercentBinding: Binding<Double> {
+        Binding(
+            get: { configurationStore.usageAlertSettings.usageThreshold * 100 },
+            set: { configurationStore.updateUsageAlertUsageThreshold($0 / 100) }
+        )
+    }
+
+    private var usageAlertBalanceBinding: Binding<Double> {
+        Binding(
+            get: { configurationStore.usageAlertSettings.balanceThreshold },
+            set: { configurationStore.updateUsageAlertBalanceThreshold($0) }
+        )
+    }
+
+    private var usageAlertSeverityBinding: Binding<Bool> {
+        Binding(
+            get: { configurationStore.usageAlertSettings.includesSeverityAlerts },
+            set: { configurationStore.updateUsageAlertIncludesSeverityAlerts($0) }
+        )
+    }
+
+    private var formattedBalanceThreshold: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: configurationStore.usageAlertSettings.balanceThreshold))
+            ?? "$\(Int(configurationStore.usageAlertSettings.balanceThreshold.rounded()))"
+    }
+
+    @MainActor
+    private func syncUsageAlertAuthorizationState() async {
+        alertAuthorizationGeneration += 1
+        alertAuthorizationTask?.cancel()
+        alertAuthorizationTask = nil
+
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            alertPermissionMessage = nil
+        case .denied:
+            if configurationStore.usageAlertSettings.isEnabled {
+                configurationStore.updateUsageAlertsEnabled(false)
+            }
+            alertPermissionMessage = "Notifications are disabled for CodexBar."
+        case .notDetermined:
+            if configurationStore.usageAlertSettings.isEnabled {
+                let granted = await model.requestUsageAlertAuthorization()
+                if !granted {
+                    configurationStore.updateUsageAlertsEnabled(false)
+                    alertPermissionMessage = "Notifications are disabled for CodexBar."
+                }
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func requestUsageAlertAuthorization() {
+        alertAuthorizationGeneration += 1
+        let generation = alertAuthorizationGeneration
+        alertAuthorizationTask?.cancel()
+        alertAuthorizationTask = Task {
+            let granted = await model.requestUsageAlertAuthorization()
+            guard !Task.isCancelled, generation == alertAuthorizationGeneration else {
+                return
+            }
+
+            configurationStore.updateUsageAlertsEnabled(granted)
+            alertPermissionMessage = granted ? nil : "Notifications are disabled for CodexBar."
+            alertAuthorizationTask = nil
+        }
     }
 
     private func resetAccounts() {

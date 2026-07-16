@@ -21,9 +21,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Live OpenRouter credit balance fetching from Keychain-stored management API keys.
 - Live Cursor plan usage fetching from Keychain-stored browser sessions or the local Cursor app auth file, with PKCE browser sign-in and session-expiry prompts.
 - Live OpenCode ZEN credit balance fetching from Keychain-stored dashboard auth values and workspace IDs, with Windows settings JSON import support.
+- Configurable usage alerts via macOS notifications with threshold crossing detection, honoring each provider's enabled/disabled setting, and warning/critical severity alerts.
 
 ### Fixed
 
+- Cursor on-demand alerts now format spend amounts in dollars instead of raw cents.
 - GitHub Copilot CLI accounts prefer fresh GitHub CLI tokens over stale saved Keychain secrets.
 - GitHub Copilot reset countdown falls back to date-only reset fields when UTC timestamps are absent.
 - GitHub Copilot usage-based billing accounts label premium quota bars as AI credits.

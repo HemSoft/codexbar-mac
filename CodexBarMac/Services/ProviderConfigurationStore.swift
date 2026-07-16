@@ -9,6 +9,8 @@ public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var localCredentialHints: [String: String]
     @Published public private(set) var appAppearance: AppAppearance
     @Published public private(set) var autoRefreshInterval: AutoRefreshInterval
+    @Published public private(set) var usageAlertSettings: UsageAlertSettings
+    @Published public private(set) var usageAlertActiveIDs: Set<String>
     @Published public private(set) var lastError: String?
 
     private let defaults: UserDefaults
@@ -17,6 +19,8 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let groupsKey = DefaultsKey.groups
     private let appAppearanceKey = DefaultsKey.appAppearance
     private let autoRefreshIntervalKey = DefaultsKey.autoRefreshInterval
+    private let usageAlertSettingsKey = DefaultsKey.usageAlertSettings
+    private let usageAlertActiveIDsKey = DefaultsKey.usageAlertActiveIDs
     private let suppressedCopilotDiscoveryUsernamesKey = DefaultsKey.suppressedCopilotDiscoveryUsernames
     private var secretAvailabilityGeneration = 0
 
@@ -38,6 +42,8 @@ public final class ProviderConfigurationStore: ObservableObject {
         self.localCredentialHints = [:]
         self.appAppearance = Self.loadAppAppearance(from: defaults)
         self.autoRefreshInterval = Self.loadAutoRefreshInterval(from: defaults)
+        self.usageAlertSettings = Self.loadUsageAlertSettings(from: defaults)
+        self.usageAlertActiveIDs = Self.loadUsageAlertActiveIDs(from: defaults)
         sortConfigurations()
         refreshSecretAvailability()
     }
@@ -155,6 +161,45 @@ public final class ProviderConfigurationStore: ObservableObject {
     public func updateAutoRefreshInterval(_ interval: AutoRefreshInterval) {
         autoRefreshInterval = interval
         defaults.set(interval.rawValue, forKey: autoRefreshIntervalKey)
+    }
+
+    public func updateUsageAlertSettings(_ settings: UsageAlertSettings) {
+        let previousSettings = usageAlertSettings
+        usageAlertSettings = settings
+        saveUsageAlertSettings()
+
+        if settings != previousSettings {
+            updateUsageAlertActiveIDs([])
+        }
+    }
+
+    public func updateUsageAlertsEnabled(_ isEnabled: Bool) {
+        var settings = usageAlertSettings
+        settings.isEnabled = isEnabled
+        updateUsageAlertSettings(settings)
+    }
+
+    public func updateUsageAlertUsageThreshold(_ threshold: Double) {
+        var settings = usageAlertSettings
+        settings.usageThreshold = UsageAlertSettings.normalizedUsageThreshold(threshold)
+        updateUsageAlertSettings(settings)
+    }
+
+    public func updateUsageAlertBalanceThreshold(_ threshold: Double) {
+        var settings = usageAlertSettings
+        settings.balanceThreshold = UsageAlertSettings.normalizedBalanceThreshold(threshold)
+        updateUsageAlertSettings(settings)
+    }
+
+    public func updateUsageAlertIncludesSeverityAlerts(_ includesSeverityAlerts: Bool) {
+        var settings = usageAlertSettings
+        settings.includesSeverityAlerts = includesSeverityAlerts
+        updateUsageAlertSettings(settings)
+    }
+
+    public func updateUsageAlertActiveIDs(_ activeIDs: Set<String>) {
+        usageAlertActiveIDs = activeIDs
+        defaults.set(Array(activeIDs).sorted(), forKey: usageAlertActiveIDsKey)
     }
 
     public func cursorAccountLabelAfterIdentityChange(for configuration: ProviderAccountConfiguration) -> String {
@@ -459,6 +504,8 @@ public final class ProviderConfigurationStore: ObservableObject {
         static let groups = "providerAccountGroups"
         static let appAppearance = "appAppearance"
         static let autoRefreshInterval = "autoRefreshInterval"
+        static let usageAlertSettings = "usageAlertSettings"
+        static let usageAlertActiveIDs = "usageAlertActiveIDs"
         static let suppressedCopilotDiscoveryUsernames = "suppressedCopilotDiscoveryUsernames"
     }
 
@@ -523,6 +570,31 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
 
         return interval
+    }
+
+    private func saveUsageAlertSettings() {
+        do {
+            let data = try JSONEncoder().encode(usageAlertSettings)
+            defaults.set(data, forKey: usageAlertSettingsKey)
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private static func loadUsageAlertSettings(from defaults: UserDefaults) -> UsageAlertSettings {
+        guard
+            let data = defaults.data(forKey: DefaultsKey.usageAlertSettings),
+            let settings = try? JSONDecoder().decode(UsageAlertSettings.self, from: data)
+        else {
+            return UsageAlertSettings()
+        }
+
+        return settings
+    }
+
+    private static func loadUsageAlertActiveIDs(from defaults: UserDefaults) -> Set<String> {
+        Set(defaults.stringArray(forKey: DefaultsKey.usageAlertActiveIDs) ?? [])
     }
 
     private static func normalizedConfiguration(

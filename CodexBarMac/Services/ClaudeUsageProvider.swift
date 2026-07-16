@@ -35,7 +35,11 @@ public final class ClaudeUsageProvider: UsageProvider {
 
     public func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
         guard var loaded = loadCredentials(configuration: configuration) else {
-            return failureResult(notConfiguredMessage(for: configuration), configuration: configuration)
+            return failureResult(
+                notConfiguredMessage(for: configuration),
+                configuration: configuration,
+                isIncompleteRefresh: false
+            )
         }
 
         switch try await refreshedCredentialsIfNeeded(
@@ -541,13 +545,18 @@ public final class ClaudeUsageProvider: UsageProvider {
         return request
     }
 
-    private func failureResult(_ message: String, configuration: ProviderAccountConfiguration) -> ProviderUsageResult {
+    private func failureResult(
+        _ message: String,
+        configuration: ProviderAccountConfiguration,
+        isIncompleteRefresh: Bool = true
+    ) -> ProviderUsageResult {
         ProviderUsageResult(
             accountID: configuration.id,
             providerID: .claude,
             title: configuration.displayName,
             subtitle: message,
             bars: [],
+            isIncompleteRefresh: isIncompleteRefresh,
             fetchedAt: Date()
         )
     }

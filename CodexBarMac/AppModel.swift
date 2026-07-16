@@ -7,6 +7,7 @@ final class AppModel: ObservableObject {
     let refreshService: UsageRefreshService
     let configurationStore: ProviderConfigurationStore
     let launchAtLoginManager: LaunchAtLoginManager
+    private let usageAlertNotifier: any UsageAlertNotifying
 
     @Published private(set) var lastRefreshedAt: Date?
 
@@ -16,11 +17,13 @@ final class AppModel: ObservableObject {
     init(
         refreshService: UsageRefreshService = .live(),
         configurationStore: ProviderConfigurationStore = ProviderConfigurationStore(secretStore: KeychainService()),
-        launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager()
+        launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager(),
+        usageAlertNotifier: any UsageAlertNotifying = LocalUsageAlertNotifier.shared
     ) {
         self.refreshService = refreshService
         self.configurationStore = configurationStore
         self.launchAtLoginManager = launchAtLoginManager
+        self.usageAlertNotifier = usageAlertNotifier
         configurationStore.seedDefaultConfigurationsIfNeeded()
 
         refreshService.objectWillChange
@@ -128,6 +131,14 @@ final class AppModel: ObservableObject {
         }
 
         lastRefreshedAt = Date()
+        await processUsageAlerts(
+            results: alertEligibleResults(),
+            preserving: refreshService.incompleteRefreshAccountIDs
+        )
+    }
+
+    func requestUsageAlertAuthorization() async -> Bool {
+        await usageAlertNotifier.requestAuthorization()
     }
 
     private func drainPendingRefreshIfNeeded() async {
@@ -146,7 +157,17 @@ final class AppModel: ObservableObject {
                 configurationStore.enabledConfigurations
             },
             onRefreshFinished: { [weak self] in
-                self?.lastRefreshedAt = Date()
+                guard let self else {
+                    return
+                }
+
+                self.lastRefreshedAt = Date()
+                Task {
+                    await self.processUsageAlerts(
+                        results: self.alertEligibleResults(),
+                        preserving: self.refreshService.incompleteRefreshAccountIDs
+                    )
+                }
             }
         )
     }
@@ -162,5 +183,45 @@ final class AppModel: ObservableObject {
 
     func quit() {
         NSApplication.shared.terminate(nil)
+    }
+
+    private func alertEligibleResults() -> [ProviderUsageResult] {
+        let enabledAccountIDs = Set(configurationStore.enabledConfigurations.map(\.id))
+        let successfulAccountIDs = Set(refreshService.successfulRefreshResults.map(\.accountID))
+
+        return displayedResults.filter {
+            enabledAccountIDs.contains($0.accountID) && successfulAccountIDs.contains($0.accountID)
+        }
+    }
+
+    private func processUsageAlerts(
+        results: [ProviderUsageResult],
+        preserving preservedAccountIDs: Set<String>
+    ) async {
+        let existingActiveAlertIDs = configurationStore.usageAlertActiveIDs
+        let preservedActiveAlertIDs = configurationStore.usageAlertSettings.isEnabled
+            ? UsageAlertEvaluator.activeAlertIDs(
+                existingActiveAlertIDs,
+                belongingTo: preservedAccountIDs,
+                knownAccountIDs: Set(configurationStore.configurations.map(\.id))
+            )
+            : []
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: results,
+            settings: configurationStore.usageAlertSettings,
+            activeAlertIDs: existingActiveAlertIDs
+        )
+
+        var deliveredActiveAlertIDs = preservedActiveAlertIDs.union(evaluation.activeAlertIDs)
+
+        for notification in evaluation.notifications {
+            do {
+                try await usageAlertNotifier.deliver(notification)
+            } catch {
+                deliveredActiveAlertIDs.remove(notification.id)
+            }
+        }
+
+        configurationStore.updateUsageAlertActiveIDs(deliveredActiveAlertIDs)
     }
 }

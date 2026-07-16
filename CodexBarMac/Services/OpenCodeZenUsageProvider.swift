@@ -22,11 +22,19 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
         guard let workspaceId = Self.normalizedWorkspaceId(from: configuration.openCodeWorkspaceId)
             ?? Self.workspaceId(fromCredentialPayload: storedSecret)
         else {
-            return failureResult("Not configured - enter OpenCode workspace ID.", configuration: configuration)
+            return failureResult(
+                "Not configured - enter OpenCode workspace ID.",
+                configuration: configuration,
+                isIncompleteRefresh: false
+            )
         }
 
         guard let balanceCredential = Self.normalizedAPIKey(from: storedSecret) else {
-            return failureResult("Not configured - enter OpenCode dashboard auth value.", configuration: configuration)
+            return failureResult(
+                "Not configured - enter OpenCode dashboard auth value.",
+                configuration: configuration,
+                isIncompleteRefresh: false
+            )
         }
 
         return await fetchDashboard(
@@ -396,13 +404,18 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
         }
     }
 
-    private func failureResult(_ message: String, configuration: ProviderAccountConfiguration) -> ProviderUsageResult {
+    private func failureResult(
+        _ message: String,
+        configuration: ProviderAccountConfiguration,
+        isIncompleteRefresh: Bool = true
+    ) -> ProviderUsageResult {
         ProviderUsageResult(
             accountID: configuration.id,
             providerID: .openCodeZen,
             title: configuration.displayName,
             subtitle: message,
             bars: [],
+            isIncompleteRefresh: isIncompleteRefresh,
             fetchedAt: Date()
         )
     }

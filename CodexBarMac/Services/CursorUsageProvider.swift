@@ -22,7 +22,11 @@ public final class CursorUsageProvider: UsageProvider {
 
     public func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
         guard let accessToken = try resolveAccessToken(for: configuration) else {
-            return failureResult("Not configured - sign in with Cursor.", configuration: configuration)
+            return failureResult(
+                "Not configured - sign in with Cursor.",
+                configuration: configuration,
+                isIncompleteRefresh: false
+            )
         }
 
         do {
@@ -79,6 +83,7 @@ public final class CursorUsageProvider: UsageProvider {
             title: configuration.displayName,
             subtitle: buildUsageSubtitle(usage.planUsage),
             bars: bars,
+            hasReachedSpendLimit: hasReachedSpendLimit(usage),
             fetchedAt: fetchedAt
         )
     }
@@ -176,14 +181,15 @@ public final class CursorUsageProvider: UsageProvider {
         {
             let used = max(0, limit - remaining)
             bars.append(UsageBar(
+                stableKey: "on-demand",
                 label: "On-demand \(formatCents(used)) / \(formatCents(limit))",
-                used: used,
-                limit: limit,
+                used: Double(used) / 100,
+                limit: Double(limit) / 100,
                 resetDescription: resetDescription,
                 resetsAt: reset,
                 resetDisplayStyle: .shortLocalDate,
-                projectionCurrent: billingPeriod == nil ? nil : used,
-                projectionLimit: billingPeriod == nil ? nil : limit,
+                projectionCurrent: billingPeriod == nil ? nil : Double(used) / 100,
+                projectionLimit: billingPeriod == nil ? nil : Double(limit) / 100,
                 projectionPeriodStart: billingPeriod?.start,
                 projectionPeriodEnd: billingPeriod?.end,
                 showProjectionOnCurrentBar: billingPeriod != nil
@@ -191,6 +197,19 @@ public final class CursorUsageProvider: UsageProvider {
         }
 
         return bars
+    }
+
+    private static func hasReachedSpendLimit(_ usage: CursorCurrentPeriodUsage) -> Bool {
+        guard
+            let onDemand = usage.spendLimitUsage,
+            let limit = onDemand.individualLimit,
+            let remaining = onDemand.individualRemaining,
+            limit > 0
+        else {
+            return false
+        }
+
+        return remaining <= 0
     }
 
     private static func usageBar(
@@ -290,13 +309,18 @@ public final class CursorUsageProvider: UsageProvider {
         return formatter
     }()
 
-    private func failureResult(_ message: String, configuration: ProviderAccountConfiguration) -> ProviderUsageResult {
+    private func failureResult(
+        _ message: String,
+        configuration: ProviderAccountConfiguration,
+        isIncompleteRefresh: Bool = true
+    ) -> ProviderUsageResult {
         ProviderUsageResult(
             accountID: configuration.id,
             providerID: .cursor,
             title: configuration.displayName,
             subtitle: message,
             bars: [],
+            isIncompleteRefresh: isIncompleteRefresh,
             fetchedAt: Date()
         )
     }
