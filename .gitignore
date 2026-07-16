@@ -28,5 +28,8 @@ Package.resolved
 *.provisionprofile
 *.certSigningRequest
 
+# Local release artifacts
+dist/
+
 # Tooling
 .claude/settings.local.json
