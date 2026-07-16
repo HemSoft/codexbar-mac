@@ -40,9 +40,11 @@ Usage: ./scripts/release.sh [options]
 Options:
   --version <ver>     Marketing version (default: MARKETING_VERSION from the project)
   --skip-notarize     Sign and zip without notarytool (not Gatekeeper-clean; incompatible with --publish)
-  --publish           After packaging, create/update GitHub Release v<ver> (requires clean worktree + notarization)
+  --publish           After packaging, create/update GitHub Release v<ver> (requires notarization)
   --dry-run           Print the plan and verify prerequisites; do not build
   -h, --help          Show this help
+
+Non-dry-run releases must run from a clean main branch.
 EOF
   exit 64
 }
@@ -132,9 +134,14 @@ if [[ "$PUBLISH" -eq 1 && "$SKIP_NOTARIZE" -eq 1 ]]; then
   exit 1
 fi
 
-if [[ "$PUBLISH" -eq 1 && "$DRY_RUN" -eq 0 ]]; then
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  CURRENT_BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [[ "$CURRENT_BRANCH" != "main" ]]; then
+    echo "Refusing to release from branch '$CURRENT_BRANCH'. Releases must run from the 'main' branch." >&2
+    exit 1
+  fi
   if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
-    echo "Refusing to publish from a dirty worktree. Commit or stash changes first." >&2
+    echo "Refusing to release from a dirty worktree. Commit or stash changes first." >&2
     git -C "$ROOT" status --short >&2
     exit 1
   fi

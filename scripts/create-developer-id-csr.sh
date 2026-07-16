@@ -6,9 +6,9 @@
 #   1. Upload dist/CodexBarMac-DeveloperID.certSigningRequest at
 #      https://developer.apple.com/account/resources/certificates/add
 #      (type: Developer ID Application)
-#   2. Download the .cer and import it:
+#   2. Download the .cer and import it into the signing keychain:
 #        ./scripts/with-codexbar-keychain.sh security import ~/Downloads/*.cer \
-#          -k "$CODEXBAR_SIGNING_KEYCHAIN"
+#          -k "$HOME/Library/Keychains/codexbar-dev.keychain-db"
 #   3. Verify:
 #        ./scripts/with-codexbar-keychain.sh security find-identity -v -p codesigning
 
@@ -58,5 +58,8 @@ fi
 
 chmod 600 "$CSR_PATH" 2>/dev/null || true
 echo "CSR written to $CSR_PATH"
-echo "Upload it as a Developer ID Application certificate, then import the .cer into:"
-echo "  $SIGNING_KEYCHAIN"
+echo "Upload it as a Developer ID Application certificate, then import the .cer:"
+echo "  ./scripts/with-codexbar-keychain.sh security import ~/Downloads/<cert>.cer \\"
+echo "    -k \"$SIGNING_KEYCHAIN\""
+echo "Verify with:"
+echo "  ./scripts/with-codexbar-keychain.sh security find-identity -v -p codesigning"
