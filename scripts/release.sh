@@ -13,6 +13,9 @@
 
 set -euo pipefail
 
+# Ensure Apple CLI tools are findable even in minimal agent shells.
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${PATH:-}"
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
@@ -118,14 +121,17 @@ require_cmd() {
 require_cmd xcodebuild
 require_cmd codesign
 require_cmd ditto
-require_cmd spctl
 require_cmd python3
 
 if [[ "$PUBLISH" -eq 1 ]]; then
   require_cmd gh
 fi
 
-if [[ "$SKIP_NOTARIZE" -eq 0 ]]; then
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  require_cmd spctl
+fi
+
+if [[ "$SKIP_NOTARIZE" -eq 0 && "$DRY_RUN" -eq 0 ]]; then
   require_cmd xcrun
 fi
 
