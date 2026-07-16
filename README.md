@@ -34,7 +34,7 @@ Run the unit test suite:
 ./test.sh
 ```
 
-GitHub Actions runs the same `xcodebuild test` flow on `macos-15` for pulls and pushes to `main`. The required check name is **Build and Test**.
+GitHub Actions runs the same `xcodebuild test` flow on `macos-26` (Xcode 26.6) for pulls and pushes to `main`. The required check name is **Build and Test**.
 
 ## Planned Providers (V1)
 

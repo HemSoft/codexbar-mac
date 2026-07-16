@@ -86,6 +86,7 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
             }
         }
 
+        @MainActor
         func attachIfNeeded(from view: NSView) {
             guard statusBarButton == nil,
                   let button = Self.findStatusBarButton(startingAt: view)
@@ -142,37 +143,41 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
             onQuit()
         }
 
+@MainActor
         private func installEventMonitor() {
             guard eventMonitor == nil else {
                 return
             }
 
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseUp) { [weak self] event in
-                guard
-                    let self,
-                    let button = self.statusBarButton,
-                    let menu = self.menu,
-                    let window = button.window,
-                    event.window === window
-                else {
-                    return event
-                }
+                MainActor.assumeIsolated {
+                    guard
+                        let self,
+                        let button = self.statusBarButton,
+                        let menu = self.menu,
+                        let window = button.window,
+                        event.window === window
+                    else {
+                        return event
+                    }
 
-                let locationInButton = button.convert(event.locationInWindow, from: nil)
-                guard button.bounds.contains(locationInButton) else {
-                    return event
-                }
+                    let locationInButton = button.convert(event.locationInWindow, from: nil)
+                    guard button.bounds.contains(locationInButton) else {
+                        return event
+                    }
 
-                NSApp.activate(ignoringOtherApps: true)
-                menu.popUp(
-                    positioning: nil,
-                    at: NSPoint(x: 0, y: button.bounds.height + 4),
-                    in: button
-                )
-                return nil
+                    NSApp.activate(ignoringOtherApps: true)
+                    menu.popUp(
+                        positioning: nil,
+                        at: NSPoint(x: 0, y: button.bounds.height + 4),
+                        in: button
+                    )
+                    return nil
+                }
             }
         }
 
+        @MainActor
         private static func findStatusBarButton(startingAt view: NSView) -> NSStatusBarButton? {
             var current: NSView? = view
             while let candidate = current {

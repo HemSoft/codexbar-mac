@@ -2997,13 +2997,22 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     func testLocalCredentialDiscoveryDefaultPathsExpandHome() {
-        let codexPath = LocalCredentialDiscovery.defaultCodexAuthPath()
         let claudePath = LocalCredentialDiscovery.defaultClaudeCredentialsPath()
-
-        XCTAssertTrue(codexPath.hasSuffix("/.codex/auth.json"))
-        XCTAssertFalse(codexPath.contains("~"))
         XCTAssertTrue(claudePath.hasSuffix("/.claude/.credentials.json"))
         XCTAssertFalse(claudePath.contains("~"))
+
+        let codexPath = LocalCredentialDiscovery.defaultCodexAuthPath()
+        if let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !codexHome.isEmpty {
+            let expected = URL(fileURLWithPath: codexHome, isDirectory: true)
+                .appendingPathComponent("auth.json")
+                .path
+            XCTAssertEqual(codexPath, expected)
+        } else {
+            XCTAssertTrue(codexPath.hasSuffix("/.codex/auth.json"))
+            XCTAssertFalse(codexPath.contains("~"))
+        }
     }
 }
 

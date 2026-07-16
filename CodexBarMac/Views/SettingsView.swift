@@ -259,7 +259,11 @@ struct SettingsView: View {
         alertAuthorizationTask = nil
 
         let center = UNUserNotificationCenter.current()
-        let settings = await center.notificationSettings()
+        let settings = await withCheckedContinuation { continuation in
+            center.getNotificationSettings { settings in
+                continuation.resume(returning: settings)
+            }
+        }
 
         switch settings.authorizationStatus {
         case .authorized, .provisional, .ephemeral:
