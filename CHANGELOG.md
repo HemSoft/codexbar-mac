@@ -37,7 +37,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Developer Experience
 
 - `CodexBarMacTests` target with parser and provider unit tests using redacted fixtures.
-
+- GitHub Actions CI on `macos-26` (Xcode 26.6) runs `xcodebuild test` for pulls and pushes to `main` (check name: **Build and Test**).
+- `./test.sh` runs the same local `xcodebuild test` flow used by CI.
+- Additional Mac-specific coverage for `UsageRefreshService` success/disabled-account handling and GitHub CLI credential discovery parsing.
 - `run.sh` script to build and launch the app from the command line.
 - `AGENTS.md` and `README.md` document build and run instructions.
 - `AGENTS.md` documents that Cursor Cloud (Linux) agents can only perform static review; build, run, and test require macOS with Xcode.

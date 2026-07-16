@@ -28,6 +28,14 @@ Build without launching:
 xcodebuild -project CodexBarMac.xcodeproj -scheme CodexBarMac build
 ```
 
+Run the unit test suite:
+
+```sh
+./test.sh
+```
+
+GitHub Actions runs the same `xcodebuild test` flow on `macos-26` (Xcode 26.6) for pulls and pushes to `main`. The required check name is **Build and Test**.
+
 ## Planned Providers (V1)
 
 | Provider | Auth Method | What's Tracked |
