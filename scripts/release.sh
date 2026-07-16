@@ -260,22 +260,24 @@ if [[ "$PUBLISH" -eq 1 ]]; then
   TAG="v$VERSION"
   TARGET_SHA="$(git -C "$ROOT" rev-parse HEAD)"
   echo "Publishing GitHub Release $TAG at $TARGET_SHA..."
-  if gh release view "$TAG" >/dev/null 2>&1; then
-    # Prefer the peeled commit SHA for annotated tags (refs/tags/vX^{}).
+
+  # Prefer the peeled commit SHA for annotated tags (refs/tags/vX^{}).
+  TAG_SHA="$(
+    git ls-remote --tags origin "refs/tags/${TAG}^{}" 2>/dev/null | awk '{print $1; exit}'
+  )"
+  if [[ -z "$TAG_SHA" ]]; then
     TAG_SHA="$(
-      git ls-remote --tags origin "refs/tags/${TAG}^{}" 2>/dev/null | awk '{print $1; exit}'
+      git ls-remote --tags origin "refs/tags/${TAG}" 2>/dev/null | awk '{print $1; exit}'
     )"
-    if [[ -z "$TAG_SHA" ]]; then
-      TAG_SHA="$(
-        git ls-remote --tags origin "refs/tags/${TAG}" 2>/dev/null | awk '{print $1; exit}'
-      )"
-    fi
-    if [[ -n "$TAG_SHA" && "$TAG_SHA" != "$TARGET_SHA" ]]; then
-      echo "Remote tag $TAG points at $TAG_SHA, but this build is $TARGET_SHA." >&2
-      echo "Move the tag to HEAD before republishing assets, for example:" >&2
-      echo "  git tag -f $TAG $TARGET_SHA && git push -f origin refs/tags/$TAG" >&2
-      exit 1
-    fi
+  fi
+  if [[ -n "$TAG_SHA" && "$TAG_SHA" != "$TARGET_SHA" ]]; then
+    echo "Remote tag $TAG points at $TAG_SHA, but this build is $TARGET_SHA." >&2
+    echo "Move the tag to HEAD before publishing assets, for example:" >&2
+    echo "  git tag -f $TAG $TARGET_SHA && git push -f origin refs/tags/$TAG" >&2
+    exit 1
+  fi
+
+  if gh release view "$TAG" >/dev/null 2>&1; then
     gh release upload "$TAG" "$ZIP_PATH" --clobber
     gh release edit "$TAG" \
       --notes-file "$NOTES_PATH" \
