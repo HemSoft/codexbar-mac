@@ -1689,6 +1689,7 @@ final class CodexBarMacTests: XCTestCase {
             "API",
             "On-demand $12.00 / $20.00",
         ])
+        XCTAssertFalse(result.hasReachedSpendLimit)
         XCTAssertEqual(result.bars.map(\.usageText), ["63%", "42%", "18%", "60%"])
         XCTAssertTrue(result.bars.allSatisfy(\.showProjectionOnCurrentBar))
         XCTAssertEqual(
@@ -1711,6 +1712,27 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(result.bars[3].projectionDescription(at: fetchedAt)).hasPrefix(
             "Projected 100% at current pace - Limit hit "
         ))
+    }
+
+    func testCursorUsageParserMarksSpendLimitReached() throws {
+        let payload = """
+        {
+          "billingCycleStart": "1783036800000",
+          "billingCycleEnd": "1784332800000",
+          "spendLimitUsage": {
+            "individualLimit": 2000,
+            "individualRemaining": 0
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CursorUsageProvider.parseUsage(
+            Data(payload.utf8),
+            configuration: .defaultConfiguration(for: .cursor)
+        ))
+
+        XCTAssertTrue(result.hasReachedSpendLimit)
+        XCTAssertEqual(result.highestSeverity, .critical)
     }
 
     func testCursorUsageParserSuppressesPredictionsWithoutValidCurrentBillingPeriod() throws {
@@ -2681,6 +2703,31 @@ final class CodexBarMacTests: XCTestCase {
 
         XCTAssertEqual(evaluation.activeAlerts.first?.title, "Critical status")
         XCTAssertEqual(evaluation.activeAlerts.first?.message, "Weekly is projected to reach 100%.")
+    }
+
+    func testUsageAlertEvaluatorExplainsReachedSpendLimit() {
+        let result = ProviderUsageResult(
+            accountID: "cursor.main",
+            providerID: .cursor,
+            title: "Cursor",
+            subtitle: "Included usage",
+            bars: [],
+            hasReachedSpendLimit: true,
+            fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+        )
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(isEnabled: true, includesSeverityAlerts: true),
+            activeAlertIDs: []
+        )
+
+        XCTAssertEqual(evaluation.notifications.map(\.kind), [.severity])
+        XCTAssertEqual(evaluation.activeAlerts.first?.title, "Critical status")
+        XCTAssertEqual(
+            evaluation.activeAlerts.first?.message,
+            "The monthly usage-credit spend limit has been reached."
+        )
     }
 
     func testUsageAlertEvaluatorReportsSeverityAlongsideSpecificThresholds() {

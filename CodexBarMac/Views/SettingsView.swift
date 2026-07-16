@@ -7,6 +7,8 @@ struct SettingsView: View {
 
     @State private var isConfirmingReset = false
     @State private var alertPermissionMessage: String?
+    @State private var alertAuthorizationGeneration = 0
+    @State private var alertAuthorizationTask: Task<Void, Never>?
 
     private var configurationStore: ProviderConfigurationStore {
         model.configurationStore
@@ -170,6 +172,10 @@ struct SettingsView: View {
                 await syncUsageAlertAuthorizationState()
             }
         }
+        .onDisappear {
+            alertAuthorizationTask?.cancel()
+            alertAuthorizationTask = nil
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.launchAtLoginManager.refreshFromSystem()
         }
@@ -204,12 +210,11 @@ struct SettingsView: View {
             get: { configurationStore.usageAlertSettings.isEnabled },
             set: { isEnabled in
                 if isEnabled {
-                    Task {
-                        let granted = await model.requestUsageAlertAuthorization()
-                        configurationStore.updateUsageAlertsEnabled(granted)
-                        alertPermissionMessage = granted ? nil : "Notifications are disabled for CodexBar."
-                    }
+                    requestUsageAlertAuthorization()
                 } else {
+                    alertAuthorizationGeneration += 1
+                    alertAuthorizationTask?.cancel()
+                    alertAuthorizationTask = nil
                     configurationStore.updateUsageAlertsEnabled(false)
                     alertPermissionMessage = nil
                 }
@@ -249,6 +254,10 @@ struct SettingsView: View {
 
     @MainActor
     private func syncUsageAlertAuthorizationState() async {
+        alertAuthorizationGeneration += 1
+        alertAuthorizationTask?.cancel()
+        alertAuthorizationTask = nil
+
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
 
@@ -270,6 +279,22 @@ struct SettingsView: View {
             }
         @unknown default:
             break
+        }
+    }
+
+    private func requestUsageAlertAuthorization() {
+        alertAuthorizationGeneration += 1
+        let generation = alertAuthorizationGeneration
+        alertAuthorizationTask?.cancel()
+        alertAuthorizationTask = Task {
+            let granted = await model.requestUsageAlertAuthorization()
+            guard !Task.isCancelled, generation == alertAuthorizationGeneration else {
+                return
+            }
+
+            configurationStore.updateUsageAlertsEnabled(granted)
+            alertPermissionMessage = granted ? nil : "Notifications are disabled for CodexBar."
+            alertAuthorizationTask = nil
         }
     }
 

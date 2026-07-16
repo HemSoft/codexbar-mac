@@ -79,6 +79,7 @@ public final class CursorUsageProvider: UsageProvider {
             title: configuration.displayName,
             subtitle: buildUsageSubtitle(usage.planUsage),
             bars: bars,
+            hasReachedSpendLimit: hasReachedSpendLimit(usage),
             fetchedAt: fetchedAt
         )
     }
@@ -192,6 +193,19 @@ public final class CursorUsageProvider: UsageProvider {
         }
 
         return bars
+    }
+
+    private static func hasReachedSpendLimit(_ usage: CursorCurrentPeriodUsage) -> Bool {
+        guard
+            let onDemand = usage.spendLimitUsage,
+            let limit = onDemand.individualLimit,
+            let remaining = onDemand.individualRemaining,
+            limit > 0
+        else {
+            return false
+        }
+
+        return remaining <= 0
     }
 
     private static func usageBar(
