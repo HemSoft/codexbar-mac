@@ -262,7 +262,9 @@ if [[ "$PUBLISH" -eq 1 ]]; then
   echo "Publishing GitHub Release $TAG at $TARGET_SHA..."
   if gh release view "$TAG" >/dev/null 2>&1; then
     gh release upload "$TAG" "$ZIP_PATH" --clobber
-    gh release edit "$TAG" --notes-file "$NOTES_PATH"
+    gh release edit "$TAG" \
+      --notes-file "$NOTES_PATH" \
+      --target "$TARGET_SHA"
   else
     gh release create "$TAG" "$ZIP_PATH" \
       --title "CodexBar for Mac $VERSION" \
