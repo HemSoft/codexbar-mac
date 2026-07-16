@@ -2,7 +2,7 @@
 set -euo pipefail
 
 LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
-SIGNING_KEYCHAIN="$HOME/Library/Keychains/codexbar-dev.keychain-db"
+SIGNING_KEYCHAIN="${CODEXBAR_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/codexbar-dev.keychain-db}"
 PASSWORD_DIR="$HOME/Library/Application Support/CodexBar"
 PASSWORD_FILE="$PASSWORD_DIR/signing-keychain-password"
 BACKUP_DIR="$HOME/Library/Developer/Xcode/UserData/CodexBarSigningBackups/keychains"
@@ -51,11 +51,12 @@ umask 077
 printf '%s' "$new_password" >"$PASSWORD_FILE"
 chmod 600 "$PASSWORD_FILE"
 
-# Preserve any existing user keychains; only ensure login stays default and
-# the new signing keychain stays out of the normal search list.
+# Preserve any existing user keychains; keep the signing keychain out of the
+# normal search list and restore the prior default keychain when possible.
 normalize_keychain_path() {
   printf '%s' "$1" | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//'
 }
+PREVIOUS_DEFAULT_KEYCHAIN="$(security default-keychain -d user 2>/dev/null | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' || true)"
 EXISTING=()
 while IFS= read -r line; do
   line="$(normalize_keychain_path "$line")"
@@ -67,7 +68,7 @@ if [[ ${#EXISTING[@]} -eq 0 ]]; then
   EXISTING=("$LOGIN_KEYCHAIN" /Library/Keychains/System.keychain)
 fi
 security list-keychains -d user -s "${EXISTING[@]}"
-security default-keychain -d user -s "$LOGIN_KEYCHAIN"
+security default-keychain -d user -s "${PREVIOUS_DEFAULT_KEYCHAIN:-$LOGIN_KEYCHAIN}"
 
 unset new_password confirmation
 

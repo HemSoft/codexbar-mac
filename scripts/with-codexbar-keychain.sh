@@ -2,7 +2,7 @@
 set -euo pipefail
 
 LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
-SIGNING_KEYCHAIN="$HOME/Library/Keychains/codexbar-dev.keychain-db"
+SIGNING_KEYCHAIN="${CODEXBAR_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/codexbar-dev.keychain-db}"
 SYSTEM_KEYCHAIN="/Library/Keychains/System.keychain"
 
 normalize_keychain_path() {
@@ -21,6 +21,8 @@ while IFS= read -r line; do
   ORIGINAL_SEARCH_LIST+=("$line")
 done < <(security list-keychains -d user)
 
+PREVIOUS_DEFAULT_KEYCHAIN="$(security default-keychain -d user 2>/dev/null | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' || true)"
+
 restore_normal_search_list() {
   local -a restored=()
   local kc
@@ -35,7 +37,7 @@ restore_normal_search_list() {
   fi
 
   security list-keychains -d user -s "${restored[@]}"
-  security default-keychain -d user -s "$LOGIN_KEYCHAIN"
+  security default-keychain -d user -s "${PREVIOUS_DEFAULT_KEYCHAIN:-$LOGIN_KEYCHAIN}"
 }
 
 trap restore_normal_search_list EXIT

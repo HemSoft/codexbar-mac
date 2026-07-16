@@ -2,7 +2,7 @@
 set -euo pipefail
 
 LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
-SIGNING_KEYCHAIN="$HOME/Library/Keychains/codexbar-dev.keychain-db"
+SIGNING_KEYCHAIN="${CODEXBAR_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/codexbar-dev.keychain-db}"
 SYSTEM_KEYCHAIN="/Library/Keychains/System.keychain"
 PASSWORD_FILE="$HOME/Library/Application Support/CodexBar/signing-keychain-password"
 
@@ -30,6 +30,8 @@ if [[ "$password_mode" != "600" ]]; then
   exit 1
 fi
 
+PREVIOUS_DEFAULT_KEYCHAIN="$(security default-keychain -d user 2>/dev/null | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//' || true)"
+
 # Capture the current user search list, then restore it without the lock-on-sleep
 # signing keychain. Do not clobber unrelated maintainer keychains.
 restore_user_search_list() {
@@ -48,7 +50,7 @@ restore_user_search_list() {
   fi
 
   security list-keychains -d user -s "${restored[@]}"
-  security default-keychain -d user -s "$LOGIN_KEYCHAIN"
+  security default-keychain -d user -s "${PREVIOUS_DEFAULT_KEYCHAIN:-$LOGIN_KEYCHAIN}"
 }
 
 restore_user_search_list

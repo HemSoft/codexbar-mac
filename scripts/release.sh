@@ -18,10 +18,11 @@ cd "$ROOT"
 
 PROJECT="CodexBarMac.xcodeproj"
 SCHEME="CodexBarMac"
-BUNDLE_ID="com.hemsoft.CodexBarMac"
 TEAM_ID="${CODEXBAR_TEAM_ID:-W2A23PX5BP}"
 NOTARY_PROFILE="${CODEXBAR_NOTARY_PROFILE:-codexbar-notary}"
 SIGNING_IDENTITY_QUERY="${CODEXBAR_SIGNING_IDENTITY:-Developer ID Application}"
+SIGNING_KEYCHAIN="${CODEXBAR_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/codexbar-dev.keychain-db}"
+export CODEXBAR_SIGNING_KEYCHAIN="$SIGNING_KEYCHAIN"
 DIST_DIR="$ROOT/dist"
 DERIVED_DATA="$DIST_DIR/DerivedData"
 VERSION=""
@@ -127,8 +128,6 @@ fi
 if [[ "$SKIP_NOTARIZE" -eq 0 ]]; then
   require_cmd xcrun
 fi
-
-SIGNING_KEYCHAIN="${CODEXBAR_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/codexbar-dev.keychain-db}"
 
 echo "Unlocking CodexBar signing keychain..."
 "$ROOT/scripts/unlock-codexbar-keychain.sh"
