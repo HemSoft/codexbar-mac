@@ -40,6 +40,9 @@ jobs:
           xcode-select -p
           xcodebuild -version
 
+      - name: Smoke-test changelog cutter
+        run: ./scripts/test-cut-changelog.sh
+
       - name: Build and test
         run: |
           set -o pipefail

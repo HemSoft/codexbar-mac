@@ -36,6 +36,12 @@ Run the unit test suite:
 
 GitHub Actions runs the same `xcodebuild test` flow on `macos-26` (Xcode 26.6) for pulls and pushes to `main`. The required check name is **Build and Test**.
 
+## Download / Release
+
+Notarized macOS builds are published as GitHub Releases (zipped `CodexBarMac.app`). V1 updates are manual downloads from Releases; Sparkle and Homebrew are deferred.
+
+Maintainers: see **Signing keychain** and **Release & notarization** in [`AGENTS.md`](AGENTS.md).
+
 ## Planned Providers (V1)
 
 | Provider | Auth Method | What's Tracked |
