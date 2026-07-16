@@ -2924,6 +2924,87 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(service.incompleteRefreshAccountIDs, [configuration.id])
         XCTAssertTrue(service.successfulRefreshResults.isEmpty)
     }
+
+    @MainActor
+    func testUsageRefreshServiceTracksSuccessfulResultsAndSkipsDisabledAccounts() async {
+        let enabled = ProviderAccountConfiguration(
+            providerID: .codex,
+            isEnabled: true,
+            accountLabel: "Codex Live",
+            authMethod: .codexAuthJSON
+        )
+        let disabled = ProviderAccountConfiguration(
+            providerID: .cursor,
+            isEnabled: false,
+            accountLabel: "Cursor Off",
+            authMethod: .browserSession
+        )
+
+        let success = ProviderUsageResult(
+            accountID: enabled.id,
+            providerID: .codex,
+            title: "Codex Live",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(label: "5-hour", used: 10, limit: 100),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+        )
+        let ignored = ProviderUsageResult(
+            accountID: disabled.id,
+            providerID: .cursor,
+            title: "Cursor Off",
+            subtitle: "Should not refresh",
+            bars: [],
+            fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+        )
+        let service = UsageRefreshService(
+            providers: [
+                StubUsageProvider(providerID: .codex, result: success),
+                StubUsageProvider(providerID: .cursor, result: ignored),
+            ]
+        )
+
+        let refreshed = await service.refresh(configurations: [enabled, disabled])
+
+        XCTAssertTrue(refreshed)
+        XCTAssertEqual(service.results.map(\.accountID), [enabled.id])
+        XCTAssertEqual(service.successfulRefreshResults.map(\.accountID), [enabled.id])
+        XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty)
+    }
+
+    func testLocalCredentialDiscoveryParsesGitHubAuthStatusUsernames() {
+        let output = """
+        github.com
+          ✓ Logged in to github.com account octocat (keyring)
+          ✓ Logged in to github.com account hubot (keyring)
+          ✓ Logged in to github.com account octocat (keyring)
+        """
+
+        XCTAssertEqual(
+            LocalCredentialDiscovery.extractGitHubUsernames(from: output),
+            ["octocat", "hubot"]
+        )
+        XCTAssertEqual(
+            LocalCredentialDiscovery.extractUsername(from: "✓ Logged in to github.com as mona"),
+            "mona"
+        )
+        XCTAssertTrue(
+            LocalCredentialDiscovery.extractGitHubUsernames(
+                from: "Logged in to gitlab.com account ignored"
+            ).isEmpty
+        )
+    }
+
+    func testLocalCredentialDiscoveryDefaultPathsExpandHome() {
+        let codexPath = LocalCredentialDiscovery.defaultCodexAuthPath()
+        let claudePath = LocalCredentialDiscovery.defaultClaudeCredentialsPath()
+
+        XCTAssertTrue(codexPath.hasSuffix("/.codex/auth.json"))
+        XCTAssertFalse(codexPath.contains("~"))
+        XCTAssertTrue(claudePath.hasSuffix("/.claude/.credentials.json"))
+        XCTAssertFalse(claudePath.contains("~"))
+    }
 }
 
 private struct StubUsageProvider: UsageProvider {

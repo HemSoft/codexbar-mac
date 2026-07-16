@@ -46,6 +46,12 @@ Build only:
 xcodebuild -project CodexBarMac.xcodeproj -scheme CodexBarMac build
 ```
 
+Run unit tests (same command used by CI):
+
+```sh
+./test.sh
+```
+
 Open the project in Xcode:
 
 ```sh
