@@ -3,6 +3,7 @@ set -euo pipefail
 
 LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 SIGNING_KEYCHAIN="$HOME/Library/Keychains/codexbar-dev.keychain-db"
+SYSTEM_KEYCHAIN="/Library/Keychains/System.keychain"
 PASSWORD_FILE="$HOME/Library/Application Support/CodexBar/signing-keychain-password"
 
 [[ -f "$LOGIN_KEYCHAIN" ]] || {
@@ -24,13 +25,29 @@ if [[ "$password_mode" != "600" ]]; then
   exit 1
 fi
 
-# Keep the signing keychain out of the normal search list. It locks on sleep,
-# and unrelated macOS services may otherwise prompt for its password when they
-# search every configured keychain.
-security default-keychain -d user -s "$LOGIN_KEYCHAIN"
-security list-keychains -d user -s \
-  "$LOGIN_KEYCHAIN" \
-  /Library/Keychains/System.keychain
+# Capture the current user search list, then restore it without the lock-on-sleep
+# signing keychain. Do not clobber unrelated maintainer keychains.
+restore_user_search_list() {
+  local -a restored=()
+  local line
+
+  while IFS= read -r line; do
+    line="${line%\"}"
+    line="${line#\"}"
+    [[ -z "$line" ]] && continue
+    [[ "$line" == "$SIGNING_KEYCHAIN" ]] && continue
+    restored+=("$line")
+  done < <(security list-keychains -d user)
+
+  if [[ ${#restored[@]} -eq 0 ]]; then
+    restored=("$LOGIN_KEYCHAIN" "$SYSTEM_KEYCHAIN")
+  fi
+
+  security list-keychains -d user -s "${restored[@]}"
+  security default-keychain -d user -s "$LOGIN_KEYCHAIN"
+}
+
+restore_user_search_list
 
 password="$(<"$PASSWORD_FILE")"
 [[ -n "$password" ]] || {
@@ -47,9 +64,6 @@ if security find-identity -v -p codesigning "$SIGNING_KEYCHAIN" | grep -Eq "^[[:
     "$SIGNING_KEYCHAIN" >/dev/null
 fi
 
-security list-keychains -d user -s \
-  "$LOGIN_KEYCHAIN" \
-  /Library/Keychains/System.keychain
-security default-keychain -d user -s "$LOGIN_KEYCHAIN"
+restore_user_search_list
 
 echo "Unlocked CodexBar signing keychain and kept it out of the normal search list."

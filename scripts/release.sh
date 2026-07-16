@@ -128,23 +128,26 @@ if [[ "$SKIP_NOTARIZE" -eq 0 ]]; then
   require_cmd xcrun
 fi
 
+SIGNING_KEYCHAIN="${CODEXBAR_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/codexbar-dev.keychain-db}"
+
 echo "Unlocking CodexBar signing keychain..."
 "$ROOT/scripts/unlock-codexbar-keychain.sh"
 
-IDENTITY="$("$ROOT/scripts/with-codexbar-keychain.sh" security find-identity -v -p codesigning \
+IDENTITY="$("$ROOT/scripts/with-codexbar-keychain.sh" security find-identity -v -p codesigning "$SIGNING_KEYCHAIN" \
   | awk -v q="$SIGNING_IDENTITY_QUERY" 'index($0, q) && $0 !~ /CSSMERR_/ {print; exit}')"
 
-if [[ -z "$IDENTITY" ]]; then
+if [[ -z "$IDENTITY" || "$IDENTITY" != *"$TEAM_ID"* ]]; then
   cat >&2 <<EOF
-No valid "$SIGNING_IDENTITY_QUERY" identity found in the CodexBar signing keychain.
+No valid "$SIGNING_IDENTITY_QUERY" identity for team $TEAM_ID found in:
+  $SIGNING_KEYCHAIN
 
 Create a Developer ID Application certificate for team $TEAM_ID in the Apple
-Developer portal, install it into ~/Library/Keychains/codexbar-dev.keychain-db
+Developer portal, install it into the dedicated signing keychain
 (via ./scripts/with-codexbar-keychain.sh), then re-run this script.
 
-Current codesigning identities:
+Current codesigning identities in that keychain:
 EOF
-  "$ROOT/scripts/with-codexbar-keychain.sh" security find-identity -v -p codesigning >&2 || true
+  "$ROOT/scripts/with-codexbar-keychain.sh" security find-identity -v -p codesigning "$SIGNING_KEYCHAIN" >&2 || true
   exit 1
 fi
 

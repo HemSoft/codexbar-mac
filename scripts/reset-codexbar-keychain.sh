@@ -51,10 +51,21 @@ umask 077
 printf '%s' "$new_password" >"$PASSWORD_FILE"
 chmod 600 "$PASSWORD_FILE"
 
+# Preserve any existing user keychains; only ensure login stays default and
+# the new signing keychain stays out of the normal search list.
+EXISTING=()
+while IFS= read -r line; do
+  line="${line%\"}"
+  line="${line#\"}"
+  [[ -z "$line" ]] && continue
+  [[ "$line" == "$SIGNING_KEYCHAIN" ]] && continue
+  EXISTING+=("$line")
+done < <(security list-keychains -d user)
+if [[ ${#EXISTING[@]} -eq 0 ]]; then
+  EXISTING=("$LOGIN_KEYCHAIN" /Library/Keychains/System.keychain)
+fi
+security list-keychains -d user -s "${EXISTING[@]}"
 security default-keychain -d user -s "$LOGIN_KEYCHAIN"
-security list-keychains -d user -s \
-  "$LOGIN_KEYCHAIN" \
-  /Library/Keychains/System.keychain
 
 unset new_password confirmation
 
