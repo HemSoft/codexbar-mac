@@ -134,9 +134,9 @@ echo "Unlocking CodexBar signing keychain..."
 "$ROOT/scripts/unlock-codexbar-keychain.sh"
 
 IDENTITY="$("$ROOT/scripts/with-codexbar-keychain.sh" security find-identity -v -p codesigning "$SIGNING_KEYCHAIN" \
-  | awk -v q="$SIGNING_IDENTITY_QUERY" 'index($0, q) && $0 !~ /CSSMERR_/ {print; exit}')"
+  | awk -v q="$SIGNING_IDENTITY_QUERY" -v team="$TEAM_ID" 'index($0, q) && index($0, team) && $0 !~ /CSSMERR_/ {print; exit}')"
 
-if [[ -z "$IDENTITY" || "$IDENTITY" != *"$TEAM_ID"* ]]; then
+if [[ -z "$IDENTITY" ]]; then
   cat >&2 <<EOF
 No valid "$SIGNING_IDENTITY_QUERY" identity for team $TEAM_ID found in:
   $SIGNING_KEYCHAIN

@@ -5,6 +5,10 @@ LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 SIGNING_KEYCHAIN="$HOME/Library/Keychains/codexbar-dev.keychain-db"
 SYSTEM_KEYCHAIN="/Library/Keychains/System.keychain"
 
+normalize_keychain_path() {
+  printf '%s' "$1" | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//'
+}
+
 if [[ "$#" -eq 0 ]]; then
   echo "Usage: $0 <command> [arguments...]" >&2
   exit 64
@@ -12,8 +16,7 @@ fi
 
 ORIGINAL_SEARCH_LIST=()
 while IFS= read -r line; do
-  line="${line%\"}"
-  line="${line#\"}"
+  line="$(normalize_keychain_path "$line")"
   [[ -z "$line" ]] && continue
   ORIGINAL_SEARCH_LIST+=("$line")
 done < <(security list-keychains -d user)

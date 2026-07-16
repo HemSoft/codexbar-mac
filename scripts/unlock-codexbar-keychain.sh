@@ -6,6 +6,11 @@ SIGNING_KEYCHAIN="$HOME/Library/Keychains/codexbar-dev.keychain-db"
 SYSTEM_KEYCHAIN="/Library/Keychains/System.keychain"
 PASSWORD_FILE="$HOME/Library/Application Support/CodexBar/signing-keychain-password"
 
+normalize_keychain_path() {
+  # security list-keychains prints indented quoted paths, e.g. `    "/path"`.
+  printf '%s' "$1" | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//'
+}
+
 [[ -f "$LOGIN_KEYCHAIN" ]] || {
   echo "Login keychain is missing: $LOGIN_KEYCHAIN" >&2
   exit 1
@@ -32,8 +37,7 @@ restore_user_search_list() {
   local line
 
   while IFS= read -r line; do
-    line="${line%\"}"
-    line="${line#\"}"
+    line="$(normalize_keychain_path "$line")"
     [[ -z "$line" ]] && continue
     [[ "$line" == "$SIGNING_KEYCHAIN" ]] && continue
     restored+=("$line")

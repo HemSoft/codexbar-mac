@@ -53,10 +53,12 @@ chmod 600 "$PASSWORD_FILE"
 
 # Preserve any existing user keychains; only ensure login stays default and
 # the new signing keychain stays out of the normal search list.
+normalize_keychain_path() {
+  printf '%s' "$1" | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//'
+}
 EXISTING=()
 while IFS= read -r line; do
-  line="${line%\"}"
-  line="${line#\"}"
+  line="$(normalize_keychain_path "$line")"
   [[ -z "$line" ]] && continue
   [[ "$line" == "$SIGNING_KEYCHAIN" ]] && continue
   EXISTING+=("$line")
