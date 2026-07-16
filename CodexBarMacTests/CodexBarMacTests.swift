@@ -2894,6 +2894,38 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(second.notifications.count, 1)
         XCTAssertNotEqual(first.activeAlertIDs, second.activeAlertIDs)
     }
+
+    @MainActor
+    func testUsageRefreshServiceMarksProviderFailureResultsIncomplete() async {
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .cursor)
+        let result = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .cursor,
+            title: configuration.displayName,
+            subtitle: "Cursor rate limit reached. Try again later.",
+            bars: [],
+            isIncompleteRefresh: true,
+            fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+        )
+        let service = UsageRefreshService(
+            providers: [StubUsageProvider(providerID: .cursor, result: result)]
+        )
+
+        let refreshed = await service.refresh(configurations: [configuration])
+
+        XCTAssertTrue(refreshed)
+        XCTAssertEqual(service.incompleteRefreshAccountIDs, [configuration.id])
+        XCTAssertTrue(service.successfulRefreshResults.isEmpty)
+    }
+}
+
+private struct StubUsageProvider: UsageProvider {
+    let providerID: ProviderID
+    let result: ProviderUsageResult
+
+    func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
+        result
+    }
 }
 
 private final class FailingSecretStore: SecretStore, @unchecked Sendable {

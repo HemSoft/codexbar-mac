@@ -22,7 +22,11 @@ public final class CursorUsageProvider: UsageProvider {
 
     public func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
         guard let accessToken = try resolveAccessToken(for: configuration) else {
-            return failureResult("Not configured - sign in with Cursor.", configuration: configuration)
+            return failureResult(
+                "Not configured - sign in with Cursor.",
+                configuration: configuration,
+                isIncompleteRefresh: false
+            )
         }
 
         do {
@@ -305,13 +309,18 @@ public final class CursorUsageProvider: UsageProvider {
         return formatter
     }()
 
-    private func failureResult(_ message: String, configuration: ProviderAccountConfiguration) -> ProviderUsageResult {
+    private func failureResult(
+        _ message: String,
+        configuration: ProviderAccountConfiguration,
+        isIncompleteRefresh: Bool = true
+    ) -> ProviderUsageResult {
         ProviderUsageResult(
             accountID: configuration.id,
             providerID: .cursor,
             title: configuration.displayName,
             subtitle: message,
             bars: [],
+            isIncompleteRefresh: isIncompleteRefresh,
             fetchedAt: Date()
         )
     }

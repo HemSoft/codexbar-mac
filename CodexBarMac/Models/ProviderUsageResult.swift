@@ -8,6 +8,7 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
     public let bars: [UsageBar]
     public let creditsRemaining: Double?
     public let hasReachedSpendLimit: Bool
+    public let isIncompleteRefresh: Bool
     public let fetchedAt: Date
 
     public init(
@@ -18,6 +19,7 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
         bars: [UsageBar],
         creditsRemaining: Double? = nil,
         hasReachedSpendLimit: Bool = false,
+        isIncompleteRefresh: Bool = false,
         fetchedAt: Date
     ) {
         self.accountID = accountID ?? providerID.rawValue
@@ -27,6 +29,7 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
         self.bars = bars
         self.creditsRemaining = creditsRemaining
         self.hasReachedSpendLimit = hasReachedSpendLimit
+        self.isIncompleteRefresh = isIncompleteRefresh
         self.fetchedAt = fetchedAt
     }
 

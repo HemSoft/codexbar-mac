@@ -33,7 +33,11 @@ public final class CodexUsageProvider: UsageProvider {
         guard
             var credentials = try readCredentials(location: location)
         else {
-            return failureResult(notConfiguredMessage(for: configuration), configuration: configuration)
+            return failureResult(
+                notConfiguredMessage(for: configuration),
+                configuration: configuration,
+                isIncompleteRefresh: false
+            )
         }
 
         var didRefresh = false
@@ -333,13 +337,18 @@ public final class CodexUsageProvider: UsageProvider {
         }
     }
 
-    private func failureResult(_ message: String, configuration: ProviderAccountConfiguration) -> ProviderUsageResult {
+    private func failureResult(
+        _ message: String,
+        configuration: ProviderAccountConfiguration,
+        isIncompleteRefresh: Bool = true
+    ) -> ProviderUsageResult {
         ProviderUsageResult(
             accountID: configuration.id,
             providerID: .codex,
             title: configuration.displayName,
             subtitle: message,
             bars: [],
+            isIncompleteRefresh: isIncompleteRefresh,
             fetchedAt: now()
         )
     }

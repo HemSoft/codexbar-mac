@@ -40,14 +40,16 @@ public final class CopilotUsageProvider: UsageProvider {
         guard configuration.copilotAccountScope == .personal else {
             return failureResult(
                 "Organization Copilot usage is not yet supported on Mac.",
-                configuration: configuration
+                configuration: configuration,
+                isIncompleteRefresh: false
             )
         }
 
         guard let resolved = await resolveAccessToken(for: configuration) else {
             return failureResult(
                 "Not configured - sign in with GitHub CLI or add a token.",
-                configuration: configuration
+                configuration: configuration,
+                isIncompleteRefresh: false
             )
         }
 
@@ -185,13 +187,18 @@ public final class CopilotUsageProvider: UsageProvider {
         }
     }
 
-    private func failureResult(_ message: String, configuration: ProviderAccountConfiguration) -> ProviderUsageResult {
+    private func failureResult(
+        _ message: String,
+        configuration: ProviderAccountConfiguration,
+        isIncompleteRefresh: Bool = true
+    ) -> ProviderUsageResult {
         ProviderUsageResult(
             accountID: configuration.id,
             providerID: .copilot,
             title: configuration.displayName,
             subtitle: message,
             bars: [],
+            isIncompleteRefresh: isIncompleteRefresh,
             fetchedAt: now()
         )
     }

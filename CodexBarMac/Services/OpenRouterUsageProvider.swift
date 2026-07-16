@@ -28,7 +28,11 @@ public final class OpenRouterUsageProvider: UsageProvider {
             let apiKey = Self.normalizedAPIKey(from: storedSecret),
             !apiKey.isEmpty
         else {
-            return failureResult("Not configured - enter API key.", configuration: configuration)
+            return failureResult(
+                "Not configured - enter API key.",
+                configuration: configuration,
+                isIncompleteRefresh: false
+            )
         }
 
         let (data, response) = try await session.data(for: makeCreditsRequest(apiKey: apiKey))
@@ -154,13 +158,18 @@ public final class OpenRouterUsageProvider: UsageProvider {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func failureResult(_ message: String, configuration: ProviderAccountConfiguration) -> ProviderUsageResult {
+    private func failureResult(
+        _ message: String,
+        configuration: ProviderAccountConfiguration,
+        isIncompleteRefresh: Bool = true
+    ) -> ProviderUsageResult {
         ProviderUsageResult(
             accountID: configuration.id,
             providerID: .openRouter,
             title: configuration.displayName,
             subtitle: message,
             bars: [],
+            isIncompleteRefresh: isIncompleteRefresh,
             fetchedAt: now()
         )
     }

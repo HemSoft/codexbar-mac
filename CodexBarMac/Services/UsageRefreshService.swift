@@ -63,7 +63,7 @@ public final class UsageRefreshService: ObservableObject {
                     continue
                 }
 
-                if result.subtitle.hasPrefix("Refresh failed") {
+                if result.isIncompleteRefresh {
                     incompleteAccountIDs.insert(accountID)
                 }
 
@@ -197,6 +197,7 @@ public final class UsageRefreshService: ObservableObject {
             title: configuration.displayName,
             subtitle: "Refresh failed: \(error.localizedDescription)",
             bars: [],
+            isIncompleteRefresh: true,
             fetchedAt: Date()
         )
     }
