@@ -49,6 +49,10 @@ public enum GeminiUsageParser {
     }
 
     private static func parseTierName(from response: TierResponse) -> String? {
+        if let paidName = nonEmptyString(response.paidTier?.name) {
+            return paidName
+        }
+
         if response.paidTier?.id == "g1-pro-tier" {
             return "Paid"
         }

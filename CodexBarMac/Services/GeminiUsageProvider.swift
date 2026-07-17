@@ -30,6 +30,14 @@ public final class GeminiUsageProvider: UsageProvider {
     }
 
     public func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
+        guard GeminiCLISettings.usesOAuthCredentials() else {
+            return failureResult(
+                "Gemini CLI is configured for API key or Vertex auth. CodexBar reads Gemini CLI OAuth credentials only.",
+                configuration: configuration,
+                isIncompleteRefresh: false
+            )
+        }
+
         guard FileManager.default.fileExists(atPath: oauthFilePath) else {
             return failureResult(
                 "No Gemini CLI credentials found. Run 'gemini' and complete login.",
@@ -75,6 +83,8 @@ public final class GeminiUsageProvider: UsageProvider {
     ) async throws -> ProviderUsageResult {
         if tierCache.shouldFetch() {
             await fetchTierIfNeeded(accessToken: accessToken)
+        } else {
+            await tierCache.waitForInFlightFetchIfNeeded()
         }
 
         let projectID = resolvedQuotaProjectID()
@@ -196,11 +206,20 @@ public final class GeminiUsageProvider: UsageProvider {
                     return .transient
                 }
 
-                guard let tokenResponse = try? JSONDecoder().decode(GeminiTokenRefreshResponse.self, from: data),
-                      tokenResponse.error == nil,
-                      let accessToken = tokenResponse.accessToken,
+                guard let tokenResponse = try? JSONDecoder().decode(GeminiTokenRefreshResponse.self, from: data) else {
+                    return .transient
+                }
+
+                if let error = tokenResponse.error?.lowercased() {
+                    if error == "invalid_grant" || error == "invalid_client" {
+                        return .rejected
+                    }
+                    return .transient
+                }
+
+                guard let accessToken = tokenResponse.accessToken,
                       !accessToken.isEmpty else {
-                    return .rejected
+                    return .transient
                 }
 
                 let expiresIn = tokenResponse.expiresIn.flatMap { value in
@@ -327,11 +346,14 @@ private enum GeminiCredentialRefreshResult: Sendable {
 }
 
 private final class GeminiTierCache: @unchecked Sendable {
+    deinit {}
+
     private let lock = NSLock()
     private var tierName: String?
     private var projectID: String?
     private var fetched = false
     private var fetchInProgress = false
+    private var fetchWaiters: [CheckedContinuation<Void, Never>] = []
 
     func shouldFetch() -> Bool {
         lock.withLock { !fetched }
@@ -356,8 +378,23 @@ private final class GeminiTierCache: @unchecked Sendable {
     }
 
     func endFetchAttempt() {
-        lock.withLock {
-            fetchInProgress = false
+        resumeWaiters()
+    }
+
+    func waitForInFlightFetchIfNeeded() async {
+        let shouldWait = lock.withLock { fetchInProgress && !fetched }
+        guard shouldWait else {
+            return
+        }
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.withLock {
+                if !fetchInProgress || fetched {
+                    continuation.resume()
+                } else {
+                    fetchWaiters.append(continuation)
+                }
+            }
         }
     }
 
@@ -370,23 +407,43 @@ private final class GeminiTierCache: @unchecked Sendable {
                 self.projectID = projectID
             }
             fetched = true
-            fetchInProgress = false
         }
+        resumeWaiters()
     }
 
     func markFetchComplete() {
         lock.withLock {
             fetched = true
+        }
+        resumeWaiters()
+    }
+
+    private func resumeWaiters() {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
             fetchInProgress = false
+            let pending = fetchWaiters
+            fetchWaiters = []
+            return pending
+        }
+
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 
     func invalidate() {
-        lock.withLock {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
             tierName = nil
             projectID = nil
             fetched = false
             fetchInProgress = false
+            let pending = fetchWaiters
+            fetchWaiters = []
+            return pending
+        }
+
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 }

@@ -3139,6 +3139,33 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(info.projectID, "gen-lang-client-123")
     }
 
+    func testGeminiUsageParserPrefersPaidTierName() throws {
+        let payload = Data(
+            #"{"paidTier":{"id":"custom-paid-tier","name":"Google AI Ultra"},"currentTier":{"id":"free-tier","name":"Free"}}"#.utf8
+        )
+        XCTAssertEqual(GeminiUsageParser.parseTier(payload), "Google AI Ultra")
+    }
+
+    func testGeminiCLISettingsDetectsNonOAuthAuthMode() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let settingsPath = directory.appendingPathComponent("settings.json").path
+        try """
+        {
+          "security": {
+            "auth": {
+              "selectedType": "gemini-api-key"
+            }
+          }
+        }
+        """.write(toFile: settingsPath, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(GeminiCLISettings.usesOAuthCredentials(at: settingsPath))
+    }
+
     func testGeminiUsageProviderRefreshesExpiredTokenAndPersistsCredentials() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let directory = FileManager.default.temporaryDirectory
