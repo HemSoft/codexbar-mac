@@ -3046,6 +3046,13 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(encoded.contains("client_secret=redacted-client-secret"))
     }
 
+    func testGeminiTokenRefreshFallsBackToInstalledClientCredentials() {
+        let credentials = GeminiCredentials(refreshToken: "redacted-refresh-token")
+
+        XCTAssertTrue(GeminiTokenRefresh.resolveClientID(from: credentials)?.hasSuffix(".apps.googleusercontent.com") == true)
+        XCTAssertTrue(GeminiTokenRefresh.resolveClientSecret(from: credentials)?.hasPrefix("GOCSPX-") == true)
+    }
+
     func testGeminiUsageParserReadsProAndFlashBuckets() throws {
         let fetchedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let resetTime = ISO8601DateFormatter().string(

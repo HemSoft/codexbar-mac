@@ -33,21 +33,24 @@ public final class GeminiUsageProvider: UsageProvider {
         guard FileManager.default.fileExists(atPath: oauthFilePath) else {
             return failureResult(
                 "No Gemini CLI credentials found. Run 'gemini' and complete login.",
-                configuration: configuration
+                configuration: configuration,
+                isIncompleteRefresh: false
             )
         }
 
         guard let credentials = GeminiAuthFileStore.readCredentials(at: oauthFilePath) else {
             return failureResult(
                 "Gemini credentials file exists but could not be read or is corrupted (\(oauthFilePath)). Delete the file and run 'gemini' to re-authenticate.",
-                configuration: configuration
+                configuration: configuration,
+                isIncompleteRefresh: false
             )
         }
 
         guard let accessToken = await validAccessToken(for: credentials) else {
             return failureResult(
                 "Gemini access token is expired or revoked and cannot be refreshed. Run 'gemini' to re-authenticate.",
-                configuration: configuration
+                configuration: configuration,
+                isIncompleteRefresh: false
             )
         }
 
@@ -92,7 +95,8 @@ public final class GeminiUsageProvider: UsageProvider {
             guard let refreshed = await refreshCredentials(force: true) else {
                 return failureResult(
                     "Gemini OAuth token invalid. Run 'gemini' and complete login.",
-                    configuration: configuration
+                    configuration: configuration,
+                    isIncompleteRefresh: false
                 )
             }
 
@@ -105,7 +109,8 @@ public final class GeminiUsageProvider: UsageProvider {
             tierCache.invalidate()
             return failureResult(
                 "Gemini OAuth token invalid. Run 'gemini' and complete login.",
-                configuration: configuration
+                configuration: configuration,
+                isIncompleteRefresh: false
             )
         default:
             return failureResult(
@@ -250,7 +255,8 @@ public final class GeminiUsageProvider: UsageProvider {
 
     private func failureResult(
         _ message: String,
-        configuration: ProviderAccountConfiguration
+        configuration: ProviderAccountConfiguration,
+        isIncompleteRefresh: Bool = true
     ) -> ProviderUsageResult {
         ProviderUsageResult(
             accountID: configuration.id,
@@ -258,6 +264,7 @@ public final class GeminiUsageProvider: UsageProvider {
             title: configuration.displayName,
             subtitle: message,
             bars: [],
+            isIncompleteRefresh: isIncompleteRefresh,
             fetchedAt: now()
         )
     }
