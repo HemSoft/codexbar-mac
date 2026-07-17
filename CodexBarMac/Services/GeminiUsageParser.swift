@@ -15,6 +15,7 @@ public enum GeminiUsageParser {
     private struct TierResponse: Decodable {
         let paidTier: Tier?
         let currentTier: Tier?
+        let cloudaicompanionProject: String?
     }
 
     private struct Tier: Decodable {
@@ -22,11 +23,32 @@ public enum GeminiUsageParser {
         let name: String?
     }
 
-    public static func parseTier(_ data: Data) -> String? {
+    public struct CodeAssistInfo: Equatable, Sendable {
+        public let tierName: String?
+        public let projectID: String?
+
+        public init(tierName: String? = nil, projectID: String? = nil) {
+            self.tierName = tierName
+            self.projectID = projectID
+        }
+    }
+
+    public static func parseCodeAssist(_ data: Data) -> CodeAssistInfo? {
         guard let response = try? JSONDecoder().decode(TierResponse.self, from: data) else {
             return nil
         }
 
+        return CodeAssistInfo(
+            tierName: parseTierName(from: response),
+            projectID: nonEmptyString(response.cloudaicompanionProject)
+        )
+    }
+
+    public static func parseTier(_ data: Data) -> String? {
+        parseCodeAssist(data)?.tierName
+    }
+
+    private static func parseTierName(from response: TierResponse) -> String? {
         if response.paidTier?.id == "g1-pro-tier" {
             return "Paid"
         }
@@ -41,6 +63,15 @@ public enum GeminiUsageParser {
         default:
             return response.currentTier?.name
         }
+    }
+
+    private static func nonEmptyString(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     public static func parseQuota(

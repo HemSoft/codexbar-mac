@@ -70,7 +70,8 @@ public final class GeminiUsageProvider: UsageProvider {
             await fetchTierIfNeeded(accessToken: accessToken)
         }
 
-        let (data, response) = try await session.data(for: makeQuotaRequest(accessToken: accessToken))
+        let projectID = tierCache.currentProjectID()
+        let (data, response) = try await session.data(for: makeQuotaRequest(accessToken: accessToken, projectID: projectID))
         guard let httpResponse = response as? HTTPURLResponse else {
             return failureResult("Gemini usage returned an invalid response.", configuration: configuration)
         }
@@ -225,20 +226,26 @@ public final class GeminiUsageProvider: UsageProvider {
                 return
             }
 
-            if let tierName = GeminiUsageParser.parseTier(data) {
-                tierCache.storeTierName(tierName)
+            if let codeAssistInfo = GeminiUsageParser.parseCodeAssist(data) {
+                tierCache.storeCodeAssistInfo(codeAssistInfo)
+            } else {
+                tierCache.markFetchComplete()
             }
         } catch {
             return
         }
     }
 
-    private func makeQuotaRequest(accessToken: String) -> URLRequest {
+    private func makeQuotaRequest(accessToken: String, projectID: String?) -> URLRequest {
         var request = URLRequest(url: quotaEndpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.httpBody = Data("{}".utf8)
+        if let projectID {
+            request.httpBody = (try? JSONSerialization.data(withJSONObject: ["project": projectID])) ?? Data("{}".utf8)
+        } else {
+            request.httpBody = Data("{}".utf8)
+        }
         return request
     }
 
@@ -278,6 +285,7 @@ private enum GeminiCredentialRefreshResult: Sendable {
 private final class GeminiTierCache: @unchecked Sendable {
     private let lock = NSLock()
     private var tierName: String?
+    private var projectID: String?
     private var fetched = false
     private var fetchInProgress = false
 
@@ -287,6 +295,10 @@ private final class GeminiTierCache: @unchecked Sendable {
 
     func currentTierName() -> String? {
         lock.withLock { tierName }
+    }
+
+    func currentProjectID() -> String? {
+        lock.withLock { projectID }
     }
 
     func beginFetchIfNeeded() -> Bool {
@@ -305,9 +317,21 @@ private final class GeminiTierCache: @unchecked Sendable {
         }
     }
 
-    func storeTierName(_ name: String) {
+    func storeCodeAssistInfo(_ info: GeminiUsageParser.CodeAssistInfo) {
         lock.withLock {
-            tierName = name
+            if let tierName = info.tierName {
+                self.tierName = tierName
+            }
+            if let projectID = info.projectID {
+                self.projectID = projectID
+            }
+            fetched = true
+            fetchInProgress = false
+        }
+    }
+
+    func markFetchComplete() {
+        lock.withLock {
             fetched = true
             fetchInProgress = false
         }
@@ -316,6 +340,7 @@ private final class GeminiTierCache: @unchecked Sendable {
     func invalidate() {
         lock.withLock {
             tierName = nil
+            projectID = nil
             fetched = false
             fetchInProgress = false
         }

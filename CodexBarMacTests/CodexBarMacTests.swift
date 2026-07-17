@@ -3097,6 +3097,15 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(GeminiUsageParser.parseTier(standardTier), "Code Assist")
     }
 
+    func testGeminiUsageParserReadsCodeAssistProject() throws {
+        let payload = Data(
+            #"{"currentTier":{"id":"standard-tier"},"cloudaicompanionProject":"gen-lang-client-123"}"#.utf8
+        )
+        let info = try XCTUnwrap(GeminiUsageParser.parseCodeAssist(payload))
+        XCTAssertEqual(info.tierName, "Code Assist")
+        XCTAssertEqual(info.projectID, "gen-lang-client-123")
+    }
+
     func testGeminiUsageProviderRefreshesExpiredTokenAndPersistsCredentials() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let directory = FileManager.default.temporaryDirectory
@@ -3196,11 +3205,15 @@ final class CodexBarMacTests: XCTestCase {
             if url.path == "/gemini-tier" {
                 return (
                     HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                    Data(#"{"currentTier":{"id":"standard-tier"}}"#.utf8)
+                    Data(
+                        #"{"currentTier":{"id":"standard-tier"},"cloudaicompanionProject":"gen-lang-client-123"}"#.utf8
+                    )
                 )
             }
 
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer redacted-access-token")
+            let body = try XCTUnwrap(String(data: try XCTUnwrap(requestBodyData(from: request)), encoding: .utf8))
+            XCTAssertTrue(body.contains(#""project":"gen-lang-client-123""#))
             return (
                 HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
                 Data(
