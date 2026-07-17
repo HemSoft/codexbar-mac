@@ -69,14 +69,20 @@ public enum GeminiUsageParser {
             let reset = parseResetDate(bucket.resetTime)
 
             if modelID.localizedCaseInsensitiveContains("flash") {
-                foundFlash = true
-                if remaining < lowestFlashRemaining {
+                if !foundFlash {
+                    foundFlash = true
+                    lowestFlashRemaining = remaining
+                    flashReset = reset
+                } else if remaining < lowestFlashRemaining {
                     lowestFlashRemaining = remaining
                     flashReset = reset
                 }
-            } else {
-                foundPro = true
-                if remaining < lowestProRemaining {
+            } else if !modelID.isEmpty {
+                if !foundPro {
+                    foundPro = true
+                    lowestProRemaining = remaining
+                    proReset = reset
+                } else if remaining < lowestProRemaining {
                     lowestProRemaining = remaining
                     proReset = reset
                 }

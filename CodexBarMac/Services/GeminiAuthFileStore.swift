@@ -23,21 +23,13 @@ public enum GeminiAuthFileStore: Sendable {
             withIntermediateDirectories: true
         )
 
-        let fileMode = existingFileMode(at: fileURL.path) ?? 0o600
         try encoded.write(to: fileURL, options: .atomic)
-        _ = chmod(fileURL.path, fileMode)
-    }
-
-    private static func existingFileMode(at path: String) -> mode_t? {
-        guard FileManager.default.fileExists(atPath: path) else {
-            return nil
+        guard chmod(fileURL.path, 0o600) == 0 else {
+            throw GeminiAuthFileStoreError.unableToSecureFile
         }
-
-        var attributes = stat()
-        guard stat(path, &attributes) == 0 else {
-            return nil
-        }
-
-        return attributes.st_mode & 0o777
     }
+}
+
+public enum GeminiAuthFileStoreError: Error {
+    case unableToSecureFile
 }

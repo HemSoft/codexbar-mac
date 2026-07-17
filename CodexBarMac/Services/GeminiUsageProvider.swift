@@ -215,7 +215,7 @@ public final class GeminiUsageProvider: UsageProvider {
         }
 
         defer {
-            tierCache.markFetched()
+            tierCache.endFetchAttempt()
         }
 
         do {
@@ -299,9 +299,8 @@ private final class GeminiTierCache: @unchecked Sendable {
         }
     }
 
-    func markFetched() {
+    func endFetchAttempt() {
         lock.withLock {
-            fetched = true
             fetchInProgress = false
         }
     }
@@ -309,6 +308,8 @@ private final class GeminiTierCache: @unchecked Sendable {
     func storeTierName(_ name: String) {
         lock.withLock {
             tierName = name
+            fetched = true
+            fetchInProgress = false
         }
     }
 

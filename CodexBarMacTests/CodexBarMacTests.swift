@@ -3026,24 +3026,24 @@ final class CodexBarMacTests: XCTestCase {
 
     func testGeminiTokenRefreshBuildsRequestBodyFromResolvedCredentials() throws {
         let credentials = GeminiCredentials(
-            refreshToken: "redacted-refresh-token",
-            clientID: "redacted-client-id",
-            clientSecret: "redacted-client-secret"
+            refreshToken: "refresh+token/with=special&chars",
+            clientID: "client id+value",
+            clientSecret: "secret/with+special=&chars"
         )
 
         let clientID = try XCTUnwrap(GeminiTokenRefresh.resolveClientID(from: credentials))
         let clientSecret = try XCTUnwrap(GeminiTokenRefresh.resolveClientSecret(from: credentials))
         let body = GeminiTokenRefresh.makeRefreshTokenRequestBody(
-            refreshToken: "redacted-refresh-token",
+            refreshToken: "refresh+token/with=special&chars",
             clientID: clientID,
             clientSecret: clientSecret
         )
         let encoded = try XCTUnwrap(String(data: body, encoding: .utf8))
 
         XCTAssertTrue(encoded.contains("grant_type=refresh_token"))
-        XCTAssertTrue(encoded.contains("refresh_token=redacted-refresh-token"))
-        XCTAssertTrue(encoded.contains("client_id=redacted-client-id"))
-        XCTAssertTrue(encoded.contains("client_secret=redacted-client-secret"))
+        XCTAssertTrue(encoded.contains("refresh_token=refresh%2Btoken%2Fwith%3Dspecial%26chars"))
+        XCTAssertTrue(encoded.contains("client_id=client%20id%2Bvalue"))
+        XCTAssertTrue(encoded.contains("client_secret=secret%2Fwith%2Bspecial%3D%26chars"))
     }
 
     func testGeminiTokenRefreshFallsBackToInstalledClientCredentials() {
@@ -3095,6 +3095,73 @@ final class CodexBarMacTests: XCTestCase {
 
         let standardTier = Data(#"{"currentTier":{"id":"standard-tier","name":"Standard"}}"#.utf8)
         XCTAssertEqual(GeminiUsageParser.parseTier(standardTier), "Code Assist")
+    }
+
+    func testGeminiUsageProviderRefreshesExpiredTokenAndPersistsCredentials() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oauthFilePath = directory.appendingPathComponent("oauth_creds.json").path
+        try """
+        {
+          "access_token": "expired-access-token",
+          "refresh_token": "redacted-refresh-token",
+          "expiry_date": 1000
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = GeminiUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            oauthFilePath: oauthFilePath,
+            quotaEndpoint: URL(string: "https://example.test/gemini-quota")!,
+            tierEndpoint: URL(string: "https://example.test/gemini-tier")!,
+            tokenEndpoint: URL(string: "https://example.test/gemini-token")!,
+            now: { now }
+        )
+        var requestCount = 0
+
+        MockURLProtocol.handler = { request in
+            requestCount += 1
+            let url = try XCTUnwrap(request.url)
+            if url.path == "/gemini-token" {
+                XCTAssertEqual(request.httpMethod, "POST")
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"access_token":"new-access-token","refresh_token":"new-refresh-token","expires_in":3600}"#.utf8)
+                )
+            }
+
+            if url.path == "/gemini-tier" {
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"currentTier":{"id":"standard-tier"}}"#.utf8)
+                )
+            }
+
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer new-access-token")
+            let persisted = try XCTUnwrap(GeminiAuthFileStore.readCredentials(at: oauthFilePath))
+            XCTAssertEqual(persisted.accessToken, "new-access-token")
+            XCTAssertEqual(persisted.refreshToken, "new-refresh-token")
+            return (
+                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(
+                    #"{"buckets":[{"tokenType":"REQUESTS","modelId":"gemini-2.5-pro","remainingFraction":0.8,"resetTime":"2026-07-17T12:00:00Z"}]}"#.utf8
+                )
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .gemini))
+
+        XCTAssertGreaterThanOrEqual(requestCount, 2)
+        XCTAssertEqual(result.bars.count, 1)
+        XCTAssertEqual(result.bars[0].label, "Pro (Code Assist)")
     }
 
     func testGeminiUsageProviderFetchesQuotaFromOAuthFile() async throws {
