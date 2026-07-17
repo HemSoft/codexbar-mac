@@ -70,7 +70,7 @@ public final class GeminiUsageProvider: UsageProvider {
             await fetchTierIfNeeded(accessToken: accessToken)
         }
 
-        let projectID = tierCache.currentProjectID()
+        let projectID = resolvedQuotaProjectID()
         let (data, response) = try await session.data(for: makeQuotaRequest(accessToken: accessToken, projectID: projectID))
         guard let httpResponse = response as? HTTPURLResponse else {
             return failureResult("Gemini usage returned an invalid response.", configuration: configuration)
@@ -234,6 +234,22 @@ public final class GeminiUsageProvider: UsageProvider {
         } catch {
             return
         }
+    }
+
+    private func resolvedQuotaProjectID() -> String? {
+        if let projectID = tierCache.currentProjectID() {
+            return projectID
+        }
+
+        for key in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GEMINI_CLOUD_PROJECT"] {
+            if let value = ProcessInfo.processInfo.environment[key]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
+                return value
+            }
+        }
+
+        return nil
     }
 
     private func makeQuotaRequest(accessToken: String, projectID: String?) -> URLRequest {
