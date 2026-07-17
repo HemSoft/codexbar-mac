@@ -430,6 +430,22 @@ public final class ProviderConfigurationStore: ObservableObject {
             }
         }
 
+        if discovery.geminiOAuthAvailable {
+            let geminiCredentialHint = "~/.gemini/oauth_creds.json"
+            for index in configurations.indices where configurations[index].providerID == .gemini {
+                if shouldApplyLocalAuthMethod(
+                    current: configurations[index].authMethod,
+                    localMethod: .oauth,
+                    providerID: .gemini
+                ) {
+                    configurations[index].authMethod = .oauth
+                    nextHints[configurations[index].id] = geminiCredentialHint
+                } else if configurations[index].authMethod == .oauth {
+                    nextHints[configurations[index].id] = geminiCredentialHint
+                }
+            }
+        }
+
         localCredentialHints = nextHints
         sortConfigurations()
         saveConfigurations()

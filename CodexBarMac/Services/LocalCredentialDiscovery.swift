@@ -8,19 +8,22 @@ public struct LocalCredentialDiscovery: Sendable {
         public let claudeOAuthAvailable: Bool
         public let claudeCredentialSource: String?
         public let cursorSessionAvailable: Bool
+        public let geminiOAuthAvailable: Bool
 
         public init(
             codexAuthAvailable: Bool,
             githubUsernames: [String],
             claudeOAuthAvailable: Bool,
             claudeCredentialSource: String? = nil,
-            cursorSessionAvailable: Bool = false
+            cursorSessionAvailable: Bool = false,
+            geminiOAuthAvailable: Bool = false
         ) {
             self.codexAuthAvailable = codexAuthAvailable
             self.githubUsernames = githubUsernames
             self.claudeOAuthAvailable = claudeOAuthAvailable
             self.claudeCredentialSource = claudeCredentialSource
             self.cursorSessionAvailable = cursorSessionAvailable
+            self.geminiOAuthAvailable = geminiOAuthAvailable
         }
     }
 
@@ -28,6 +31,7 @@ public struct LocalCredentialDiscovery: Sendable {
         codexAuthPath: String = defaultCodexAuthPath(),
         claudeCredentialsPath: String = defaultClaudeCredentialsPath(),
         cursorAuthPath: String = CursorCredentialsParser.defaultAuthPath(),
+        geminiOAuthPath: String = defaultGeminiOAuthPath(),
         claudeKeychainAccount: String = NSUserName(),
         ghStatusRunner: (@Sendable () throws -> (exitCode: Int32, stdout: String, stderr: String))? = nil
     ) -> Result {
@@ -41,7 +45,8 @@ public struct LocalCredentialDiscovery: Sendable {
             githubUsernames: discoverGitHubUsernames(using: runner),
             claudeOAuthAvailable: claudeCredentialSource != nil,
             claudeCredentialSource: claudeCredentialSource,
-            cursorSessionAvailable: CursorCredentialsParser.hasSession(at: cursorAuthPath)
+            cursorSessionAvailable: CursorCredentialsParser.hasSession(at: cursorAuthPath),
+            geminiOAuthAvailable: GeminiCredentialsParser.parseCredentialsFile(at: geminiOAuthPath) != nil
         )
     }
 
@@ -61,6 +66,12 @@ public struct LocalCredentialDiscovery: Sendable {
     public static func defaultClaudeCredentialsPath() -> String {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/.credentials.json")
+            .path
+    }
+
+    public static func defaultGeminiOAuthPath() -> String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".gemini/oauth_creds.json")
             .path
     }
 

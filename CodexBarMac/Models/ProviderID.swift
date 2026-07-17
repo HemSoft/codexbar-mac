@@ -7,6 +7,7 @@ public enum ProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
     case openRouter
     case openCodeZen
     case cursor
+    case gemini
 
     public var id: String {
         rawValue
@@ -26,6 +27,8 @@ public enum ProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
             "OpenCode ZEN"
         case .cursor:
             "Cursor"
+        case .gemini:
+            "Gemini"
         }
     }
 }

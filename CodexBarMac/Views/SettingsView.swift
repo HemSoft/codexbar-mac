@@ -406,6 +406,8 @@ private extension ProviderID {
             "cube"
         case .cursor:
             "cursorarrow.rays"
+        case .gemini:
+            "wand.and.stars"
         }
     }
 }

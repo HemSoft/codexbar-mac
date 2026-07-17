@@ -332,6 +332,7 @@ public extension UsageRefreshService {
             OpenRouterUsageProvider(secretStore: secretStore),
             CursorUsageProvider(secretStore: secretStore),
             OpenCodeZenUsageProvider(secretStore: secretStore),
+            GeminiUsageProvider(),
         ] + DemoUsageProvider.samples.filter {
             $0.providerID != .codex
                 && $0.providerID != .claude
@@ -339,6 +340,7 @@ public extension UsageRefreshService {
                 && $0.providerID != .openRouter
                 && $0.providerID != .cursor
                 && $0.providerID != .openCodeZen
+                && $0.providerID != .gemini
         }
 
         return UsageRefreshService(providers: providers)
