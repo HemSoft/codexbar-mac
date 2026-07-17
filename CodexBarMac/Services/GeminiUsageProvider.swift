@@ -46,19 +46,26 @@ public final class GeminiUsageProvider: UsageProvider {
             )
         }
 
-        guard let accessToken = await validAccessToken(for: credentials) else {
+        switch await resolveAccessToken(for: credentials) {
+        case .valid(let accessToken):
+            return try await fetchUsage(
+                configuration: configuration,
+                accessToken: accessToken,
+                canRefresh: true
+            )
+        case .transient:
+            return failureResult(
+                "Gemini token refresh failed temporarily. Try again later.",
+                configuration: configuration,
+                isIncompleteRefresh: true
+            )
+        case .rejected:
             return failureResult(
                 "Gemini access token is expired or revoked and cannot be refreshed. Run 'gemini' to re-authenticate.",
                 configuration: configuration,
                 isIncompleteRefresh: false
             )
         }
-
-        return try await fetchUsage(
-            configuration: configuration,
-            accessToken: accessToken,
-            canRefresh: true
-        )
     }
 
     private func fetchUsage(
@@ -93,19 +100,26 @@ public final class GeminiUsageProvider: UsageProvider {
             )
         case 401 where canRefresh:
             tierCache.invalidate()
-            guard let refreshed = await refreshCredentials(force: true) else {
+            switch await refreshAccessToken(force: true) {
+            case .valid(let refreshed):
+                return try await fetchUsage(
+                    configuration: configuration,
+                    accessToken: refreshed,
+                    canRefresh: false
+                )
+            case .transient:
+                return failureResult(
+                    "Gemini token refresh failed temporarily. Try again later.",
+                    configuration: configuration,
+                    isIncompleteRefresh: true
+                )
+            case .rejected:
                 return failureResult(
                     "Gemini OAuth token invalid. Run 'gemini' and complete login.",
                     configuration: configuration,
                     isIncompleteRefresh: false
                 )
             }
-
-            return try await fetchUsage(
-                configuration: configuration,
-                accessToken: refreshed,
-                canRefresh: false
-            )
         case 401:
             tierCache.invalidate()
             return failureResult(
@@ -121,28 +135,34 @@ public final class GeminiUsageProvider: UsageProvider {
         }
     }
 
-    private func validAccessToken(for credentials: GeminiCredentials) async -> String? {
+    private enum AccessTokenResolution: Sendable {
+        case valid(String)
+        case rejected
+        case transient
+    }
+
+    private func resolveAccessToken(for credentials: GeminiCredentials) async -> AccessTokenResolution {
         if let accessToken = credentials.accessToken,
            !accessToken.isEmpty,
            !credentials.shouldRefresh(at: now()) {
-            return accessToken
+            return .valid(accessToken)
         }
 
-        guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
-            return nil
+        guard credentials.refreshToken?.isEmpty == false else {
+            return .rejected
         }
 
-        return await refreshCredentials(force: false)
+        return await refreshAccessToken(force: false)
     }
 
-    private func refreshCredentials(force: Bool) async -> String? {
+    private func refreshAccessToken(force: Bool) async -> AccessTokenResolution {
         let result = await Self.refreshCoordinator.run(for: oauthFilePath) { [self] in
             if !force,
                let credentials = GeminiAuthFileStore.readCredentials(at: oauthFilePath),
                let accessToken = credentials.accessToken,
                !accessToken.isEmpty,
                !credentials.shouldRefresh(at: now()) {
-                return .success(accessToken)
+                return GeminiCredentialRefreshResult.success(accessToken)
             }
 
             guard let credentials = GeminiAuthFileStore.readCredentials(at: oauthFilePath),
@@ -150,7 +170,7 @@ public final class GeminiUsageProvider: UsageProvider {
                   !refreshToken.isEmpty,
                   let clientID = GeminiTokenRefresh.resolveClientID(from: credentials),
                   let clientSecret = GeminiTokenRefresh.resolveClientSecret(from: credentials) else {
-                return .failure
+                return .rejected
             }
 
             do {
@@ -165,18 +185,22 @@ public final class GeminiUsageProvider: UsageProvider {
 
                 let (data, response) = try await session.data(for: request)
                 guard let httpResponse = response as? HTTPURLResponse else {
-                    return .failure
+                    return .transient
+                }
+
+                if httpResponse.statusCode == 401 || httpResponse.statusCode == 400 {
+                    return .rejected
                 }
 
                 guard (200..<300).contains(httpResponse.statusCode) else {
-                    return .failure
+                    return .transient
                 }
 
                 guard let tokenResponse = try? JSONDecoder().decode(GeminiTokenRefreshResponse.self, from: data),
                       tokenResponse.error == nil,
                       let accessToken = tokenResponse.accessToken,
                       !accessToken.isEmpty else {
-                    return .failure
+                    return .rejected
                 }
 
                 let expiresIn = tokenResponse.expiresIn.flatMap { value in
@@ -194,20 +218,23 @@ public final class GeminiUsageProvider: UsageProvider {
                 do {
                     try GeminiAuthFileStore.writeCredentials(updated, at: oauthFilePath)
                 } catch {
-                    return .failure
+                    return .transient
                 }
 
                 return .success(accessToken)
             } catch {
-                return .failure
+                return .transient
             }
         }
 
-        if case .success(let accessToken) = result {
-            return accessToken
+        switch result {
+        case .success(let accessToken):
+            return .valid(accessToken)
+        case .rejected:
+            return .rejected
+        case .transient:
+            return .transient
         }
-
-        return nil
     }
 
     private func fetchTierIfNeeded(accessToken: String) async {
@@ -295,7 +322,8 @@ public final class GeminiUsageProvider: UsageProvider {
 
 private enum GeminiCredentialRefreshResult: Sendable {
     case success(String)
-    case failure
+    case rejected
+    case transient
 }
 
 private final class GeminiTierCache: @unchecked Sendable {

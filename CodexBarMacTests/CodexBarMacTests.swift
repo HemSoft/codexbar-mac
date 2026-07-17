@@ -3206,6 +3206,50 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars[0].label, "Pro (Code Assist)")
     }
 
+    func testGeminiUsageProviderMarksTransientTokenRefreshFailuresIncomplete() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oauthFilePath = directory.appendingPathComponent("oauth_creds.json").path
+        try """
+        {
+          "access_token": "expired-access-token",
+          "refresh_token": "redacted-refresh-token",
+          "expiry_date": 1000
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = GeminiUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            oauthFilePath: oauthFilePath,
+            quotaEndpoint: URL(string: "https://example.test/gemini-quota")!,
+            tierEndpoint: URL(string: "https://example.test/gemini-tier")!,
+            tokenEndpoint: URL(string: "https://example.test/gemini-token")!,
+            now: { now }
+        )
+
+        MockURLProtocol.handler = { request in
+            let url = try XCTUnwrap(request.url)
+            return (
+                HTTPURLResponse(url: url, statusCode: 503, httpVersion: nil, headerFields: nil)!,
+                Data("{}".utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .gemini))
+
+        XCTAssertTrue(result.isIncompleteRefresh)
+        XCTAssertEqual(result.subtitle, "Gemini token refresh failed temporarily. Try again later.")
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
     func testGeminiUsageProviderFetchesQuotaFromOAuthFile() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let directory = FileManager.default.temporaryDirectory
