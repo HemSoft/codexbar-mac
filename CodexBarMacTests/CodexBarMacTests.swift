@@ -3089,6 +3089,39 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars[0].resetDescription, "Resets in 2h 5m")
     }
 
+    func testGeminiUsageParserUsesLowestRemainingAcrossTokenBucketTypes() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetTime = ISO8601DateFormatter().string(
+            from: fetchedAt.addingTimeInterval(3_600)
+        )
+        let json = """
+        {
+          "buckets": [
+            {
+              "tokenType": "REQUESTS",
+              "modelId": "gemini-2.5-pro",
+              "remainingFraction": 0.8,
+              "resetTime": "\(resetTime)"
+            },
+            {
+              "tokenType": "INPUT_TOKENS",
+              "modelId": "gemini-2.5-pro",
+              "remainingFraction": 0.1,
+              "resetTime": "\(resetTime)"
+            }
+          ]
+        }
+        """
+
+        let result = try XCTUnwrap(
+            GeminiUsageParser.parseQuota(Data(json.utf8), tierName: nil, fetchedAt: fetchedAt)
+        )
+
+        XCTAssertEqual(result.bars.count, 1)
+        XCTAssertEqual(result.bars[0].label, "Pro")
+        XCTAssertEqual(result.bars[0].used, 0.9, accuracy: 0.0001)
+    }
+
     func testGeminiUsageParserParsesTierNames() throws {
         let paidTier = Data(#"{"paidTier":{"id":"g1-pro-tier"}}"#.utf8)
         XCTAssertEqual(GeminiUsageParser.parseTier(paidTier), "Paid")

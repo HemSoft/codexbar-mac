@@ -91,7 +91,7 @@ public enum GeminiUsageParser {
         var foundFlash = false
 
         for bucket in response.buckets ?? [] {
-            guard bucket.tokenType?.localizedCaseInsensitiveCompare("REQUESTS") == .orderedSame else {
+            guard isQuotaEnforcingTokenType(bucket.tokenType) else {
                 continue
             }
 
@@ -152,6 +152,19 @@ public enum GeminiUsageParser {
             bars: bars,
             fetchedAt: fetchedAt
         )
+    }
+
+    private static func isQuotaEnforcingTokenType(_ tokenType: String?) -> Bool {
+        guard let tokenType else {
+            return false
+        }
+
+        switch tokenType.uppercased() {
+        case "REQUESTS", "INPUT_TOKENS", "OUTPUT_TOKENS":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func makeUsageBar(
