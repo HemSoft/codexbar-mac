@@ -2322,6 +2322,34 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testApplyLocalCredentialDiscoveriesRespectsDeletedGeminiAccount() throws {
+        let suiteName = "CodexBarMacTests.GeminiDiscoverySuppressed.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let preexisting = ProviderID.allCases.map(ProviderAccountConfiguration.defaultConfiguration)
+        defaults.set(try JSONEncoder().encode(preexisting), forKey: "providerConfigurations")
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+        let gemini = try XCTUnwrap(store.configurations(for: .gemini).first)
+        store.removeAccount(gemini)
+        XCTAssertTrue(store.configurations(for: .gemini).isEmpty)
+
+        store.applyLocalCredentialDiscoveries(
+            LocalCredentialDiscovery.Result(
+                codexAuthAvailable: false,
+                githubUsernames: [],
+                claudeOAuthAvailable: false,
+                geminiOAuthAvailable: true
+            )
+        )
+
+        XCTAssertTrue(store.configurations(for: .gemini).isEmpty)
+    }
+
+    @MainActor
     func testUsageAlertSettingsPersistAndClamp() {
         let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

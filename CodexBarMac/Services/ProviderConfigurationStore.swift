@@ -22,6 +22,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let usageAlertSettingsKey = DefaultsKey.usageAlertSettings
     private let usageAlertActiveIDsKey = DefaultsKey.usageAlertActiveIDs
     private let suppressedCopilotDiscoveryUsernamesKey = DefaultsKey.suppressedCopilotDiscoveryUsernames
+    private let suppressedGeminiDiscoveryKey = DefaultsKey.suppressedGeminiDiscovery
     private var secretAvailabilityGeneration = 0
 
     deinit {}
@@ -98,6 +99,10 @@ public final class ProviderConfigurationStore: ObservableObject {
         for providerID: ProviderID,
         copilotScope: CopilotAccountScope
     ) -> ProviderAccountConfiguration {
+        if providerID == .gemini {
+            clearSuppressedGeminiDiscovery()
+        }
+
         var configuration = ProviderAccountConfiguration
             .defaultConfiguration(for: providerID)
             .withNewAccountID()
@@ -136,6 +141,7 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     public func removeAccount(_ configuration: ProviderAccountConfiguration) {
         rememberSuppressedCopilotDiscovery(for: configuration)
+        rememberSuppressedGeminiDiscovery(for: configuration)
 
         do {
             try secretStore.deleteSecret(account: Self.keychainAccount(for: configuration))
@@ -432,7 +438,8 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         if discovery.geminiOAuthAvailable {
             let geminiCredentialHint = "~/.gemini/oauth_creds.json"
-            if !configurations.contains(where: { $0.providerID == .gemini }) {
+            if !configurations.contains(where: { $0.providerID == .gemini }),
+               !isGeminiDiscoverySuppressed() {
                 configurations.append(.defaultConfiguration(for: .gemini))
             }
 
@@ -527,6 +534,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         static let usageAlertSettings = "usageAlertSettings"
         static let usageAlertActiveIDs = "usageAlertActiveIDs"
         static let suppressedCopilotDiscoveryUsernames = "suppressedCopilotDiscoveryUsernames"
+        static let suppressedGeminiDiscovery = "suppressedGeminiDiscovery"
     }
 
     private static func loadConfigurations(
@@ -674,6 +682,22 @@ public final class ProviderConfigurationStore: ObservableObject {
     ) -> Bool {
         current == localMethod
             || current == ProviderAccountConfiguration.defaultConfiguration(for: providerID).authMethod
+    }
+
+    private func rememberSuppressedGeminiDiscovery(for configuration: ProviderAccountConfiguration) {
+        guard configuration.providerID == .gemini else {
+            return
+        }
+
+        defaults.set(true, forKey: suppressedGeminiDiscoveryKey)
+    }
+
+    private func clearSuppressedGeminiDiscovery() {
+        defaults.set(false, forKey: suppressedGeminiDiscoveryKey)
+    }
+
+    private func isGeminiDiscoverySuppressed() -> Bool {
+        defaults.bool(forKey: suppressedGeminiDiscoveryKey)
     }
 
     private func rememberSuppressedCopilotDiscovery(for configuration: ProviderAccountConfiguration) {
