@@ -7,6 +7,7 @@ public final class GeminiUsageProvider: UsageProvider {
     private let oauthFilePath: String
     private let quotaEndpoint: URL
     private let tierEndpoint: URL
+    private let projectsEndpoint: URL
     private let tokenEndpoint: URL
     private let now: @Sendable () -> Date
     private let tierCache = GeminiTierCache()
@@ -18,6 +19,7 @@ public final class GeminiUsageProvider: UsageProvider {
         oauthFilePath: String = GeminiAuthFileStore.defaultPath(),
         quotaEndpoint: URL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")!,
         tierEndpoint: URL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!,
+        projectsEndpoint: URL = URL(string: "https://cloudresourcemanager.googleapis.com/v1/projects")!,
         tokenEndpoint: URL = GeminiTokenRefresh.tokenEndpoint,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -25,6 +27,7 @@ public final class GeminiUsageProvider: UsageProvider {
         self.oauthFilePath = oauthFilePath
         self.quotaEndpoint = quotaEndpoint
         self.tierEndpoint = tierEndpoint
+        self.projectsEndpoint = projectsEndpoint
         self.tokenEndpoint = tokenEndpoint
         self.now = now
     }
@@ -81,10 +84,11 @@ public final class GeminiUsageProvider: UsageProvider {
         accessToken: String,
         canRefresh: Bool
     ) async throws -> ProviderUsageResult {
-        await fetchTierIfNeeded(accessToken: accessToken, fingerprint: credentialFingerprint(for: accessToken))
+        let fingerprint = credentialFingerprint(for: accessToken)
+        await fetchTierIfNeeded(accessToken: accessToken, fingerprint: fingerprint)
         await tierCache.waitForInFlightFetchIfNeeded()
 
-        let projectID = resolvedQuotaProjectID()
+        let projectID = await resolveQuotaProjectID(accessToken: accessToken, fingerprint: fingerprint)
         let (data, response) = try await session.data(for: makeQuotaRequest(accessToken: accessToken, projectID: projectID))
         guard let httpResponse = response as? HTTPURLResponse else {
             return failureResult("Gemini usage returned an invalid response.", configuration: configuration)
@@ -294,7 +298,7 @@ public final class GeminiUsageProvider: UsageProvider {
         return "access:\(accessToken)"
     }
 
-    private func resolvedQuotaProjectID() -> String? {
+    private func resolveQuotaProjectID(accessToken: String, fingerprint: String) async -> String? {
         if let projectID = tierCache.currentProjectID() {
             return projectID
         }
@@ -308,11 +312,50 @@ public final class GeminiUsageProvider: UsageProvider {
             if let value = ProcessInfo.processInfo.environment[key]?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                !value.isEmpty {
+                tierCache.storeDiscoveredProjectID(value, fingerprint: fingerprint)
                 return value
             }
         }
 
+        // Menu bar launches do not inherit shell env vars; discover an accessible
+        // GCP project via Cloud Resource Manager before sending an empty quota body.
+        if let discovered = await discoverProjectIDFromResourceManager(accessToken: accessToken) {
+            tierCache.storeDiscoveredProjectID(discovered, fingerprint: fingerprint)
+            return discovered
+        }
+
         return nil
+    }
+
+    private func discoverProjectIDFromResourceManager(accessToken: String) async -> String? {
+        var components = URLComponents(url: projectsEndpoint, resolvingAgainstBaseURL: false)
+        var queryItems = components?.queryItems ?? []
+        if !queryItems.contains(where: { $0.name == "filter" }) {
+            queryItems.append(URLQueryItem(name: "filter", value: "lifecycleState:ACTIVE"))
+        }
+        if !queryItems.contains(where: { $0.name == "pageSize" }) {
+            queryItems.append(URLQueryItem(name: "pageSize", value: "20"))
+        }
+        components?.queryItems = queryItems
+
+        guard let url = components?.url else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode) else {
+                return nil
+            }
+            return GeminiUsageParser.parseResourceManagerProjectID(data)
+        } catch {
+            return nil
+        }
     }
 
     private func makeQuotaRequest(accessToken: String, projectID: String?) -> URLRequest {
@@ -439,6 +482,15 @@ private final class GeminiTierCache: @unchecked Sendable {
             fetched = true
         }
         resumeWaiters()
+    }
+
+    func storeDiscoveredProjectID(_ projectID: String, fingerprint: String) {
+        lock.withLock {
+            guard credentialFingerprint == fingerprint else {
+                return
+            }
+            self.projectID = projectID
+        }
     }
 
     func markFetchComplete(fingerprint: String) {

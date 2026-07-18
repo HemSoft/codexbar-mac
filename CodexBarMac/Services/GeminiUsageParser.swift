@@ -15,12 +15,44 @@ public enum GeminiUsageParser {
     private struct TierResponse: Decodable {
         let paidTier: Tier?
         let currentTier: Tier?
-        let cloudaicompanionProject: String?
+        let cloudaicompanionProject: FlexibleProjectID?
     }
 
     private struct Tier: Decodable {
         let id: String?
         let name: String?
+    }
+
+    /// `loadCodeAssist` / onboard responses may return the project as a bare string or
+    /// as `{ "id": "..." }` / `{ "projectId": "..." }`.
+    private struct FlexibleProjectID: Decodable {
+        let value: String?
+
+        private struct ObjectForm: Decodable {
+            let id: String?
+            let projectId: String?
+            let projectID: String?
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if container.decodeNil() {
+                value = nil
+                return
+            }
+
+            if let string = try? container.decode(String.self) {
+                value = string
+                return
+            }
+
+            if let object = try? container.decode(ObjectForm.self) {
+                value = object.id ?? object.projectId ?? object.projectID
+                return
+            }
+
+            value = nil
+        }
     }
 
     public struct CodeAssistInfo: Equatable, Sendable {
@@ -40,8 +72,37 @@ public enum GeminiUsageParser {
 
         return CodeAssistInfo(
             tierName: parseTierName(from: response),
-            projectID: nonEmptyString(response.cloudaicompanionProject)
+            projectID: nonEmptyString(response.cloudaicompanionProject?.value)
         )
+    }
+
+    public static func parseResourceManagerProjectID(_ data: Data) -> String? {
+        struct ProjectsResponse: Decodable {
+            struct Project: Decodable {
+                let projectId: String?
+                let lifecycleState: String?
+            }
+
+            let projects: [Project]?
+        }
+
+        guard let response = try? JSONDecoder().decode(ProjectsResponse.self, from: data) else {
+            return nil
+        }
+
+        let activeIDs = (response.projects ?? []).compactMap { project -> String? in
+            let state = project.lifecycleState?.uppercased()
+            guard state == nil || state == "ACTIVE" else {
+                return nil
+            }
+            return nonEmptyString(project.projectId)
+        }
+
+        if let preferred = activeIDs.first(where: { $0.hasPrefix("gen-lang-client") }) {
+            return preferred
+        }
+
+        return activeIDs.first
     }
 
     public static func parseTier(_ data: Data) -> String? {

@@ -3230,6 +3230,41 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(info.projectID, "gen-lang-client-123")
     }
 
+    func testGeminiUsageParserReadsObjectShapedCodeAssistProject() throws {
+        let byID = Data(
+            #"{"currentTier":{"id":"standard-tier"},"cloudaicompanionProject":{"id":"gen-lang-client-obj"}}"#.utf8
+        )
+        XCTAssertEqual(
+            GeminiUsageParser.parseCodeAssist(byID)?.projectID,
+            "gen-lang-client-obj"
+        )
+
+        let byProjectId = Data(
+            #"{"paidTier":{"id":"g1-pro-tier","name":"Paid"},"cloudaicompanionProject":{"projectId":"workspace-project"}}"#.utf8
+        )
+        let info = try XCTUnwrap(GeminiUsageParser.parseCodeAssist(byProjectId))
+        XCTAssertEqual(info.tierName, "Paid")
+        XCTAssertEqual(info.projectID, "workspace-project")
+    }
+
+    func testGeminiUsageParserPrefersGenLangClientFromResourceManager() throws {
+        let payload = Data(
+            """
+            {
+              "projects": [
+                {"projectId":"other-gcp-project","lifecycleState":"ACTIVE"},
+                {"projectId":"gen-lang-client-999","lifecycleState":"ACTIVE"},
+                {"projectId":"deleted-project","lifecycleState":"DELETE_REQUESTED"}
+              ]
+            }
+            """.utf8
+        )
+        XCTAssertEqual(
+            GeminiUsageParser.parseResourceManagerProjectID(payload),
+            "gen-lang-client-999"
+        )
+    }
+
     func testGeminiUsageParserPrefersPaidTierName() throws {
         let payload = Data(
             #"{"paidTier":{"id":"custom-paid-tier","name":"Google AI Ultra"},"currentTier":{"id":"free-tier","name":"Free"}}"#.utf8
@@ -3441,6 +3476,73 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars[0].used, 0.2, accuracy: 0.0001)
         XCTAssertEqual(result.bars[1].label, "Flash")
         XCTAssertEqual(result.subtitle, "Live Gemini CLI usage")
+    }
+
+    func testGeminiUsageProviderDiscoversProjectViaResourceManager() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oauthFilePath = directory.appendingPathComponent("oauth_creds.json").path
+        try """
+        {
+          "access_token": "redacted-access-token",
+          "refresh_token": "redacted-refresh-token",
+          "expiry_date": 4102444800000
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = GeminiUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            oauthFilePath: oauthFilePath,
+            quotaEndpoint: URL(string: "https://example.test/gemini-quota")!,
+            tierEndpoint: URL(string: "https://example.test/gemini-tier")!,
+            projectsEndpoint: URL(string: "https://example.test/gemini-projects")!,
+            now: { now }
+        )
+
+        MockURLProtocol.handler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path == "/gemini-tier" {
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"currentTier":{"id":"standard-tier"}}"#.utf8)
+                )
+            }
+
+            if url.path == "/gemini-projects" {
+                XCTAssertEqual(request.httpMethod, "GET")
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer redacted-access-token")
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(
+                        #"{"projects":[{"projectId":"gen-lang-client-discovered","lifecycleState":"ACTIVE"}]}"#.utf8
+                    )
+                )
+            }
+
+            XCTAssertEqual(url.path, "/gemini-quota")
+            let body = try XCTUnwrap(String(data: try XCTUnwrap(requestBodyData(from: request)), encoding: .utf8))
+            XCTAssertTrue(body.contains(#""project":"gen-lang-client-discovered""#))
+            return (
+                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(
+                    #"{"buckets":[{"tokenType":"REQUESTS","modelId":"gemini-2.5-pro","remainingFraction":0.7,"resetTime":"2026-07-17T12:00:00Z"}]}"#.utf8
+                )
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .gemini))
+
+        XCTAssertEqual(result.bars.count, 1)
+        XCTAssertEqual(result.bars[0].label, "Pro (Code Assist)")
+        XCTAssertEqual(result.bars[0].used, 0.3, accuracy: 0.0001)
     }
 
     func testLocalCredentialDiscoveryIgnoresStaleGeminiOAuthWhenCLIUsesAPIKey() throws {
