@@ -299,7 +299,12 @@ public final class GeminiUsageProvider: UsageProvider {
             return projectID
         }
 
-        for key in ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GEMINI_CLOUD_PROJECT"] {
+        for key in [
+            "GOOGLE_CLOUD_QUOTA_PROJECT",
+            "GOOGLE_CLOUD_PROJECT",
+            "GOOGLE_CLOUD_PROJECT_ID",
+            "GEMINI_CLOUD_PROJECT",
+        ] {
             if let value = ProcessInfo.processInfo.environment[key]?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                !value.isEmpty {
