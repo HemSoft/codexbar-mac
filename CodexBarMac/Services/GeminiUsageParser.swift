@@ -103,7 +103,11 @@ public enum GeminiUsageParser {
             let remaining = min(max(bucket.remainingFraction ?? 1.0, 0), 1)
             let reset = parseResetDate(bucket.resetTime)
 
-            if modelID.localizedCaseInsensitiveContains("flash") {
+            if isFlashLiteModel(modelID) {
+                continue
+            }
+
+            if isFlashModel(modelID) {
                 if !foundFlash {
                     foundFlash = true
                     lowestFlashRemaining = remaining
@@ -169,6 +173,17 @@ public enum GeminiUsageParser {
         default:
             return false
         }
+    }
+
+    private static func isFlashLiteModel(_ modelID: String) -> Bool {
+        let normalized = modelID.lowercased()
+        return normalized.contains("flash-lite")
+            || normalized.contains("flash_lite")
+            || normalized.contains("flashlite")
+    }
+
+    private static func isFlashModel(_ modelID: String) -> Bool {
+        modelID.localizedCaseInsensitiveContains("flash") && !isFlashLiteModel(modelID)
     }
 
     private static func makeUsageBar(

@@ -81,11 +81,8 @@ public final class GeminiUsageProvider: UsageProvider {
         accessToken: String,
         canRefresh: Bool
     ) async throws -> ProviderUsageResult {
-        if tierCache.shouldFetch() {
-            await fetchTierIfNeeded(accessToken: accessToken)
-        } else {
-            await tierCache.waitForInFlightFetchIfNeeded()
-        }
+        await fetchTierIfNeeded(accessToken: accessToken)
+        await tierCache.waitForInFlightFetchIfNeeded()
 
         let projectID = resolvedQuotaProjectID()
         let (data, response) = try await session.data(for: makeQuotaRequest(accessToken: accessToken, projectID: projectID))
@@ -354,10 +351,6 @@ private final class GeminiTierCache: @unchecked Sendable {
     private var fetched = false
     private var fetchInProgress = false
     private var fetchWaiters: [CheckedContinuation<Void, Never>] = []
-
-    func shouldFetch() -> Bool {
-        lock.withLock { !fetched }
-    }
 
     func currentTierName() -> String? {
         lock.withLock { tierName }

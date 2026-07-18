@@ -3089,6 +3089,39 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars[0].resetDescription, "Resets in 2h 5m")
     }
 
+    func testGeminiUsageParserExcludesFlashLiteFromFlashAggregate() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetTime = ISO8601DateFormatter().string(
+            from: fetchedAt.addingTimeInterval(3_600)
+        )
+        let json = """
+        {
+          "buckets": [
+            {
+              "tokenType": "REQUESTS",
+              "modelId": "gemini-2.5-flash",
+              "remainingFraction": 0.8,
+              "resetTime": "\(resetTime)"
+            },
+            {
+              "tokenType": "REQUESTS",
+              "modelId": "gemini-2.5-flash-lite",
+              "remainingFraction": 0.05,
+              "resetTime": "\(resetTime)"
+            }
+          ]
+        }
+        """
+
+        let result = try XCTUnwrap(
+            GeminiUsageParser.parseQuota(Data(json.utf8), tierName: nil, fetchedAt: fetchedAt)
+        )
+
+        XCTAssertEqual(result.bars.count, 1)
+        XCTAssertEqual(result.bars[0].label, "Flash")
+        XCTAssertEqual(result.bars[0].used, 0.2, accuracy: 0.0001)
+    }
+
     func testGeminiUsageParserUsesLowestRemainingAcrossTokenBucketTypes() throws {
         let fetchedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let resetTime = ISO8601DateFormatter().string(
