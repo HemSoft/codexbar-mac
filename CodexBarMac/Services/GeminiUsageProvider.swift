@@ -5,6 +5,7 @@ public final class GeminiUsageProvider: UsageProvider {
 
     private let session: URLSession
     private let oauthFilePath: String
+    private let settingsPath: String
     private let quotaEndpoint: URL
     private let tierEndpoint: URL
     private let projectsEndpoint: URL
@@ -17,6 +18,7 @@ public final class GeminiUsageProvider: UsageProvider {
     public init(
         session: URLSession = .shared,
         oauthFilePath: String = GeminiAuthFileStore.defaultPath(),
+        settingsPath: String? = nil,
         quotaEndpoint: URL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")!,
         tierEndpoint: URL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!,
         projectsEndpoint: URL = URL(string: "https://cloudresourcemanager.googleapis.com/v1/projects")!,
@@ -25,6 +27,11 @@ public final class GeminiUsageProvider: UsageProvider {
     ) {
         self.session = session
         self.oauthFilePath = oauthFilePath
+        self.settingsPath = settingsPath
+            ?? URL(fileURLWithPath: oauthFilePath)
+                .deletingLastPathComponent()
+                .appendingPathComponent("settings.json")
+                .path
         self.quotaEndpoint = quotaEndpoint
         self.tierEndpoint = tierEndpoint
         self.projectsEndpoint = projectsEndpoint
@@ -33,7 +40,7 @@ public final class GeminiUsageProvider: UsageProvider {
     }
 
     public func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
-        guard GeminiCLISettings.usesOAuthCredentials() else {
+        guard GeminiCLISettings.usesOAuthCredentials(at: settingsPath) else {
             return failureResult(
                 "Gemini CLI is configured for API key or Vertex auth. CodexBar reads Gemini CLI OAuth credentials only.",
                 configuration: configuration,
