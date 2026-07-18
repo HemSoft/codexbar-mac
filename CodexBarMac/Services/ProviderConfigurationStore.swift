@@ -432,6 +432,10 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         if discovery.geminiOAuthAvailable {
             let geminiCredentialHint = "~/.gemini/oauth_creds.json"
+            if !configurations.contains(where: { $0.providerID == .gemini }) {
+                configurations.append(.defaultConfiguration(for: .gemini))
+            }
+
             for index in configurations.indices where configurations[index].providerID == .gemini {
                 if shouldApplyLocalAuthMethod(
                     current: configurations[index].authMethod,
