@@ -3646,8 +3646,28 @@ final class CodexBarMacTests: XCTestCase {
         }
 
         let geminiPath = LocalCredentialDiscovery.defaultGeminiOAuthPath()
-        XCTAssertTrue(geminiPath.hasSuffix("/.gemini/oauth_creds.json"))
-        XCTAssertFalse(geminiPath.contains("~"))
+        if let geminiHome = ProcessInfo.processInfo.environment["GEMINI_CLI_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !geminiHome.isEmpty {
+            let expected = URL(fileURLWithPath: geminiHome, isDirectory: true)
+                .appendingPathComponent(".gemini/oauth_creds.json")
+                .path
+            XCTAssertEqual(geminiPath, expected)
+        } else {
+            XCTAssertTrue(geminiPath.hasSuffix("/.gemini/oauth_creds.json"))
+            XCTAssertFalse(geminiPath.contains("~"))
+        }
+    }
+
+    func testGeminiHomeDirectoryHonorsGEMINI_CLI_HOME() {
+        let customHome = "/tmp/custom-gemini-home"
+        let resolved = LocalCredentialDiscovery.geminiHomeDirectory(
+            environment: ["GEMINI_CLI_HOME": "  \(customHome)  "]
+        )
+        XCTAssertEqual(resolved.path, customHome)
+
+        let fallback = LocalCredentialDiscovery.geminiHomeDirectory(environment: [:])
+        XCTAssertEqual(fallback, FileManager.default.homeDirectoryForCurrentUser)
     }
 }
 

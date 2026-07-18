@@ -74,9 +74,23 @@ public struct LocalCredentialDiscovery: Sendable {
     }
 
     public static func defaultGeminiOAuthPath() -> String {
-        FileManager.default.homeDirectoryForCurrentUser
+        geminiHomeDirectory()
             .appendingPathComponent(".gemini/oauth_creds.json")
             .path
+    }
+
+    /// Gemini CLI's `homedir()` uses `GEMINI_CLI_HOME` when set, then still nests
+    /// credentials under `.gemini/` inside that directory.
+    static func geminiHomeDirectory(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let geminiHome = environment["GEMINI_CLI_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !geminiHome.isEmpty {
+            return URL(fileURLWithPath: geminiHome, isDirectory: true)
+        }
+
+        return FileManager.default.homeDirectoryForCurrentUser
     }
 
     static func resolveClaudeCredentialSource(
