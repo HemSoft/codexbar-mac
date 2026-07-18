@@ -3265,6 +3265,28 @@ final class CodexBarMacTests: XCTestCase {
         )
     }
 
+    func testGeminiUsageParserPrefersGenerativeLanguageLabeledProject() throws {
+        let payload = Data(
+            """
+            {
+              "projects": [
+                {"projectId":"unrelated-first","lifecycleState":"ACTIVE"},
+                {
+                  "projectId":"code-assist-project",
+                  "lifecycleState":"ACTIVE",
+                  "labels":{"generative-language":"true"}
+                },
+                {"projectId":"gen-lang-client-later","lifecycleState":"ACTIVE"}
+              ]
+            }
+            """.utf8
+        )
+        XCTAssertEqual(
+            GeminiUsageParser.parseResourceManagerProjectID(payload),
+            "code-assist-project"
+        )
+    }
+
     func testGeminiUsageParserPrefersPaidTierName() throws {
         let payload = Data(
             #"{"paidTier":{"id":"custom-paid-tier","name":"Google AI Ultra"},"currentTier":{"id":"free-tier","name":"Free"}}"#.utf8
@@ -3290,6 +3312,36 @@ final class CodexBarMacTests: XCTestCase {
         """.write(toFile: settingsPath, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(GeminiCLISettings.usesOAuthCredentials(at: settingsPath))
+    }
+
+    func testGeminiCLISettingsRejectsADCAndGatewayAuthModes() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        for authType in [
+            "compute-default-credentials",
+            "cloud-shell",
+            "gateway",
+            "vertex-ai",
+        ] {
+            let settingsPath = directory.appendingPathComponent("settings-\(authType).json").path
+            try """
+            {
+              "security": {
+                "auth": {
+                  "selectedType": "\(authType)"
+                }
+              }
+            }
+            """.write(toFile: settingsPath, atomically: true, encoding: .utf8)
+
+            XCTAssertFalse(
+                GeminiCLISettings.usesOAuthCredentials(at: settingsPath),
+                "Expected \(authType) to be treated as non-OAuth"
+            )
+        }
     }
 
     func testGeminiCLISettingsHonorsLegacySelectedAuthType() throws {

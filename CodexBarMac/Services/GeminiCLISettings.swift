@@ -7,15 +7,16 @@ public enum GeminiCLISettings {
         }
 
         let normalized = selectedType.lowercased()
-        if normalized.contains("oauth") || normalized.contains("google") || normalized.contains("login") {
+
+        // Whitelist Gemini CLI OAuth / Google-login modes only. Unknown values must not
+        // fall through to true — ADC/cloud-shell/gateway leave stale oauth_creds.json behind.
+        if normalized == "oauth-personal"
+            || normalized.contains("oauth")
+            || normalized.contains("login") {
             return true
         }
 
-        if normalized.contains("api") || normalized.contains("vertex") || normalized.contains("key") {
-            return false
-        }
-
-        return true
+        return false
     }
 
     public static func defaultSettingsPath() -> String {

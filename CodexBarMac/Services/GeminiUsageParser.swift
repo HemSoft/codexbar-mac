@@ -81,6 +81,7 @@ public enum GeminiUsageParser {
             struct Project: Decodable {
                 let projectId: String?
                 let lifecycleState: String?
+                let labels: [String: String]?
             }
 
             let projects: [Project]?
@@ -90,19 +91,33 @@ public enum GeminiUsageParser {
             return nil
         }
 
-        let activeIDs = (response.projects ?? []).compactMap { project -> String? in
+        let activeProjects = (response.projects ?? []).compactMap { project -> (id: String, labels: [String: String])? in
             let state = project.lifecycleState?.uppercased()
             guard state == nil || state == "ACTIVE" else {
                 return nil
             }
-            return nonEmptyString(project.projectId)
+            guard let projectID = nonEmptyString(project.projectId) else {
+                return nil
+            }
+            return (projectID, project.labels ?? [:])
         }
 
-        if let preferred = activeIDs.first(where: { $0.hasPrefix("gen-lang-client") }) {
-            return preferred
+        if let labeled = activeProjects.first(where: { hasGenerativeLanguageLabel($0.labels) }) {
+            return labeled.id
         }
 
-        return activeIDs.first
+        if let preferred = activeProjects.first(where: { $0.id.hasPrefix("gen-lang-client") }) {
+            return preferred.id
+        }
+
+        return activeProjects.first?.id
+    }
+
+    private static func hasGenerativeLanguageLabel(_ labels: [String: String]) -> Bool {
+        labels.contains { key, value in
+            key.localizedCaseInsensitiveContains("generative-language")
+                || value.localizedCaseInsensitiveContains("generative-language")
+        }
     }
 
     public static func parseTier(_ data: Data) -> String? {
