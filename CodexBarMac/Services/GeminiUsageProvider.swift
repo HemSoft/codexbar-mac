@@ -310,11 +310,13 @@ public final class GeminiUsageProvider: UsageProvider {
             return projectID
         }
 
+        // Prefer the actual Gemini/Code Assist project. GOOGLE_CLOUD_QUOTA_PROJECT is a
+        // billing override and can differ from the project retrieveUserQuota expects.
         for key in [
-            "GOOGLE_CLOUD_QUOTA_PROJECT",
             "GOOGLE_CLOUD_PROJECT",
             "GOOGLE_CLOUD_PROJECT_ID",
             "GEMINI_CLOUD_PROJECT",
+            "GOOGLE_CLOUD_QUOTA_PROJECT",
         ] {
             if let value = ProcessInfo.processInfo.environment[key]?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -335,34 +337,58 @@ public final class GeminiUsageProvider: UsageProvider {
     }
 
     private func discoverProjectIDFromResourceManager(accessToken: String) async -> String? {
-        var components = URLComponents(url: projectsEndpoint, resolvingAgainstBaseURL: false)
-        var queryItems = components?.queryItems ?? []
-        if !queryItems.contains(where: { $0.name == "filter" }) {
-            queryItems.append(URLQueryItem(name: "filter", value: "lifecycleState:ACTIVE"))
-        }
-        if !queryItems.contains(where: { $0.name == "pageSize" }) {
-            queryItems.append(URLQueryItem(name: "pageSize", value: "20"))
-        }
-        components?.queryItems = queryItems
+        var pageToken: String?
+        var firstActiveProjectID: String?
+        var pagesFetched = 0
+        let maxPages = 10
 
-        guard let url = components?.url else {
-            return nil
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-
-        do {
-            let (data, response) = try await session.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200..<300).contains(httpResponse.statusCode) else {
-                return nil
+        repeat {
+            guard var components = URLComponents(url: projectsEndpoint, resolvingAgainstBaseURL: false) else {
+                return firstActiveProjectID
             }
-            return GeminiUsageParser.parseResourceManagerProjectID(data)
-        } catch {
-            return nil
-        }
+
+            var queryItems = (components.queryItems ?? []).filter {
+                $0.name != "pageToken" && $0.name != "filter" && $0.name != "pageSize"
+            }
+            queryItems.append(URLQueryItem(name: "filter", value: "lifecycleState:ACTIVE"))
+            queryItems.append(URLQueryItem(name: "pageSize", value: "20"))
+            if let pageToken {
+                queryItems.append(URLQueryItem(name: "pageToken", value: pageToken))
+            }
+            components.queryItems = queryItems
+
+            guard let url = components.url else {
+                return firstActiveProjectID
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200..<300).contains(httpResponse.statusCode),
+                      let page = GeminiUsageParser.parseResourceManagerProjectPage(data) else {
+                    return firstActiveProjectID
+                }
+
+                if let preferred = page.preferredProjectID {
+                    return preferred
+                }
+
+                if firstActiveProjectID == nil {
+                    firstActiveProjectID = page.firstActiveProjectID
+                }
+
+                pageToken = page.nextPageToken
+                pagesFetched += 1
+            } catch {
+                return firstActiveProjectID
+            }
+        } while pageToken != nil && pagesFetched < maxPages
+
+        return firstActiveProjectID
     }
 
     private func makeQuotaRequest(accessToken: String, projectID: String?) -> URLRequest {

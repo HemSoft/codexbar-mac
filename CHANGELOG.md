@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Gemini CLI auth gating treats ADC, Cloud Shell, gateway, and other non-OAuth modes as unsupported, and prefers Resource Manager projects labeled for generative language when choosing a fallback quota project.
 - Gemini credential and settings paths honor `GEMINI_CLI_HOME` the same way Gemini CLI does (`$GEMINI_CLI_HOME/.gemini/...`).
 - Gemini usage fetching derives CLI settings from the same directory as the OAuth credentials path, so custom/test paths are not gated by the machine-wide `~/.gemini/settings.json`.
+- Gemini quota project resolution prefers `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_PROJECT_ID` over `GOOGLE_CLOUD_QUOTA_PROJECT`, and pages Cloud Resource Manager results until a Code Assist project is found.
 - Cursor on-demand alerts now format spend amounts in dollars instead of raw cents.
 - GitHub Copilot CLI accounts prefer fresh GitHub CLI tokens over stale saved Keychain secrets.
 - GitHub Copilot reset countdown falls back to date-only reset fields when UTC timestamps are absent.

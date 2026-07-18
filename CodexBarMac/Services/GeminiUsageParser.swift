@@ -77,6 +77,27 @@ public enum GeminiUsageParser {
     }
 
     public static func parseResourceManagerProjectID(_ data: Data) -> String? {
+        let page = parseResourceManagerProjectPage(data)
+        return page?.preferredProjectID ?? page?.firstActiveProjectID
+    }
+
+    public struct ResourceManagerProjectPage: Equatable, Sendable {
+        public let preferredProjectID: String?
+        public let firstActiveProjectID: String?
+        public let nextPageToken: String?
+
+        public init(
+            preferredProjectID: String? = nil,
+            firstActiveProjectID: String? = nil,
+            nextPageToken: String? = nil
+        ) {
+            self.preferredProjectID = preferredProjectID
+            self.firstActiveProjectID = firstActiveProjectID
+            self.nextPageToken = nextPageToken
+        }
+    }
+
+    public static func parseResourceManagerProjectPage(_ data: Data) -> ResourceManagerProjectPage? {
         struct ProjectsResponse: Decodable {
             struct Project: Decodable {
                 let projectId: String?
@@ -85,6 +106,7 @@ public enum GeminiUsageParser {
             }
 
             let projects: [Project]?
+            let nextPageToken: String?
         }
 
         guard let response = try? JSONDecoder().decode(ProjectsResponse.self, from: data) else {
@@ -102,15 +124,15 @@ public enum GeminiUsageParser {
             return (projectID, project.labels ?? [:])
         }
 
-        if let labeled = activeProjects.first(where: { hasGenerativeLanguageLabel($0.labels) }) {
-            return labeled.id
-        }
+        let preferred =
+            activeProjects.first(where: { hasGenerativeLanguageLabel($0.labels) })?.id
+            ?? activeProjects.first(where: { $0.id.hasPrefix("gen-lang-client") })?.id
 
-        if let preferred = activeProjects.first(where: { $0.id.hasPrefix("gen-lang-client") }) {
-            return preferred.id
-        }
-
-        return activeProjects.first?.id
+        return ResourceManagerProjectPage(
+            preferredProjectID: preferred,
+            firstActiveProjectID: activeProjects.first?.id,
+            nextPageToken: nonEmptyString(response.nextPageToken)
+        )
     }
 
     private static func hasGenerativeLanguageLabel(_ labels: [String: String]) -> Bool {
