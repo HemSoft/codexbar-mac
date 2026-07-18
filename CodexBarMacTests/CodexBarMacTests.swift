@@ -3415,6 +3415,36 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.subtitle, "Live Gemini CLI usage")
     }
 
+    func testLocalCredentialDiscoveryIgnoresStaleGeminiOAuthWhenCLIUsesAPIKey() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oauthPath = directory.appendingPathComponent("oauth_creds.json").path
+        let settingsPath = directory.appendingPathComponent("settings.json").path
+        try """
+        {
+          "access_token": "redacted-access-token",
+          "refresh_token": "redacted-refresh-token",
+          "expiry_date": 4102444800000
+        }
+        """.write(toFile: oauthPath, atomically: true, encoding: .utf8)
+        try """
+        {
+          "selectedAuthType": "gemini-api-key"
+        }
+        """.write(toFile: settingsPath, atomically: true, encoding: .utf8)
+
+        let discovery = LocalCredentialDiscovery.discover(
+            geminiOAuthPath: oauthPath,
+            geminiSettingsPath: settingsPath,
+            ghStatusRunner: { (0, "", "") }
+        )
+
+        XCTAssertFalse(discovery.geminiOAuthAvailable)
+    }
+
     func testLocalCredentialDiscoveryDefaultPathsExpandHome() {
         let claudePath = LocalCredentialDiscovery.defaultClaudeCredentialsPath()
         XCTAssertTrue(claudePath.hasSuffix("/.claude/.credentials.json"))

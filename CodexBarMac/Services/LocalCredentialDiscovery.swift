@@ -32,6 +32,7 @@ public struct LocalCredentialDiscovery: Sendable {
         claudeCredentialsPath: String = defaultClaudeCredentialsPath(),
         cursorAuthPath: String = CursorCredentialsParser.defaultAuthPath(),
         geminiOAuthPath: String = defaultGeminiOAuthPath(),
+        geminiSettingsPath: String = GeminiCLISettings.defaultSettingsPath(),
         claudeKeychainAccount: String = NSUserName(),
         ghStatusRunner: (@Sendable () throws -> (exitCode: Int32, stdout: String, stderr: String))? = nil
     ) -> Result {
@@ -40,13 +41,16 @@ public struct LocalCredentialDiscovery: Sendable {
             at: claudeCredentialsPath,
             keychainAccount: claudeKeychainAccount
         )
+        let geminiOAuthAvailable =
+            GeminiCredentialsParser.parseCredentialsFile(at: geminiOAuthPath) != nil
+            && GeminiCLISettings.usesOAuthCredentials(at: geminiSettingsPath)
         return Result(
             codexAuthAvailable: CodexCredentialsParser.parseAuthFile(at: codexAuthPath) != nil,
             githubUsernames: discoverGitHubUsernames(using: runner),
             claudeOAuthAvailable: claudeCredentialSource != nil,
             claudeCredentialSource: claudeCredentialSource,
             cursorSessionAvailable: CursorCredentialsParser.hasSession(at: cursorAuthPath),
-            geminiOAuthAvailable: GeminiCredentialsParser.parseCredentialsFile(at: geminiOAuthPath) != nil
+            geminiOAuthAvailable: geminiOAuthAvailable
         )
     }
 
