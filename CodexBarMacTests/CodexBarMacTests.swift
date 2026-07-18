@@ -3199,6 +3199,22 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertFalse(GeminiCLISettings.usesOAuthCredentials(at: settingsPath))
     }
 
+    func testGeminiCLISettingsHonorsLegacySelectedAuthType() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let settingsPath = directory.appendingPathComponent("settings.json").path
+        try """
+        {
+          "selectedAuthType": "gemini-api-key"
+        }
+        """.write(toFile: settingsPath, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(GeminiCLISettings.usesOAuthCredentials(at: settingsPath))
+    }
+
     func testGeminiUsageProviderRefreshesExpiredTokenAndPersistsCredentials() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let directory = FileManager.default.temporaryDirectory

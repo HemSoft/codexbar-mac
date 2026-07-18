@@ -81,7 +81,7 @@ public final class GeminiUsageProvider: UsageProvider {
         accessToken: String,
         canRefresh: Bool
     ) async throws -> ProviderUsageResult {
-        await fetchTierIfNeeded(accessToken: accessToken)
+        await fetchTierIfNeeded(accessToken: accessToken, fingerprint: credentialFingerprint(for: accessToken))
         await tierCache.waitForInFlightFetchIfNeeded()
 
         let projectID = resolvedQuotaProjectID()
@@ -253,7 +253,9 @@ public final class GeminiUsageProvider: UsageProvider {
         }
     }
 
-    private func fetchTierIfNeeded(accessToken: String) async {
+    private func fetchTierIfNeeded(accessToken: String, fingerprint: String) async {
+        tierCache.prepare(for: fingerprint)
+
         guard tierCache.beginFetchIfNeeded() else {
             return
         }
@@ -270,13 +272,26 @@ public final class GeminiUsageProvider: UsageProvider {
             }
 
             if let codeAssistInfo = GeminiUsageParser.parseCodeAssist(data) {
-                tierCache.storeCodeAssistInfo(codeAssistInfo)
+                tierCache.storeCodeAssistInfo(codeAssistInfo, fingerprint: fingerprint)
             } else {
-                tierCache.markFetchComplete()
+                tierCache.markFetchComplete(fingerprint: fingerprint)
             }
         } catch {
             return
         }
+    }
+
+    private func credentialFingerprint(for accessToken: String) -> String {
+        if let credentials = GeminiAuthFileStore.readCredentials(at: oauthFilePath) {
+            if let refreshToken = credentials.refreshToken, !refreshToken.isEmpty {
+                return "refresh:\(refreshToken)"
+            }
+            if let idToken = credentials.idToken, !idToken.isEmpty {
+                return "id:\(idToken)"
+            }
+        }
+
+        return "access:\(accessToken)"
     }
 
     private func resolvedQuotaProjectID() -> String? {
@@ -348,9 +363,23 @@ private final class GeminiTierCache: @unchecked Sendable {
     private let lock = NSLock()
     private var tierName: String?
     private var projectID: String?
+    private var credentialFingerprint: String?
     private var fetched = false
     private var fetchInProgress = false
     private var fetchWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func prepare(for fingerprint: String) {
+        lock.withLock {
+            guard credentialFingerprint != fingerprint else {
+                return
+            }
+
+            credentialFingerprint = fingerprint
+            tierName = nil
+            projectID = nil
+            fetched = false
+        }
+    }
 
     func currentTierName() -> String? {
         lock.withLock { tierName }
@@ -391,8 +420,11 @@ private final class GeminiTierCache: @unchecked Sendable {
         }
     }
 
-    func storeCodeAssistInfo(_ info: GeminiUsageParser.CodeAssistInfo) {
+    func storeCodeAssistInfo(_ info: GeminiUsageParser.CodeAssistInfo, fingerprint: String) {
         lock.withLock {
+            guard credentialFingerprint == fingerprint else {
+                return
+            }
             if let tierName = info.tierName {
                 self.tierName = tierName
             }
@@ -404,8 +436,11 @@ private final class GeminiTierCache: @unchecked Sendable {
         resumeWaiters()
     }
 
-    func markFetchComplete() {
+    func markFetchComplete(fingerprint: String) {
         lock.withLock {
+            guard credentialFingerprint == fingerprint else {
+                return
+            }
             fetched = true
         }
         resumeWaiters()
@@ -428,6 +463,7 @@ private final class GeminiTierCache: @unchecked Sendable {
         let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
             tierName = nil
             projectID = nil
+            credentialFingerprint = nil
             fetched = false
             fetchInProgress = false
             let pending = fetchWaiters

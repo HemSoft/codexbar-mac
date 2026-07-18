@@ -27,17 +27,21 @@ public enum GeminiCLISettings {
 
     private static func readSelectedAuthType(at path: String) -> String? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let security = root["security"] as? [String: Any],
-              let auth = security["auth"] as? [String: Any] else {
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
 
-        if let enforced = nonEmptyString(auth["enforcedType"] as? String) {
-            return enforced
+        if let security = root["security"] as? [String: Any],
+           let auth = security["auth"] as? [String: Any] {
+            if let enforced = nonEmptyString(auth["enforcedType"] as? String) {
+                return enforced
+            }
+            if let selected = nonEmptyString(auth["selectedType"] as? String) {
+                return selected
+            }
         }
 
-        return nonEmptyString(auth["selectedType"] as? String)
+        return nonEmptyString(root["selectedAuthType"] as? String)
     }
 
     private static func nonEmptyString(_ value: String?) -> String? {
