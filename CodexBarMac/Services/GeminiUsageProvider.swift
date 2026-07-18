@@ -338,13 +338,12 @@ public final class GeminiUsageProvider: UsageProvider {
 
     private func discoverProjectIDFromResourceManager(accessToken: String) async -> String? {
         var pageToken: String?
-        var firstActiveProjectID: String?
         var pagesFetched = 0
         let maxPages = 10
 
         repeat {
             guard var components = URLComponents(url: projectsEndpoint, resolvingAgainstBaseURL: false) else {
-                return firstActiveProjectID
+                return nil
             }
 
             var queryItems = (components.queryItems ?? []).filter {
@@ -358,7 +357,7 @@ public final class GeminiUsageProvider: UsageProvider {
             components.queryItems = queryItems
 
             guard let url = components.url else {
-                return firstActiveProjectID
+                return nil
             }
 
             var request = URLRequest(url: url)
@@ -370,25 +369,23 @@ public final class GeminiUsageProvider: UsageProvider {
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200..<300).contains(httpResponse.statusCode),
                       let page = GeminiUsageParser.parseResourceManagerProjectPage(data) else {
-                    return firstActiveProjectID
+                    return nil
                 }
 
+                // Only accept Code Assist–identified projects. An arbitrary first
+                // active GCP project can break personal/OAuth quota with {}.
                 if let preferred = page.preferredProjectID {
                     return preferred
-                }
-
-                if firstActiveProjectID == nil {
-                    firstActiveProjectID = page.firstActiveProjectID
                 }
 
                 pageToken = page.nextPageToken
                 pagesFetched += 1
             } catch {
-                return firstActiveProjectID
+                return nil
             }
         } while pageToken != nil && pagesFetched < maxPages
 
-        return firstActiveProjectID
+        return nil
     }
 
     private func makeQuotaRequest(accessToken: String, projectID: String?) -> URLRequest {

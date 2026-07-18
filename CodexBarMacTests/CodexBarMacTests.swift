@@ -3302,6 +3302,7 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertNil(page.preferredProjectID)
         XCTAssertEqual(page.firstActiveProjectID, "unrelated-first")
         XCTAssertEqual(page.nextPageToken, "page-2")
+        XCTAssertNil(GeminiUsageParser.parseResourceManagerProjectID(payload))
     }
 
     func testGeminiUsageParserPrefersPaidTierName() throws {

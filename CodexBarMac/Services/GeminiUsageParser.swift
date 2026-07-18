@@ -77,8 +77,7 @@ public enum GeminiUsageParser {
     }
 
     public static func parseResourceManagerProjectID(_ data: Data) -> String? {
-        let page = parseResourceManagerProjectPage(data)
-        return page?.preferredProjectID ?? page?.firstActiveProjectID
+        parseResourceManagerProjectPage(data)?.preferredProjectID
     }
 
     public struct ResourceManagerProjectPage: Equatable, Sendable {
