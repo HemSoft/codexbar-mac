@@ -90,6 +90,12 @@ public extension DemoUsageProvider {
                 subtitle: "Workspace balance"
             ),
             DemoUsageProvider(
+                providerID: .moonshot,
+                bars: [],
+                creditsRemaining: 37.5,
+                subtitle: "API balance"
+            ),
+            DemoUsageProvider(
                 providerID: .cursor,
                 bars: [
                     UsageBar(

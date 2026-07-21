@@ -218,7 +218,7 @@ struct ProviderSettingsView: View {
             [.codexAuthJSON]
         case .copilot:
             [.cliToken, .browserSession]
-        case .openRouter, .openCodeZen:
+        case .openRouter, .openCodeZen, .moonshot:
             [.apiKey]
         case .claude:
             [.browserSession, .oauth]
@@ -251,6 +251,8 @@ struct ProviderSettingsView: View {
             "Store an OpenRouter management API key in the Keychain. Inference-only keys cannot read credit balance."
         case .openCodeZen:
             "Enter the OpenCode workspace ID and dashboard auth value. You can paste the Windows settings JSON or OPENCODE_GO_AUTH_COOKIE value."
+        case .moonshot:
+            "Store a Moonshot (Kimi) API key from platform.kimi.ai in the Keychain. Keys from platform.kimi.com are separate and will not work with this balance endpoint."
         case .cursor:
             "Cursor can use the local Cursor app session from ~/Library/Application Support/Cursor/auth.json, or sign in through the browser."
         case .gemini:

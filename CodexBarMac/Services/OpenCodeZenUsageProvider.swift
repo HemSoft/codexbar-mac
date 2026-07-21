@@ -131,21 +131,8 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
             credential = settingsCredential
         }
 
-        if credential.hasPrefix("\""), credential.hasSuffix("\""), credential.count >= 2 {
-            credential.removeFirst()
-            credential.removeLast()
-        }
-
-        let authorizationPrefix = "authorization:"
-        if credential.lowercased().hasPrefix(authorizationPrefix) {
-            credential = String(credential.dropFirst(authorizationPrefix.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        let bearerPrefix = "bearer "
-        if credential.lowercased().hasPrefix(bearerPrefix) {
-            credential = String(credential.dropFirst(bearerPrefix.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var credential = CredentialNormalizer.normalizedBearerKey(from: credential) else {
+            return nil
         }
 
         let cookiePrefix = "cookie:"

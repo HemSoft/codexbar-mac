@@ -6,6 +6,7 @@ public enum ProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
     case claude
     case openRouter
     case openCodeZen
+    case moonshot
     case cursor
     case gemini
 
@@ -25,6 +26,8 @@ public enum ProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
             "OpenRouter"
         case .openCodeZen:
             "OpenCode ZEN"
+        case .moonshot:
+            "Moonshot (Kimi)"
         case .cursor:
             "Cursor"
         case .gemini:
