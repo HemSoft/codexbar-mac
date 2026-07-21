@@ -82,7 +82,9 @@ public final class ClaudeUsageProvider: UsageProvider {
                             accountID: usageResult.accountID,
                             providerID: usageResult.providerID,
                             title: usageResult.title,
-                            subtitle: usageResult.subtitle,
+                            subtitle: oauthOutcome.isSuccessfulSnapshot
+                                ? usageResult.subtitle
+                                : rateLimitResult.subtitle,
                             bars: rateLimitResult.bars,
                             creditsRemaining: usageResult.creditsRemaining,
                             monetaryMetrics: usageResult.monetaryMetrics,
