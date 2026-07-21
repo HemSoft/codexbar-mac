@@ -4344,6 +4344,40 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(series.points[0].value, 37.5, accuracy: 0.0001)
         XCTAssertEqual(series.points[1].value, 25.0, accuracy: 0.0001)
     }
+
+    @MainActor
+    func testUsageHistoryStoreSkipsSpentOnlyMonetaryBalanceSeries() {
+        let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = UsageHistoryStore(defaults: defaults)
+        let t0 = Date(timeIntervalSince1970: 1_788_475_200)
+        let spentOnly = ProviderUsageResult(
+            accountID: "claude.spent",
+            providerID: .claude,
+            title: "Claude",
+            subtitle: "Live",
+            bars: [],
+            monetaryMetrics: [
+                ProviderMonetaryMetric(
+                    kind: .spent,
+                    label: "Usage credits spent",
+                    minorUnits: 1_250,
+                    currencyCode: "USD",
+                    decimalPlaces: 2
+                )
+            ],
+            fetchedAt: t0
+        )
+
+        store.record(results: [spentOnly], now: t0)
+
+        XCTAssertEqual(store.snapshots.count, 1)
+        let series = store.historySeries(for: spentOnly)
+        XCTAssertFalse(series.isBalance)
+        XCTAssertTrue(series.points.isEmpty)
+    }
 }
 
 private struct StubUsageProvider: UsageProvider {

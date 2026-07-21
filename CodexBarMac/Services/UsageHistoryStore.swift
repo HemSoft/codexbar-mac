@@ -104,21 +104,20 @@ public struct UsageHistorySnapshot: Identifiable, Equatable, Codable, Sendable {
             return usage
         }
 
-        let metric = monetaryMetrics?.first(where: { $0.kind == .balance })
-            ?? monetaryMetrics?.first(where: { $0.kind == .remainingHeadroom })
-            ?? monetaryMetrics?.first
-        return metric?.doubleValue
+        return monetaryPrimaryValue
     }
 
     fileprivate var monetaryPrimaryValue: Double? {
         if let creditsRemaining {
             return creditsRemaining
         }
-        let metric = monetaryMetrics?.first(where: { $0.kind == .balance })
-            ?? monetaryMetrics?.first(where: { $0.kind == .remainingHeadroom })
-            ?? monetaryMetrics?.first
-        return metric?.doubleValue
+        return primaryBalanceLikeMetric(in: monetaryMetrics ?? [])?.doubleValue
     }
+}
+
+fileprivate func primaryBalanceLikeMetric<T>(in metrics: [T]) -> T? where T: MonetaryMetricSnapshot {
+    metrics.first(where: { $0.metricKind == .balance })
+        ?? metrics.first(where: { $0.metricKind == .remainingHeadroom })
 }
 
 public struct UsageTrendSummary: Equatable, Sendable {
@@ -354,17 +353,17 @@ public final class UsageHistoryStore: ObservableObject {
             isBalance = true
         } else if !result.bars.isEmpty {
             isBalance = false
-        } else if !result.monetaryMetrics.isEmpty {
+        } else if primaryBalanceLikeMetric(in: result.monetaryMetrics) != nil {
             isBalance = true
         } else {
             isBalance = accountSnapshots.last.map {
-                $0.creditsRemaining != nil || !($0.monetaryMetrics ?? []).isEmpty
+                $0.creditsRemaining != nil || primaryBalanceLikeMetric(in: $0.monetaryMetrics ?? []) != nil
             } ?? false
         }
 
         let points = accountSnapshots.compactMap { snapshot -> UsageHistoryPoint? in
             if isBalance {
-                guard snapshot.creditsRemaining != nil || !(snapshot.monetaryMetrics ?? []).isEmpty else {
+                guard snapshot.creditsRemaining != nil || primaryBalanceLikeMetric(in: snapshot.monetaryMetrics ?? []) != nil else {
                     return nil
                 }
             } else {
@@ -377,10 +376,10 @@ public final class UsageHistoryStore: ObservableObject {
                 : snapshot.bars.map(\.fractionUsed).max()
             return value.map { UsageHistoryPoint(snapshot: snapshot, value: $0) }
         }
-        let monetaryFormat = primaryMonetaryMetric(in: result.monetaryMetrics).map {
+        let monetaryFormat = primaryBalanceLikeMetric(in: result.monetaryMetrics).map {
             ($0.currencyCode, $0.decimalPlaces)
         } ?? accountSnapshots.last.flatMap { snapshot in
-            primaryMonetaryMetric(in: snapshot.monetaryMetrics ?? []).map {
+            primaryBalanceLikeMetric(in: snapshot.monetaryMetrics ?? []).map {
                 ($0.currencyCode, $0.decimalPlaces)
             }
         }
@@ -392,12 +391,6 @@ public final class UsageHistoryStore: ObservableObject {
             currencyCode: monetaryFormat?.0,
             decimalPlaces: min(max(monetaryFormat?.1 ?? 2, 0), 6)
         )
-    }
-
-    private func primaryMonetaryMetric<T>(in metrics: [T]) -> T? where T: MonetaryMetricSnapshot {
-        metrics.first(where: { $0.metricKind == .balance })
-            ?? metrics.first(where: { $0.metricKind == .remainingHeadroom })
-            ?? metrics.first
     }
 
     public func trendSummary(for result: ProviderUsageResult, now: Date = Date()) -> UsageTrendSummary? {
