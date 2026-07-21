@@ -224,6 +224,8 @@ struct ProviderSettingsView: View {
             [.browserSession, .oauth]
         case .cursor:
             [.browserSession]
+        case .gemini:
+            [.oauth]
         }
     }
 
@@ -251,6 +253,8 @@ struct ProviderSettingsView: View {
             "Enter the OpenCode workspace ID and dashboard auth value. You can paste the Windows settings JSON or OPENCODE_GO_AUTH_COOKIE value."
         case .cursor:
             "Cursor can use the local Cursor app session from ~/Library/Application Support/Cursor/auth.json, or sign in through the browser."
+        case .gemini:
+            "Gemini reads Gemini CLI OAuth credentials from ~/.gemini/oauth_creds.json after you run 'gemini' and complete login. This matches the Windows app and targets Code Assist / enterprise CLI sessions; individual Google AI Pro/Ultra OAuth via the CLI may no longer be supported. Token refresh uses OAuth client credentials from that file, the token audience, or CODEXBAR_GOOGLE_CLIENT_ID / CODEXBAR_GOOGLE_CLIENT_SECRET."
         }
     }
 

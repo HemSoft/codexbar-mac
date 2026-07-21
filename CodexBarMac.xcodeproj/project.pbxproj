@@ -58,6 +58,13 @@
 		100000000000000000000034 /* UsageAlertSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000036 /* UsageAlertSettings.swift */; };
 		100000000000000000000035 /* UsageAlertEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000037 /* UsageAlertEvaluator.swift */; };
 		100000000000000000000036 /* LocalUsageAlertNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000038 /* LocalUsageAlertNotifier.swift */; };
+		100000000000000000000037 /* GeminiCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000039 /* GeminiCredentials.swift */; };
+		100000000000000000000038 /* GeminiCredentialsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000003A /* GeminiCredentialsParser.swift */; };
+		100000000000000000000039 /* GeminiAuthFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000003B /* GeminiAuthFileStore.swift */; };
+		10000000000000000000003A /* GeminiTokenRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000003C /* GeminiTokenRefresh.swift */; };
+		10000000000000000000003B /* GeminiUsageParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000003D /* GeminiUsageParser.swift */; };
+		10000000000000000000003C /* GeminiUsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000003E /* GeminiUsageProvider.swift */; };
+		10000000000000000000003D /* GeminiCLISettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000003F /* GeminiCLISettings.swift */; };
 		100000000000000000000025 /* CodexBarMacTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000028 /* CodexBarMacTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -115,6 +122,13 @@
 		200000000000000000000036 /* UsageAlertSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAlertSettings.swift; sourceTree = "<group>"; };
 		200000000000000000000037 /* UsageAlertEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAlertEvaluator.swift; sourceTree = "<group>"; };
 		200000000000000000000038 /* LocalUsageAlertNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalUsageAlertNotifier.swift; sourceTree = "<group>"; };
+		200000000000000000000039 /* GeminiCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiCredentials.swift; sourceTree = "<group>"; };
+		20000000000000000000003A /* GeminiCredentialsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiCredentialsParser.swift; sourceTree = "<group>"; };
+		20000000000000000000003B /* GeminiAuthFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiAuthFileStore.swift; sourceTree = "<group>"; };
+		20000000000000000000003C /* GeminiTokenRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiTokenRefresh.swift; sourceTree = "<group>"; };
+		20000000000000000000003D /* GeminiUsageParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiUsageParser.swift; sourceTree = "<group>"; };
+		20000000000000000000003E /* GeminiUsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiUsageProvider.swift; sourceTree = "<group>"; };
+		20000000000000000000003F /* GeminiCLISettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiCLISettings.swift; sourceTree = "<group>"; };
 		200000000000000000000027 /* CodexBarMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000028 /* CodexBarMacTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarMacTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -202,6 +216,7 @@
 				20000000000000000000001C /* CodexCredentials.swift */,
 				20000000000000000000001E /* ClaudeCredentials.swift */,
 				20000000000000000000002C /* CopilotCredentials.swift */,
+				200000000000000000000039 /* GeminiCredentials.swift */,
 				200000000000000000000021 /* CredentialReadiness.swift */,
 				200000000000000000000036 /* UsageAlertSettings.swift */,
 			);
@@ -247,6 +262,12 @@
 				200000000000000000000035 /* OpenCodeZenBootstrapImporter.swift */,
 				200000000000000000000037 /* UsageAlertEvaluator.swift */,
 				200000000000000000000038 /* LocalUsageAlertNotifier.swift */,
+				20000000000000000000003A /* GeminiCredentialsParser.swift */,
+				20000000000000000000003B /* GeminiAuthFileStore.swift */,
+				20000000000000000000003C /* GeminiTokenRefresh.swift */,
+				20000000000000000000003D /* GeminiUsageParser.swift */,
+				20000000000000000000003E /* GeminiUsageProvider.swift */,
+				20000000000000000000003F /* GeminiCLISettings.swift */,
 				200000000000000000000018 /* LaunchAtLoginManager.swift */,
 			);
 			path = Services;
@@ -432,6 +453,13 @@
 				100000000000000000000034 /* UsageAlertSettings.swift in Sources */,
 				100000000000000000000035 /* UsageAlertEvaluator.swift in Sources */,
 				100000000000000000000036 /* LocalUsageAlertNotifier.swift in Sources */,
+				100000000000000000000037 /* GeminiCredentials.swift in Sources */,
+				100000000000000000000038 /* GeminiCredentialsParser.swift in Sources */,
+				100000000000000000000039 /* GeminiAuthFileStore.swift in Sources */,
+				10000000000000000000003A /* GeminiTokenRefresh.swift in Sources */,
+				10000000000000000000003B /* GeminiUsageParser.swift in Sources */,
+				10000000000000000000003C /* GeminiUsageProvider.swift in Sources */,
+				10000000000000000000003D /* GeminiCLISettings.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

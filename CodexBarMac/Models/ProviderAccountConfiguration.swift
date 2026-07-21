@@ -188,6 +188,8 @@ public extension ProviderAccountConfiguration {
             ProviderAccountConfiguration(providerID: providerID, authMethod: .apiKey)
         case .cursor:
             ProviderAccountConfiguration(providerID: providerID, authMethod: .browserSession)
+        case .gemini:
+            ProviderAccountConfiguration(providerID: providerID, authMethod: .oauth)
         }
     }
 }
