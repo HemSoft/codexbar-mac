@@ -186,6 +186,8 @@ public extension ProviderAccountConfiguration {
             ProviderAccountConfiguration(providerID: providerID, authMethod: .apiKey)
         case .openCodeZen:
             ProviderAccountConfiguration(providerID: providerID, authMethod: .apiKey)
+        case .moonshot:
+            ProviderAccountConfiguration(providerID: providerID, authMethod: .apiKey)
         case .cursor:
             ProviderAccountConfiguration(providerID: providerID, authMethod: .browserSession)
         case .gemini:

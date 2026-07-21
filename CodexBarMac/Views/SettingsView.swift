@@ -404,6 +404,8 @@ private extension ProviderID {
             "arrow.triangle.branch"
         case .openCodeZen:
             "cube"
+        case .moonshot:
+            "moon.stars"
         case .cursor:
             "cursorarrow.rays"
         case .gemini:

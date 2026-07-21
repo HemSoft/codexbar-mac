@@ -50,8 +50,10 @@ Maintainers: see **Signing keychain** and **Release & notarization** in [`AGENTS
 | **Claude** | Claude Code OAuth credentials | Session + weekly limits, model-scoped limits |
 | **GitHub Copilot** | GitHub CLI (`gh auth`) | Usage limits per account |
 | **OpenRouter** | API key | Credits, usage across models |
+| **Moonshot (Kimi)** | API key (`platform.kimi.ai`) | Credit balance |
 | **Cursor** | Browser session | Usage limits |
 | **OpenCode ZEN** | API key | Credits |
+| **Gemini** | Gemini CLI OAuth | Pro / Flash quotas |
 
 ## Requirements
 

@@ -1551,6 +1551,138 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(result.bars.isEmpty)
     }
 
+    func testMoonshotBalanceParserReadsAvailableBalance() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_783_667_520)
+        let configuration = ProviderAccountConfiguration(
+            providerID: .moonshot,
+            accountLabel: "Moonshot API",
+            authMethod: .apiKey
+        )
+        let payload = """
+        {
+          "code": 0,
+          "data": {
+            "available_balance": 49.58894,
+            "voucher_balance": 46.58893,
+            "cash_balance": 3.00001
+          },
+          "scode": "0x0",
+          "status": true
+        }
+        """
+
+        let result = try XCTUnwrap(MoonshotUsageProvider.parseBalance(
+            Data(payload.utf8),
+            configuration: configuration,
+            fetchedAt: fetchedAt
+        ))
+
+        XCTAssertEqual(result.providerID, .moonshot)
+        XCTAssertEqual(result.title, "Moonshot API")
+        XCTAssertEqual(result.subtitle, "Credit balance")
+        XCTAssertEqual(try XCTUnwrap(result.creditsRemaining), 49.58894, accuracy: 0.0001)
+        XCTAssertTrue(result.bars.isEmpty)
+        XCTAssertEqual(result.fetchedAt, fetchedAt)
+    }
+
+    func testMoonshotBalanceParserRejectsMissingBalance() throws {
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .moonshot)
+        let payload = """
+        {
+          "code": 0,
+          "data": {
+            "voucher_balance": 46.58893
+          },
+          "status": true
+        }
+        """
+
+        let result = MoonshotUsageProvider.parseBalance(
+            Data(payload.utf8),
+            configuration: configuration
+        )
+
+        XCTAssertNil(result)
+    }
+
+    func testMoonshotProviderFetchesBalance() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .moonshot)
+        try secretStore.saveSecret("Bearer sk-moonshot-test", account: ProviderConfigurationStore.keychainAccount(for: configuration))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = MoonshotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration)
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://api.moonshot.ai/v1/users/me/balance")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-moonshot-test")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "CodexBarMac/1.0")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"code":0,"data":{"available_balance":37.5,"voucher_balance":30,"cash_balance":7.5},"scode":"0x0","status":true}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.providerID, .moonshot)
+        XCTAssertEqual(try XCTUnwrap(result.creditsRemaining), 37.5, accuracy: 0.0001)
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testMoonshotProviderRejectsInvalidAPIKey() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .moonshot)
+        try secretStore.saveSecret("sk-moonshot-bad", account: ProviderConfigurationStore.keychainAccount(for: configuration))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = MoonshotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration)
+        )
+        MockURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 401, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"error":{"message":"Invalid API key"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.subtitle, "Moonshot rejected this API key.")
+        XCTAssertNil(result.creditsRemaining)
+    }
+
+    func testMoonshotNormalizesPastedAuthorizationHeader() {
+        XCTAssertEqual(
+            MoonshotUsageProvider.normalizedAPIKey(from: "Authorization: Bearer sk-moonshot-test"),
+            "sk-moonshot-test"
+        )
+        XCTAssertEqual(
+            MoonshotUsageProvider.normalizedAPIKey(from: "\"sk-moonshot-quoted\""),
+            "sk-moonshot-quoted"
+        )
+    }
+
+    func testMoonshotProviderWithoutCredentialShowsActionableError() async throws {
+        let provider = MoonshotUsageProvider(secretStore: InMemorySecretStore())
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .moonshot)
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.providerID, .moonshot)
+        XCTAssertEqual(result.accountID, configuration.id)
+        XCTAssertEqual(result.subtitle, "Not configured - enter API key.")
+        XCTAssertNil(result.creditsRemaining)
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
     func testCursorAuthURLUsesBrowserPollingFlow() throws {
         let url = CursorWebAuthService.authorizationURL(
             uuid: "request-id",
