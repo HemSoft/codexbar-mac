@@ -65,6 +65,7 @@
 		10000000000000000000003B /* GeminiUsageParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000003D /* GeminiUsageParser.swift */; };
 		10000000000000000000003C /* GeminiUsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000003E /* GeminiUsageProvider.swift */; };
 		10000000000000000000003D /* GeminiCLISettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000003F /* GeminiCLISettings.swift */; };
+		10000000000000000000003E /* UsageHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000040 /* UsageHistoryStore.swift */; };
 		100000000000000000000025 /* CodexBarMacTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000028 /* CodexBarMacTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -129,6 +130,7 @@
 		20000000000000000000003D /* GeminiUsageParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiUsageParser.swift; sourceTree = "<group>"; };
 		20000000000000000000003E /* GeminiUsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiUsageProvider.swift; sourceTree = "<group>"; };
 		20000000000000000000003F /* GeminiCLISettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiCLISettings.swift; sourceTree = "<group>"; };
+		200000000000000000000040 /* UsageHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageHistoryStore.swift; sourceTree = "<group>"; };
 		200000000000000000000027 /* CodexBarMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000028 /* CodexBarMacTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarMacTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -268,6 +270,7 @@
 				20000000000000000000003D /* GeminiUsageParser.swift */,
 				20000000000000000000003E /* GeminiUsageProvider.swift */,
 				20000000000000000000003F /* GeminiCLISettings.swift */,
+				200000000000000000000040 /* UsageHistoryStore.swift */,
 				200000000000000000000018 /* LaunchAtLoginManager.swift */,
 			);
 			path = Services;
@@ -460,6 +463,7 @@
 				10000000000000000000003B /* GeminiUsageParser.swift in Sources */,
 				10000000000000000000003C /* GeminiUsageProvider.swift in Sources */,
 				10000000000000000000003D /* GeminiCLISettings.swift in Sources */,
+				10000000000000000000003E /* UsageHistoryStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
