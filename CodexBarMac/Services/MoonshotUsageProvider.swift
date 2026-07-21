@@ -1,8 +1,6 @@
 import Foundation
 
 public final class MoonshotUsageProvider: UsageProvider {
-    deinit {}
-
     private let secretStore: any SecretStore
     private let session: URLSession
     private let balanceEndpoint: URL
@@ -93,28 +91,7 @@ public final class MoonshotUsageProvider: UsageProvider {
     }
 
     static func normalizedAPIKey(from storedSecret: String?) -> String? {
-        guard var key = storedSecret?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else {
-            return nil
-        }
-
-        if key.hasPrefix("\""), key.hasSuffix("\""), key.count >= 2 {
-            key.removeFirst()
-            key.removeLast()
-        }
-
-        let authorizationPrefix = "authorization:"
-        if key.lowercased().hasPrefix(authorizationPrefix) {
-            key = String(key.dropFirst(authorizationPrefix.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        let bearerPrefix = "bearer "
-        if key.lowercased().hasPrefix(bearerPrefix) {
-            key = String(key.dropFirst(bearerPrefix.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        return key.isEmpty ? nil : key
+        CredentialNormalizer.normalizedBearerKey(from: storedSecret)
     }
 
     private static func number(from value: Any?) -> Double? {

@@ -1659,6 +1659,31 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertNil(result.creditsRemaining)
     }
 
+    func testMoonshotProviderReportsRateLimit() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .moonshot)
+        try secretStore.saveSecret("sk-moonshot-test", account: ProviderConfigurationStore.keychainAccount(for: configuration))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = MoonshotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration)
+        )
+        MockURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 429, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.subtitle, "Moonshot rate limit reached. Try again later.")
+        XCTAssertNil(result.creditsRemaining)
+    }
+
     func testMoonshotNormalizesPastedAuthorizationHeader() {
         XCTAssertEqual(
             MoonshotUsageProvider.normalizedAPIKey(from: "Authorization: Bearer sk-moonshot-test"),
