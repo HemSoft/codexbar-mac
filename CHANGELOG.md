@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Live OpenCode ZEN credit balance fetching from Keychain-stored dashboard auth values and workspace IDs, with Windows settings JSON import support.
 - Live Gemini Pro and Flash quota fetching from Gemini CLI OAuth credentials in `~/.gemini/oauth_creds.json`, with automatic token refresh and reset countdowns.
 - Configurable usage alerts via macOS notifications with threshold crossing detection, honoring each provider's enabled/disabled setting, and warning/critical severity alerts.
+- Local on-device usage history with compact sparklines on provider popover cards after successful refreshes.
 
 ### Fixed
 

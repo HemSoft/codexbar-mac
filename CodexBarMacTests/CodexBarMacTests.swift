@@ -3765,6 +3765,197 @@ final class CodexBarMacTests: XCTestCase {
         let fallback = LocalCredentialDiscovery.geminiHomeDirectory(environment: [:])
         XCTAssertEqual(fallback, FileManager.default.homeDirectoryForCurrentUser)
     }
+
+    @MainActor
+    func testUsageHistoryStoreRecordsAndPersistsSnapshots() throws {
+        let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fetchedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live Codex usage",
+            bars: [UsageBar(label: "5h limit", used: 42, limit: 100)],
+            fetchedAt: fetchedAt
+        )
+
+        let store = UsageHistoryStore(defaults: defaults)
+        store.record(results: [result], now: fetchedAt)
+
+        let reloadedStore = UsageHistoryStore(defaults: defaults)
+        XCTAssertEqual(reloadedStore.snapshots.count, 1)
+        XCTAssertEqual(reloadedStore.snapshots.first?.accountID, "codex.personal")
+        let fractionUsed = try XCTUnwrap(reloadedStore.snapshots.first?.bars.first?.fractionUsed)
+        XCTAssertEqual(fractionUsed, 0.42, accuracy: 0.0001)
+        XCTAssertNil(reloadedStore.snapshots.first?.creditsRemaining)
+    }
+
+    @MainActor
+    func testUsageHistoryStorePrunesRetentionAndPerAccountLimit() {
+        let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let store = UsageHistoryStore(defaults: defaults, retentionDays: 7, maxSnapshotsPerAccount: 2)
+
+        let old = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live Codex usage",
+            bars: [UsageBar(label: "5h limit", used: 10, limit: 100)],
+            fetchedAt: now.addingTimeInterval(-10 * 24 * 60 * 60)
+        )
+        let first = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live Codex usage",
+            bars: [UsageBar(label: "5h limit", used: 20, limit: 100)],
+            fetchedAt: now.addingTimeInterval(-3 * 60 * 60)
+        )
+        let second = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live Codex usage",
+            bars: [UsageBar(label: "5h limit", used: 30, limit: 100)],
+            fetchedAt: now.addingTimeInterval(-2 * 60 * 60)
+        )
+        let third = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live Codex usage",
+            bars: [UsageBar(label: "5h limit", used: 40, limit: 100)],
+            fetchedAt: now.addingTimeInterval(-1 * 60 * 60)
+        )
+
+        store.record(results: [old, first, second, third], now: now)
+
+        XCTAssertEqual(store.snapshots.count, 2)
+        XCTAssertEqual(store.snapshots.compactMap { $0.bars.first?.used }, [30, 40])
+    }
+
+    @MainActor
+    func testUsageHistoryStoreRemovesDeletedAccounts() {
+        let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fetchedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let store = UsageHistoryStore(defaults: defaults)
+        store.record(
+            results: [
+                ProviderUsageResult(
+                    accountID: "keep",
+                    providerID: .codex,
+                    title: "Keep",
+                    subtitle: "Live",
+                    bars: [UsageBar(label: "5h", used: 10, limit: 100)],
+                    fetchedAt: fetchedAt
+                ),
+                ProviderUsageResult(
+                    accountID: "drop",
+                    providerID: .claude,
+                    title: "Drop",
+                    subtitle: "Live",
+                    bars: [UsageBar(label: "Session", used: 20, limit: 100)],
+                    fetchedAt: fetchedAt
+                ),
+            ],
+            now: fetchedAt
+        )
+
+        store.removeSnapshotsForMissingAccounts(validAccountIDs: ["keep"], now: fetchedAt)
+
+        XCTAssertEqual(store.snapshots.map(\.accountID), ["keep"])
+    }
+
+    @MainActor
+    func testUsageHistoryStoreSkipsEmptyProviderStates() {
+        let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = UsageHistoryStore(defaults: defaults)
+        store.record(
+            results: [
+                ProviderUsageResult(
+                    accountID: "empty",
+                    providerID: .codex,
+                    title: "Codex",
+                    subtitle: "Waiting",
+                    bars: [],
+                    fetchedAt: Date(timeIntervalSince1970: 1_788_475_200)
+                ),
+            ]
+        )
+
+        XCTAssertTrue(store.snapshots.isEmpty)
+    }
+
+    @MainActor
+    func testUsageHistoryStoreBuildsUsageAndBalanceSeries() {
+        let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = UsageHistoryStore(defaults: defaults)
+        let t0 = Date(timeIntervalSince1970: 1_788_475_200)
+        let t1 = t0.addingTimeInterval(3_600)
+
+        let first = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live",
+            bars: [UsageBar(label: "5h", used: 20, limit: 100)],
+            fetchedAt: t0
+        )
+        let second = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live",
+            bars: [UsageBar(label: "5h", used: 45, limit: 100)],
+            fetchedAt: t1
+        )
+        store.record(results: [first, second], now: t1)
+
+        let series = store.historySeries(for: second)
+        XCTAssertFalse(series.isBalance)
+        XCTAssertEqual(series.points.map(\.value), [0.2, 0.45])
+        XCTAssertEqual(series.changeDescription, "Up 25 pts")
+
+        let balance = ProviderUsageResult(
+            accountID: "openrouter",
+            providerID: .openRouter,
+            title: "OpenRouter",
+            subtitle: "Credits",
+            bars: [],
+            creditsRemaining: 12.5,
+            fetchedAt: t0
+        )
+        let balanceLater = ProviderUsageResult(
+            accountID: "openrouter",
+            providerID: .openRouter,
+            title: "OpenRouter",
+            subtitle: "Credits",
+            bars: [],
+            creditsRemaining: 10.0,
+            fetchedAt: t1
+        )
+        store.record(results: [balance, balanceLater], now: t1)
+        let balanceSeries = store.historySeries(for: balanceLater)
+        XCTAssertTrue(balanceSeries.isBalance)
+        XCTAssertEqual(balanceSeries.points.map(\.value), [12.5, 10.0])
+        XCTAssertEqual(balanceSeries.direction, .down)
+    }
 }
 
 private struct StubUsageProvider: UsageProvider {

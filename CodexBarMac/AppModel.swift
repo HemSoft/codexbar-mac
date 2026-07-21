@@ -6,6 +6,7 @@ import Foundation
 final class AppModel: ObservableObject {
     let refreshService: UsageRefreshService
     let configurationStore: ProviderConfigurationStore
+    let historyStore: UsageHistoryStore
     let launchAtLoginManager: LaunchAtLoginManager
     private let usageAlertNotifier: any UsageAlertNotifying
 
@@ -17,11 +18,13 @@ final class AppModel: ObservableObject {
     init(
         refreshService: UsageRefreshService = .live(),
         configurationStore: ProviderConfigurationStore = ProviderConfigurationStore(secretStore: KeychainService()),
+        historyStore: UsageHistoryStore = UsageHistoryStore(),
         launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager(),
         usageAlertNotifier: any UsageAlertNotifying = LocalUsageAlertNotifier.shared
     ) {
         self.refreshService = refreshService
         self.configurationStore = configurationStore
+        self.historyStore = historyStore
         self.launchAtLoginManager = launchAtLoginManager
         self.usageAlertNotifier = usageAlertNotifier
         configurationStore.seedDefaultConfigurationsIfNeeded()
@@ -48,6 +51,24 @@ final class AppModel: ObservableObject {
         configurationStore.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        historyStore.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        configurationStore.$configurations
+            .sink { [weak self] configurations in
+                guard let self else {
+                    return
+                }
+
+                self.historyStore.removeSnapshotsForMissingAccounts(
+                    validAccountIDs: Set(configurations.map(\.id))
+                )
             }
             .store(in: &cancellables)
 
@@ -131,6 +152,7 @@ final class AppModel: ObservableObject {
         }
 
         lastRefreshedAt = Date()
+        recordUsageHistory()
         await processUsageAlerts(
             results: alertEligibleResults(),
             preserving: refreshService.incompleteRefreshAccountIDs
@@ -162,6 +184,7 @@ final class AppModel: ObservableObject {
                 }
 
                 self.lastRefreshedAt = Date()
+                self.recordUsageHistory()
                 Task {
                     await self.processUsageAlerts(
                         results: self.alertEligibleResults(),
@@ -192,6 +215,10 @@ final class AppModel: ObservableObject {
         return displayedResults.filter {
             enabledAccountIDs.contains($0.accountID) && successfulAccountIDs.contains($0.accountID)
         }
+    }
+
+    private func recordUsageHistory() {
+        historyStore.record(results: alertEligibleResults())
     }
 
     private func processUsageAlerts(

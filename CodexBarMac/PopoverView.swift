@@ -16,7 +16,10 @@ struct PopoverView: View {
                         emptyState
                     } else {
                         ForEach(model.displayedResults) { result in
-                            ProviderUsageCard(result: result)
+                            ProviderUsageCard(
+                                result: result,
+                                history: model.historyStore.historySeries(for: result)
+                            )
                         }
                     }
                 }
