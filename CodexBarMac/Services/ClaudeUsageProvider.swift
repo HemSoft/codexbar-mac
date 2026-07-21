@@ -78,8 +78,20 @@ public final class ClaudeUsageProvider: UsageProvider {
                         accessToken: &token,
                         canRefresh: true
                     ), !rateLimitResult.bars.isEmpty {
-                        await snapshotCache.store(rateLimitResult, accountID: configuration.id)
-                        return rateLimitResult
+                        let merged = ProviderUsageResult(
+                            accountID: usageResult.accountID,
+                            providerID: usageResult.providerID,
+                            title: usageResult.title,
+                            subtitle: usageResult.subtitle,
+                            bars: rateLimitResult.bars,
+                            creditsRemaining: usageResult.creditsRemaining,
+                            monetaryMetrics: usageResult.monetaryMetrics,
+                            usageMessages: usageResult.usageMessages,
+                            hasReachedSpendLimit: usageResult.hasReachedSpendLimit,
+                            fetchedAt: rateLimitResult.fetchedAt
+                        )
+                        await snapshotCache.store(merged, accountID: configuration.id)
+                        return merged
                     }
                 } catch {
                     if oauthOutcome.isSuccessfulSnapshot {
@@ -177,7 +189,8 @@ public final class ClaudeUsageProvider: UsageProvider {
             let result = applyAccountMetadata(to: parsed, configuration: configuration)
             return OAuthUsageOutcome(
                 result: result,
-                permitsFallbackProbe: false,
+                // Metric/message-only payloads should still try the rate-limit header probe.
+                permitsFallbackProbe: result.bars.isEmpty,
                 isSuccessfulSnapshot: true
             )
         case 401 where canRefresh && loaded.credentials.refreshToken?.isEmpty == false:

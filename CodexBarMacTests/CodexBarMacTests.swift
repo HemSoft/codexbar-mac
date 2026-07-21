@@ -783,6 +783,58 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.used), [25, 50])
     }
 
+    func testClaudeUsageProviderProbesRateLimitsWhenOAuthReturnsMonetaryOnly() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 4_000_000_000_000,
+            accessToken: "claude-access"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = ClaudeUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            credentialsFilePath: credentialsPath,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)"
+        )
+        MockURLProtocol.handler = { request in
+            if request.url?.path == "/api/oauth/usage" {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"extra_usage":{"is_enabled":true,"used_credits":1250,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8)
+                )
+            }
+
+            XCTAssertEqual(request.url?.path, "/v1/messages")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 400,
+                    httpVersion: nil,
+                    headerFields: [
+                        "anthropic-ratelimit-unified-5h-utilization": "0.42",
+                        "anthropic-ratelimit-unified-5h-reset": "1893456000",
+                        "anthropic-ratelimit-unified-7d-utilization": "0.65",
+                        "anthropic-ratelimit-unified-7d-reset": "1894060800",
+                    ]
+                )!,
+                Data()
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
+
+        XCTAssertEqual(result.bars.map(\.used), [42, 65])
+        XCTAssertEqual(result.monetaryMetrics.map(\.kind), [.spent, .spendLimit, .remainingHeadroom])
+        XCTAssertEqual(try XCTUnwrap(result.monetaryMetrics.first?.amount), Decimal(string: "12.5")!)
+    }
+
     func testClaudeUsageProviderPreservesSnapshotAfter401TriggeredRefresh() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
