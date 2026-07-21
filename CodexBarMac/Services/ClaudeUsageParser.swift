@@ -232,7 +232,9 @@ public enum ClaudeUsageParser {
             dateTimeFormatter: dateTimeFormatter
         )
 
-        guard !bars.isEmpty else {
+        let extraUsage = extraUsageMetrics(from: usage.extraUsage)
+
+        guard !bars.isEmpty || !extraUsage.metrics.isEmpty || !extraUsage.messages.isEmpty else {
             return nil
         }
 
@@ -241,6 +243,8 @@ public enum ClaudeUsageParser {
             title: formatDisplayName(subscriptionType: subscriptionType),
             subtitle: "Live Claude usage",
             bars: bars,
+            monetaryMetrics: extraUsage.metrics,
+            usageMessages: uniqueMessages(extraUsage.messages),
             fetchedAt: fetchedAt
         )
     }
@@ -443,6 +447,78 @@ public enum ClaudeUsageParser {
         }
         semanticKeys.insert(key)
         bars.append(bar)
+    }
+
+    private static func extraUsageMetrics(
+        from extraUsage: ExtraUsage?
+    ) -> (metrics: [ProviderMonetaryMetric], messages: [String]) {
+        guard let extraUsage else {
+            return ([], [])
+        }
+        if extraUsage.isEnabled == false {
+            let reason = extraUsage.disabledReason?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let reason, !reason.isEmpty {
+                return ([], ["Usage credits are disabled: \(reason)."])
+            }
+            return ([], ["Usage credits are disabled."])
+        }
+        let reportedCurrency = extraUsage.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currency = reportedCurrency.flatMap { $0.isEmpty ? nil : $0 } ?? "USD"
+        guard currency.count == 3, let usedCredits = extraUsage.usedCredits else {
+            return ([], ["Usage credits are enabled, but monetary details are temporarily unavailable."])
+        }
+        let decimalPlaces = extraUsage.decimalPlaces ?? currencyDecimalPlaces(currency)
+
+        let spent = max(usedCredits, 0)
+        var metrics = [ProviderMonetaryMetric(
+            kind: .spent,
+            label: "Usage credits spent",
+            minorUnits: spent,
+            currencyCode: currency,
+            decimalPlaces: decimalPlaces,
+            detail: "Month to date"
+        )]
+        var messages: [String] = extraUsage.isEnabled == nil
+            ? ["Usage-credit enabled status was not reported."]
+            : []
+
+        if let monthlyLimit = extraUsage.monthlyLimit {
+            let limit = max(monthlyLimit, 0)
+            metrics.append(ProviderMonetaryMetric(
+                kind: .spendLimit,
+                label: "Monthly spend limit",
+                minorUnits: limit,
+                currencyCode: currency,
+                decimalPlaces: decimalPlaces,
+                detail: "Usage-credit policy cap"
+            ))
+            metrics.append(ProviderMonetaryMetric(
+                kind: .remainingHeadroom,
+                label: "Remaining spend headroom",
+                minorUnits: max(limit - spent, 0),
+                currencyCode: currency,
+                decimalPlaces: decimalPlaces,
+                detail: "Not a prepaid balance"
+            ))
+            if limit > 0, spent >= limit {
+                messages.append("The monthly usage-credit spend limit has been reached.")
+            }
+        } else {
+            messages.append("Usage credits are enabled with no monthly spend limit reported.")
+        }
+        return (metrics, messages)
+    }
+
+    private static func uniqueMessages(_ messages: [String]) -> [String] {
+        var seen = Set<String>()
+        return messages.filter { seen.insert($0).inserted }
+    }
+
+    private static func currencyDecimalPlaces(_ currencyCode: String) -> Int {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currencyCode.uppercased()
+        return formatter.maximumFractionDigits
     }
 
     // OAuth window utilization is expressed on a 0-100 percentage scale.

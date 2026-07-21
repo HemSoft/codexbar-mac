@@ -374,6 +374,10 @@ public final class CodexUsageProvider: UsageProvider {
             subtitle: result.subtitle,
             bars: result.bars,
             creditsRemaining: result.creditsRemaining,
+            monetaryMetrics: result.monetaryMetrics,
+            usageMessages: result.usageMessages,
+            hasReachedSpendLimit: result.hasReachedSpendLimit,
+            isIncompleteRefresh: result.isIncompleteRefresh,
             fetchedAt: result.fetchedAt
         )
     }

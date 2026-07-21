@@ -576,6 +576,9 @@ public final class ClaudeUsageProvider: UsageProvider {
             subtitle: "\(message) Showing last known data.",
             bars: cached.bars,
             creditsRemaining: cached.creditsRemaining,
+            monetaryMetrics: cached.monetaryMetrics,
+            usageMessages: cached.usageMessages,
+            hasReachedSpendLimit: cached.hasReachedSpendLimit,
             fetchedAt: cached.fetchedAt
         )
     }
@@ -613,6 +616,10 @@ public final class ClaudeUsageProvider: UsageProvider {
             subtitle: result.subtitle,
             bars: result.bars,
             creditsRemaining: result.creditsRemaining,
+            monetaryMetrics: result.monetaryMetrics,
+            usageMessages: result.usageMessages,
+            hasReachedSpendLimit: result.hasReachedSpendLimit,
+            isIncompleteRefresh: result.isIncompleteRefresh,
             fetchedAt: result.fetchedAt
         )
     }
@@ -659,6 +666,10 @@ private actor ClaudeUsageSnapshotCache {
             subtitle: result.subtitle,
             bars: cached.bars,
             creditsRemaining: result.creditsRemaining,
+            monetaryMetrics: result.monetaryMetrics,
+            usageMessages: result.usageMessages,
+            hasReachedSpendLimit: result.hasReachedSpendLimit,
+            isIncompleteRefresh: result.isIncompleteRefresh,
             fetchedAt: cached.fetchedAt
         )
         retryDates[accountID] = nil
