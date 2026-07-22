@@ -14,6 +14,7 @@ struct ProviderSettingsView: View {
     @State private var cursorSignInTask: Task<Void, Never>?
     @State private var isRefreshingOpenCode = false
     @State private var openCodeCredentialMessage: String?
+    @State private var copilotAllotmentText = ""
 #if canImport(AuthenticationServices) && canImport(AppKit)
     @State private var cursorAuthPresenter = CursorWebAuthenticationPresenter()
 #endif
@@ -56,6 +57,23 @@ struct ProviderSettingsView: View {
                     TextField("Workspace ID", text: $configuration.openCodeWorkspaceId)
                         .textFieldStyle(.roundedBorder)
                 }
+
+                if providerID == .copilot {
+                    Picker("Account type", selection: $configuration.copilotAccountScope) {
+                        ForEach(CopilotAccountScope.allCases) { scope in
+                            Text(scope.displayName).tag(scope)
+                        }
+                    }
+
+                    if configuration.copilotAccountScope == .organization {
+                        TextField("Organization", text: $configuration.githubOrganization)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Enterprise (optional)", text: $configuration.githubEnterprise)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Total allotment (optional)", text: $copilotAllotmentText)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
             }
 
             Section("Credentials") {
@@ -97,6 +115,7 @@ struct ProviderSettingsView: View {
         .navigationTitle(configuration.providerID.displayName)
         .onAppear {
             configurationStore.refreshSecretAvailability(including: [configuration])
+            syncCopilotAllotmentText()
         }
         .onDisappear {
             cursorSignInTask?.cancel()
@@ -107,11 +126,16 @@ struct ProviderSettingsView: View {
         .onChange(of: configuration) { oldValue, newValue in
             guard configurationStore.update(newValue) else {
                 configuration = oldValue
+                syncCopilotAllotmentText()
                 return
             }
 
             let shouldRefresh = oldValue.isEnabled != newValue.isEnabled
                 || oldValue.authMethod != newValue.authMethod
+                || oldValue.copilotAccountScope != newValue.copilotAccountScope
+                || oldValue.githubOrganization != newValue.githubOrganization
+                || oldValue.githubEnterprise != newValue.githubEnterprise
+                || oldValue.copilotTotalAllotment != newValue.copilotTotalAllotment
             guard shouldRefresh else {
                 return
             }
@@ -119,6 +143,13 @@ struct ProviderSettingsView: View {
             Task {
                 await onAccountsChanged()
             }
+        }
+        .onChange(of: copilotAllotmentText) { _, newValue in
+            let parsed = Self.parsedCopilotAllotment(from: newValue)
+            guard configuration.copilotTotalAllotment != parsed else {
+                return
+            }
+            configuration.copilotTotalAllotment = parsed
         }
     }
 
@@ -244,7 +275,11 @@ struct ProviderSettingsView: View {
         case .codex:
             "CodexBar reads Codex CLI credentials from ~/.codex/auth.json. Browser sign-in will be added in a later issue."
         case .copilot:
-            "GitHub Copilot can use GitHub CLI credentials discovered from `gh auth status`, or a token saved in the Keychain."
+            if configuration.copilotAccountScope == .organization {
+                "Enter the GitHub organization (and optional enterprise) for Copilot AI-credit billing. Prefer GitHub CLI credentials with org billing access, or save a token with the required org permissions."
+            } else {
+                "GitHub Copilot can use GitHub CLI credentials discovered from `gh auth status`, or a token saved in the Keychain."
+            }
         case .claude:
             "Claude Code OAuth credentials from the macOS Keychain or ~/.claude/.credentials.json are preferred when available. Browser sign-in remains the fallback."
         case .openRouter:
@@ -258,6 +293,22 @@ struct ProviderSettingsView: View {
         case .gemini:
             "Gemini reads Gemini CLI OAuth credentials from ~/.gemini/oauth_creds.json after you run 'gemini' and complete login. This matches the Windows app and targets Code Assist / enterprise CLI sessions; individual Google AI Pro/Ultra OAuth via the CLI may no longer be supported. Token refresh uses OAuth client credentials from that file, the token audience, or CODEXBAR_GOOGLE_CLIENT_ID / CODEXBAR_GOOGLE_CLIENT_SECRET."
         }
+    }
+
+    private func syncCopilotAllotmentText() {
+        if let allotment = configuration.copilotTotalAllotment, allotment > 0 {
+            copilotAllotmentText = String(Int(allotment.rounded()))
+        } else {
+            copilotAllotmentText = ""
+        }
+    }
+
+    private static func parsedCopilotAllotment(from text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let value = Double(trimmed), value > 0 else {
+            return nil
+        }
+        return value
     }
 
     private func saveSecret() {
