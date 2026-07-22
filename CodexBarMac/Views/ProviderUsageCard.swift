@@ -4,9 +4,22 @@ import SwiftUI
 struct ProviderUsageCard: View {
     let result: ProviderUsageResult
     let historyOptions: [UsageHistorySeriesOption]
+    let alerts: [UsageAlertDetail]
     let isHistoryEnabled: Bool
 
     @State private var isShowingHistory = false
+
+    init(
+        result: ProviderUsageResult,
+        historyOptions: [UsageHistorySeriesOption],
+        alerts: [UsageAlertDetail] = [],
+        isHistoryEnabled: Bool
+    ) {
+        self.result = result
+        self.historyOptions = historyOptions
+        self.alerts = alerts
+        self.isHistoryEnabled = isHistoryEnabled
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -27,9 +40,13 @@ struct ProviderUsageCard: View {
                 Spacer()
 
                 Circle()
-                    .fill(result.highestSeverity.tint)
+                    .fill(cardSeverity.tint)
                     .frame(width: 10, height: 10)
                     .accessibilityHidden(true)
+            }
+
+            if !alerts.isEmpty {
+                UsageAlertSummaryView(alerts: alerts)
             }
 
             if let creditsRemaining = result.creditsRemaining, result.bars.isEmpty {
@@ -138,6 +155,10 @@ struct ProviderUsageCard: View {
             || result.creditsRemaining != nil)
     }
 
+    var cardSeverity: UsageSeverity {
+        max(result.highestSeverity, alerts.map(\.severity).max() ?? .normal)
+    }
+
     private var statusColor: Color {
         result.subtitle.hasPrefix("Refresh failed:") ? .red : .secondary
     }
@@ -156,6 +177,43 @@ struct ProviderUsageCard: View {
         formatter.maximumFractionDigits = 2
         return formatter
     }()
+}
+
+private struct UsageAlertSummaryView: View {
+    let alerts: [UsageAlertDetail]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(alerts) { alert in
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: alert.kind.systemImageName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(alert.severity.tint)
+                        .frame(width: 16)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(alert.title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text(alert.message)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        alerts
+            .map { "\($0.title). \($0.message)" }
+            .joined(separator: " ")
+    }
 }
 
 private struct UsageHistoryCompactView: View {
@@ -196,6 +254,19 @@ private struct UsageHistoryCompactView: View {
         .accessibilityLabel(
             "Usage history. Latest \(series.latestValueDescription). \(series.changeDescription). \(series.rangeDescription)."
         )
+    }
+}
+
+private extension UsageAlertKind {
+    var systemImageName: String {
+        switch self {
+        case .usage:
+            "gauge.with.dots.needle.67percent"
+        case .balance:
+            "creditcard"
+        case .severity:
+            "exclamationmark.triangle.fill"
+        }
     }
 }
 

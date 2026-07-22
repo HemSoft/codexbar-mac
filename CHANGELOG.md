@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Live Moonshot (Kimi) credit balance fetching from Keychain-stored API keys via `api.moonshot.ai`.
 - Live Gemini Pro and Flash quota fetching from Gemini CLI OAuth credentials in `~/.gemini/oauth_creds.json`, with automatic token refresh and reset countdowns.
 - Configurable usage alerts via macOS notifications with threshold crossing detection, honoring each provider's enabled/disabled setting, and warning/critical severity alerts.
+- Account-scoped active alert details on provider cards, including the triggering condition, configured threshold, and reset context when available.
 - Local on-device usage history with compact sparklines on provider popover cards after successful refreshes.
 - Expanded on-device history sheets with interactive charts, metric summaries, series selection, and recent samples.
 - Account groups in Settings, including create, rename, delete, and per-account group assignment.

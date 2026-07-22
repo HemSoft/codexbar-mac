@@ -5,6 +5,8 @@ struct PopoverView: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
+        let usageAlertsByAccountID = model.currentUsageAlertsByAccountID
+
         VStack(spacing: 0) {
             header
 
@@ -19,6 +21,7 @@ struct PopoverView: View {
                             ProviderUsageCard(
                                 result: result,
                                 historyOptions: model.historyStore.historySeriesOptions(for: result),
+                                alerts: usageAlertsByAccountID[result.accountID] ?? [],
                                 isHistoryEnabled: model.configurationStore
                                     .configuration(accountID: result.accountID)?
                                     .showsHistory ?? true
