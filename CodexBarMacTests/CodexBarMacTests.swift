@@ -4139,19 +4139,22 @@ final class CodexBarMacTests: XCTestCase {
             defaults: defaults,
             secretStore: InMemorySecretStore()
         )
+        configurationStore.seedDefaultConfigurationsIfNeeded()
         configurationStore.updateUsageAlertsEnabled(true)
         configurationStore.updateUsageAlertUsageThreshold(0.80)
         configurationStore.updateUsageAlertIncludesSeverityAlerts(false)
+        var configuration = configurationStore.configuration(for: .openRouter)
+        configuration.accountLabel = "Research"
+        XCTAssertTrue(configurationStore.update(configuration))
+        let refreshService = UsageRefreshService(providers: [], initialResults: [result])
+        XCTAssertEqual(refreshService.successfulRefreshResults.map(\.accountID), ["openRouter"])
         let model = AppModel(
-            refreshService: UsageRefreshService(providers: [], initialResults: [result]),
+            refreshService: refreshService,
             configurationStore: configurationStore,
             historyStore: UsageHistoryStore(defaults: defaults),
             launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
             usageAlertNotifier: StubUsageAlertNotifier()
         )
-        var configuration = configurationStore.configuration(for: .openRouter)
-        configuration.accountLabel = "Research"
-        XCTAssertTrue(configurationStore.update(configuration))
 
         XCTAssertEqual(model.currentUsageAlertsByAccountID["openRouter"]?.map(\.kind), [.balance])
         XCTAssertEqual(
@@ -5860,6 +5863,8 @@ private struct StubUsageProvider: UsageProvider {
 
 @MainActor
 private final class StubUsageAlertNotifier: UsageAlertNotifying {
+    deinit {}
+
     func requestAuthorization() async -> Bool {
         true
     }
