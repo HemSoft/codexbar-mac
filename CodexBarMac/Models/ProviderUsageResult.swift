@@ -25,7 +25,8 @@ public struct ProviderMonetaryMetric: Identifiable, Codable, Equatable, Sendable
     ) {
         self.kind = kind
         self.label = label
-        self.minorUnits = max(minorUnits, 0)
+        // Prepaid balances can go negative when overspent; other metric kinds stay non-negative.
+        self.minorUnits = kind == .balance ? minorUnits : max(minorUnits, 0)
         self.currencyCode = currencyCode.uppercased()
         self.decimalPlaces = min(max(decimalPlaces, 0), 6)
         self.detail = detail

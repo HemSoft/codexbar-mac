@@ -544,7 +544,7 @@ public enum ClaudeUsageParser {
             .first
             ?? currencyDecimalPlaces(currency)
 
-        func matchingAmount(_ amount: MoneyAmount?) -> Decimal? {
+        func matchingAmount(_ amount: MoneyAmount?, allowNegative: Bool = false) -> Decimal? {
             guard let amount, let minor = amount.amountMinor else {
                 return nil
             }
@@ -554,7 +554,7 @@ public enum ClaudeUsageParser {
             {
                 return nil
             }
-            return max(minor, 0)
+            return allowNegative ? minor : max(minor, 0)
         }
 
         var metrics: [ProviderMonetaryMetric] = []
@@ -598,7 +598,7 @@ public enum ClaudeUsageParser {
             }
         }
 
-        if let balance = matchingAmount(spend.balance) {
+        if let balance = matchingAmount(spend.balance, allowNegative: true) {
             metrics.append(ProviderMonetaryMetric(
                 kind: .balance,
                 label: "Usage credit balance",

@@ -722,6 +722,14 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(balanceOnly.monetaryMetrics.first?.amount, Decimal(5))
         XCTAssertEqual(balanceOnly.monetaryMetrics.first?.detail, "Prepaid balance")
 
+        let negativeBalance = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"balance":{"amount_minor":-250,"currency":"USD","exponent":2}}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertEqual(negativeBalance.monetaryMetrics.map(\.kind), [.balance])
+        XCTAssertEqual(negativeBalance.monetaryMetrics.first?.minorUnits, Decimal(-250))
+        XCTAssertEqual(negativeBalance.monetaryMetrics.first?.amount, Decimal(string: "-2.5")!)
+
         let limitAndBalance = try XCTUnwrap(ClaudeUsageParser.parse(
             Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":2},"limit":{"amount_minor":5000,"currency":"USD","exponent":2},"balance":{"amount_minor":800,"currency":"USD","exponent":2}}}"#.utf8),
             subscriptionType: nil
