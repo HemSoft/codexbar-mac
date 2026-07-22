@@ -5336,6 +5336,8 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertFalse(series.isBalance)
         XCTAssertEqual(series.points.map(\.value), [0.2, 0.45])
         XCTAssertEqual(series.changeDescription, "Up 25 pts")
+        XCTAssertEqual(series.minimumValueDescription, "20%")
+        XCTAssertEqual(series.maximumValueDescription, "45%")
 
         let balance = ProviderUsageResult(
             accountID: "openrouter",
@@ -5360,6 +5362,60 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(balanceSeries.isBalance)
         XCTAssertEqual(balanceSeries.points.map(\.value), [12.5, 10.0])
         XCTAssertEqual(balanceSeries.direction, .down)
+    }
+
+    @MainActor
+    func testUsageHistoryStoreBuildsSelectableSeriesOptions() {
+        let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = UsageHistoryStore(defaults: defaults)
+        let t0 = Date(timeIntervalSince1970: 1_788_475_200)
+        let t1 = t0.addingTimeInterval(3_600)
+        let first = ProviderUsageResult(
+            accountID: "claude.main",
+            providerID: .claude,
+            title: "Claude",
+            subtitle: "Live",
+            bars: [UsageBar(label: "Session", used: 20, limit: 100)],
+            monetaryMetrics: [
+                ProviderMonetaryMetric(
+                    kind: .spent,
+                    label: "Usage credits spent",
+                    minorUnits: 1_000,
+                    currencyCode: "USD",
+                    decimalPlaces: 2
+                )
+            ],
+            fetchedAt: t0
+        )
+        let second = ProviderUsageResult(
+            accountID: "claude.main",
+            providerID: .claude,
+            title: "Claude",
+            subtitle: "Live",
+            bars: [UsageBar(label: "Session", used: 35, limit: 100)],
+            monetaryMetrics: [
+                ProviderMonetaryMetric(
+                    kind: .spent,
+                    label: "Usage credits spent",
+                    minorUnits: 1_250,
+                    currencyCode: "USD",
+                    decimalPlaces: 2
+                )
+            ],
+            fetchedAt: t1
+        )
+        store.record(results: [first, second], now: t1)
+
+        let options = store.historySeriesOptions(for: second)
+
+        XCTAssertEqual(options.map(\.label), ["Usage", "Usage credits spent"])
+        XCTAssertEqual(options[0].series.points.map(\.value), [0.2, 0.35])
+        XCTAssertEqual(options[1].series.points.map(\.value), [10.0, 12.5])
+        XCTAssertEqual(options[1].series.minimumValueDescription, "$10.00")
+        XCTAssertEqual(options[1].series.maximumValueDescription, "$12.50")
     }
 
     @MainActor
