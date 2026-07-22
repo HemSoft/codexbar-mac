@@ -116,3 +116,11 @@ public struct UserFacingDateTimeFormatter {
         return "Resets \(max(1, Int(remaining / 60)))m"
     }
 }
+
+extension Calendar {
+    static var utcGregorian: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+}

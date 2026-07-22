@@ -1724,6 +1724,373 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.first?.used, 60)
     }
 
+    func testCopilotOrganizationBillingRequestSupportsStandaloneOrganization() throws {
+        let provider = CopilotUsageProvider(
+            secretStore: InMemorySecretStore(),
+            githubAPIBaseURL: URL(string: "https://api.github.com")!
+        )
+        let date = Date(timeIntervalSince1970: 1_782_882_000)
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "Relias-Engineering"
+        )
+
+        let request = try XCTUnwrap(provider.makeOrganizationBillingRequest(
+            accessToken: "github-token",
+            configuration: configuration,
+            date: date
+        ))
+        let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.path, "/organizations/Relias-Engineering/settings/billing/ai_credit/usage")
+        XCTAssertEqual(components.queryItemValue(named: "year"), "2026")
+        XCTAssertEqual(components.queryItemValue(named: "month"), "7")
+        XCTAssertEqual(components.queryItemValue(named: "product"), "Copilot")
+        XCTAssertNil(components.queryItemValue(named: "organization"))
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer github-token")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-GitHub-Api-Version"), "2026-03-10")
+    }
+
+    func testCopilotOrganizationBillingRequestSupportsEnterpriseOrganization() throws {
+        let provider = CopilotUsageProvider(
+            secretStore: InMemorySecretStore(),
+            githubAPIBaseURL: URL(string: "https://api.github.com")!
+        )
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "Relias-Engineering",
+            githubEnterprise: "bertelsmann"
+        )
+
+        let request = try XCTUnwrap(provider.makeOrganizationBillingRequest(
+            accessToken: "github-token",
+            configuration: configuration,
+            date: Date(timeIntervalSince1970: 1_782_882_000)
+        ))
+        let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.path, "/enterprises/bertelsmann/settings/billing/ai_credit/usage")
+        XCTAssertEqual(components.queryItemValue(named: "organization"), "Relias-Engineering")
+    }
+
+    func testCopilotOrganizationBillingRequestEncodesPathSeparatorsInOrgNames() throws {
+        let provider = CopilotUsageProvider(
+            secretStore: InMemorySecretStore(),
+            githubAPIBaseURL: URL(string: "https://api.github.com")!
+        )
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "Relias/Engineering",
+            githubEnterprise: "berte/lsmann"
+        )
+
+        let request = try XCTUnwrap(provider.makeOrganizationBillingRequest(
+            accessToken: "github-token",
+            configuration: configuration,
+            date: Date(timeIntervalSince1970: 1_782_882_000)
+        ))
+        let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.percentEncodedPath, "/enterprises/berte%2Flsmann/settings/billing/ai_credit/usage")
+        XCTAssertTrue(try XCTUnwrap(request.url?.absoluteString).contains("berte%2Flsmann"))
+        XCTAssertEqual(components.queryItemValue(named: "organization"), "Relias/Engineering")
+    }
+
+    func testCopilotOrganizationSeatCountRequestUsesOrgBillingEndpoint() throws {
+        let provider = CopilotUsageProvider(
+            secretStore: InMemorySecretStore(),
+            githubAPIBaseURL: URL(string: "https://api.github.com")!
+        )
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "Relias-Engineering"
+        )
+
+        let request = try XCTUnwrap(provider.makeOrganizationSeatCountRequest(
+            accessToken: "github-token",
+            configuration: configuration
+        ))
+
+        XCTAssertEqual(request.url?.path, "/orgs/Relias-Engineering/copilot/billing")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer github-token")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-GitHub-Api-Version"), "2026-03-10")
+    }
+
+    func testCopilotOrganizationCreditsPerSeatMatchesWindowsPromotionalWindow() {
+        XCTAssertEqual(CopilotUsageProvider.creditsPerSeat(year: 2026, month: 6), 7_000)
+        XCTAssertEqual(CopilotUsageProvider.creditsPerSeat(year: 2026, month: 7), 7_000)
+        XCTAssertEqual(CopilotUsageProvider.creditsPerSeat(year: 2026, month: 8), 7_000)
+        XCTAssertEqual(CopilotUsageProvider.creditsPerSeat(year: 2026, month: 9), 3_900)
+        XCTAssertEqual(
+            CopilotUsageProvider.creditsPerSeat(year: 2026, month: 7, planType: "business"),
+            3_000
+        )
+        XCTAssertEqual(
+            CopilotUsageProvider.creditsPerSeat(year: 2026, month: 9, planType: "business"),
+            1_900
+        )
+        XCTAssertEqual(
+            CopilotUsageProvider.creditsPerSeat(year: 2026, month: 7, planType: "enterprise"),
+            7_000
+        )
+    }
+
+    func testCopilotBillingUsageParserReadsOrganizationUsage() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_783_667_520)
+        let payload = """
+        {
+          "timePeriod": { "year": 2026, "month": 7 },
+          "organization": "Relias-Engineering",
+          "usageItems": [
+            { "product": "Copilot", "sku": "Copilot AI Credits", "grossQuantity": 1200 },
+            { "product": "Actions", "sku": "Actions Linux", "grossQuantity": 99 },
+            { "sku": "Copilot AI Credits", "grossQuantity": 300 }
+          ]
+        }
+        """
+        let configuration = ProviderAccountConfiguration(
+            id: "copilot.org",
+            providerID: .copilot,
+            accountLabel: "Relias Engineering",
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "Relias-Engineering",
+            copilotTotalAllotment: 350000
+        )
+
+        let result = try XCTUnwrap(CopilotBillingUsageParser.parse(
+            Data(payload.utf8),
+            configuration: configuration,
+            fetchedAt: fetchedAt
+        ))
+
+        XCTAssertEqual(result.accountID, "copilot.org")
+        XCTAssertEqual(result.title, "Relias Engineering")
+        XCTAssertEqual(result.subtitle, "Live GitHub Copilot usage for Relias-Engineering")
+        XCTAssertEqual(result.bars.map(\.label), [
+            "Current AI credits (1,500 / 350,000)",
+        ])
+        XCTAssertEqual(result.bars.map(\.usageText), ["0%"])
+        XCTAssertEqual(result.bars.first?.projectionCurrent, 1500)
+        XCTAssertEqual(result.bars.first?.projectionLimit, 350000)
+        XCTAssertEqual(result.bars.first?.projectionPeriodStart, Date(timeIntervalSince1970: 1_782_864_000))
+        XCTAssertEqual(result.bars.first?.projectionPeriodEnd, Date(timeIntervalSince1970: 1_785_542_400))
+        XCTAssertEqual(result.bars.first?.showProjectionOnCurrentBar, true)
+    }
+
+    func testCopilotBillingUsageParserProjectsOrganizationUsageWithoutAllotment() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_783_667_520)
+        let payload = """
+        {
+          "timePeriod": { "year": 2026, "month": 7 },
+          "usageItems": [
+            { "product": "Copilot", "sku": "Copilot AI Credits", "grossQuantity": 1500 }
+          ]
+        }
+        """
+        let configuration = ProviderAccountConfiguration(
+            id: "copilot.org",
+            providerID: .copilot,
+            accountLabel: "Relias Engineering",
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "Relias-Engineering"
+        )
+
+        let result = try XCTUnwrap(CopilotBillingUsageParser.parse(
+            Data(payload.utf8),
+            configuration: configuration,
+            fetchedAt: fetchedAt
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), ["AI credits used (1,500)"])
+        XCTAssertEqual(
+            result.bars.first?.projectionDescription(at: fetchedAt),
+            "Projected month end at current pace - 5,000 AI credits"
+        )
+    }
+
+    func testCopilotBillingUsageParserUsesResolvedOrganizationPoolAllotment() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_783_667_520)
+        let payload = """
+        {
+          "timePeriod": { "year": 2026, "month": 7 },
+          "usageItems": [
+            { "product": "Copilot", "sku": "Copilot AI Credits", "grossQuantity": 1500 }
+          ]
+        }
+        """
+        let configuration = ProviderAccountConfiguration(
+            id: "copilot.org",
+            providerID: .copilot,
+            accountLabel: "Relias Engineering",
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "Relias-Engineering"
+        )
+
+        let result = try XCTUnwrap(CopilotBillingUsageParser.parse(
+            Data(payload.utf8),
+            configuration: configuration,
+            fetchedAt: fetchedAt,
+            totalAllotment: 50 * 7_000
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), ["Current AI credits (1,500 / 350,000)"])
+        XCTAssertEqual(result.bars.first?.usageText, "0%")
+        XCTAssertEqual(result.bars.first?.projectionCurrent, 1500)
+        XCTAssertEqual(result.bars.first?.projectionLimit, 350000)
+        XCTAssertEqual(result.bars.first?.showProjectionOnCurrentBar, true)
+    }
+
+    func testCopilotOrganizationUsageDistinguishesPermissionFailureFromMissingOrganization() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "HemSoft"
+        )
+        try secretStore.saveSecret(
+            "legacy-access",
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            githubAPIBaseURL: URL(string: "https://example.test")!,
+            gitHubTokenResolver: { _ in nil }
+        )
+        var statusCode = 403
+        MockURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: statusCode, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let permissionDenied = try await provider.fetchUsage(for: configuration)
+        XCTAssertEqual(
+            permissionDenied.subtitle,
+            "This GitHub account lacks permission to read the configured Copilot organization billing data."
+        )
+
+        statusCode = 404
+        let missingOrganization = try await provider.fetchUsage(for: configuration)
+        XCTAssertEqual(
+            missingOrganization.subtitle,
+            "GitHub Copilot organization not found. Check the configured organization name."
+        )
+
+        let missingOrgConfiguration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            authMethod: .cliToken,
+            copilotAccountScope: .organization
+        )
+        let notConfigured = try await provider.fetchUsage(for: missingOrgConfiguration)
+        XCTAssertEqual(notConfigured.subtitle, "Not configured - enter organization.")
+        XCTAssertFalse(notConfigured.isIncompleteRefresh)
+    }
+
+    func testCopilotOrganizationUsageResolvesSeatAllotmentAndParsesCredits() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            id: "copilot.org",
+            providerID: .copilot,
+            accountLabel: "Engineering",
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "Relias-Engineering"
+        )
+        try secretStore.saveSecret(
+            "org-token",
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            githubAPIBaseURL: URL(string: "https://example.test")!,
+            gitHubTokenResolver: { _ in nil },
+            now: { Date(timeIntervalSince1970: 1_783_667_520) }
+        )
+        MockURLProtocol.handler = { request in
+            let path = try XCTUnwrap(request.url?.path)
+            if path.hasSuffix("/settings/billing/ai_credit/usage") {
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer org-token")
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"timePeriod":{"year":2026,"month":7},"usageItems":[{"product":"Copilot","sku":"Copilot AI Credits","grossQuantity":1500}]}"#.utf8)
+                )
+            }
+            XCTAssertEqual(path, "/orgs/Relias-Engineering/copilot/billing")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"plan_type":"enterprise","seat_breakdown":{"total":50}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+        XCTAssertEqual(result.bars.map(\.label), ["Current AI credits (1,500 / 350,000)"])
+        XCTAssertEqual(result.subtitle, "Live GitHub Copilot usage for Relias-Engineering")
+        XCTAssertFalse(result.subtitle.contains("not yet supported"))
+    }
+
+    func testCopilotOrganizationUsageUsesBusinessPlanSeatAllotment() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            id: "copilot.biz",
+            providerID: .copilot,
+            accountLabel: "Business Org",
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "HemSoft"
+        )
+        try secretStore.saveSecret(
+            "org-token",
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            githubAPIBaseURL: URL(string: "https://example.test")!,
+            gitHubTokenResolver: { _ in nil },
+            now: { Date(timeIntervalSince1970: 1_783_667_520) }
+        )
+        MockURLProtocol.handler = { request in
+            let path = try XCTUnwrap(request.url?.path)
+            if path.hasSuffix("/settings/billing/ai_credit/usage") {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"timePeriod":{"year":2026,"month":7},"usageItems":[{"product":"Copilot","sku":"Copilot AI Credits","grossQuantity":1500}]}"#.utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"plan_type":"business","seat_breakdown":{"total":50}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+        XCTAssertEqual(result.bars.map(\.label), ["Current AI credits (1,500 / 150,000)"])
+    }
+
     func testOpenRouterCreditsParserCalculatesBalance() throws {
         let fetchedAt = Date(timeIntervalSince1970: 1_783_667_520)
         let configuration = ProviderAccountConfiguration(
