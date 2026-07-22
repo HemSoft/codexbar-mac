@@ -14,6 +14,8 @@ public final class CopilotUsageProvider: UsageProvider {
     private static let githubRestUserAgent = "CodexBarMac/1.0"
     private static let promotionalCreditsPerSeat = 7_000
     private static let standardCreditsPerSeat = 3_900
+    private static let promotionalBusinessCreditsPerSeat = 3_000
+    private static let standardBusinessCreditsPerSeat = 1_900
 
     private let secretStore: any SecretStore
     private let session: URLSession
@@ -161,8 +163,18 @@ public final class CopilotUsageProvider: UsageProvider {
         return request
     }
 
-    static func creditsPerSeat(year: Int, month: Int) -> Int {
-        year == 2026 && (6...8).contains(month)
+    static func creditsPerSeat(year: Int, month: Int, planType: String? = nil) -> Int {
+        let isPromotionalWindow = year == 2026 && (6...8).contains(month)
+        let normalizedPlan = planType?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        let isBusinessPlan = normalizedPlan.contains("business")
+        if isBusinessPlan {
+            return isPromotionalWindow
+                ? promotionalBusinessCreditsPerSeat
+                : standardBusinessCreditsPerSeat
+        }
+        return isPromotionalWindow
             ? promotionalCreditsPerSeat
             : standardCreditsPerSeat
     }
@@ -406,8 +418,8 @@ public final class CopilotUsageProvider: UsageProvider {
         guard
             let httpResponse = response as? HTTPURLResponse,
             (200..<300).contains(httpResponse.statusCode),
-            let seatCount = CopilotSeatCountParser.parse(data),
-            seatCount > 0
+            let seatInfo = CopilotSeatCountParser.parse(data),
+            seatInfo.totalSeats > 0
         else {
             return nil
         }
@@ -418,7 +430,13 @@ public final class CopilotUsageProvider: UsageProvider {
             return nil
         }
 
-        return Double(seatCount * Self.creditsPerSeat(year: year, month: month))
+        return Double(
+            seatInfo.totalSeats * Self.creditsPerSeat(
+                year: year,
+                month: month,
+                planType: seatInfo.planType
+            )
+        )
     }
 
     private func failureResult(

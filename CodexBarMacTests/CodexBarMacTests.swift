@@ -1804,6 +1804,18 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(CopilotUsageProvider.creditsPerSeat(year: 2026, month: 7), 7_000)
         XCTAssertEqual(CopilotUsageProvider.creditsPerSeat(year: 2026, month: 8), 7_000)
         XCTAssertEqual(CopilotUsageProvider.creditsPerSeat(year: 2026, month: 9), 3_900)
+        XCTAssertEqual(
+            CopilotUsageProvider.creditsPerSeat(year: 2026, month: 7, planType: "business"),
+            3_000
+        )
+        XCTAssertEqual(
+            CopilotUsageProvider.creditsPerSeat(year: 2026, month: 9, planType: "business"),
+            1_900
+        )
+        XCTAssertEqual(
+            CopilotUsageProvider.creditsPerSeat(year: 2026, month: 7, planType: "enterprise"),
+            7_000
+        )
     }
 
     func testCopilotBillingUsageParserReadsOrganizationUsage() throws {
@@ -2005,7 +2017,7 @@ final class CodexBarMacTests: XCTestCase {
             XCTAssertEqual(path, "/orgs/Relias-Engineering/copilot/billing")
             return (
                 HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(#"{"seat_breakdown":{"total":50}}"#.utf8)
+                Data(#"{"plan_type":"enterprise","seat_breakdown":{"total":50}}"#.utf8)
             )
         }
         defer { MockURLProtocol.handler = nil }
@@ -2014,6 +2026,48 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.label), ["Current AI credits (1,500 / 350,000)"])
         XCTAssertEqual(result.subtitle, "Live GitHub Copilot usage for Relias-Engineering")
         XCTAssertFalse(result.subtitle.contains("not yet supported"))
+    }
+
+    func testCopilotOrganizationUsageUsesBusinessPlanSeatAllotment() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            id: "copilot.biz",
+            providerID: .copilot,
+            accountLabel: "Business Org",
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "HemSoft"
+        )
+        try secretStore.saveSecret(
+            "org-token",
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            githubAPIBaseURL: URL(string: "https://example.test")!,
+            gitHubTokenResolver: { _ in nil },
+            now: { Date(timeIntervalSince1970: 1_783_667_520) }
+        )
+        MockURLProtocol.handler = { request in
+            let path = try XCTUnwrap(request.url?.path)
+            if path.hasSuffix("/settings/billing/ai_credit/usage") {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"timePeriod":{"year":2026,"month":7},"usageItems":[{"product":"Copilot","sku":"Copilot AI Credits","grossQuantity":1500}]}"#.utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"plan_type":"business","seat_breakdown":{"total":50}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+        XCTAssertEqual(result.bars.map(\.label), ["Current AI credits (1,500 / 150,000)"])
     }
 
     func testOpenRouterCreditsParserCalculatesBalance() throws {

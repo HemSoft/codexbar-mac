@@ -338,11 +338,24 @@ public enum CopilotBillingUsageParser {
     }
 }
 
+public struct CopilotSeatBillingInfo: Equatable, Sendable {
+    public let totalSeats: Int
+    public let planType: String?
+
+    public init(totalSeats: Int, planType: String? = nil) {
+        self.totalSeats = totalSeats
+        self.planType = planType
+    }
+}
+
 public enum CopilotSeatCountParser {
-    public static func parse(_ data: Data) -> Int? {
-        (try? JSONDecoder().decode(CopilotBillingSeatsResponse.self, from: data))?
-            .seatBreakdown?
-            .total
+    public static func parse(_ data: Data) -> CopilotSeatBillingInfo? {
+        guard let response = try? JSONDecoder().decode(CopilotBillingSeatsResponse.self, from: data),
+              let total = response.seatBreakdown?.total
+        else {
+            return nil
+        }
+        return CopilotSeatBillingInfo(totalSeats: total, planType: response.planType)
     }
 }
 
@@ -375,9 +388,11 @@ private struct CopilotBillingUsageItem: Decodable {
 
 private struct CopilotBillingSeatsResponse: Decodable {
     let seatBreakdown: CopilotSeatBreakdown?
+    let planType: String?
 
     enum CodingKeys: String, CodingKey {
         case seatBreakdown = "seat_breakdown"
+        case planType = "plan_type"
     }
 }
 
