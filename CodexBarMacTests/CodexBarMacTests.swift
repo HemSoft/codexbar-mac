@@ -4120,6 +4120,72 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertNil(activeAlertsByAccountID["cursor.work"])
     }
 
+    @MainActor
+    func testAppModelReturnsCurrentUsageAlertsByAccountID() {
+        let suiteName = "CodexBarMacTests.ActiveAlerts.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let result = ProviderUsageResult(
+            accountID: "codex",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [UsageBar(label: "Weekly", used: 90, limit: 100)],
+            fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+        )
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        configurationStore.updateUsageAlertsEnabled(true)
+        configurationStore.updateUsageAlertUsageThreshold(0.80)
+        configurationStore.updateUsageAlertIncludesSeverityAlerts(false)
+        let model = AppModel(
+            refreshService: UsageRefreshService(providers: [], initialResults: [result]),
+            configurationStore: configurationStore,
+            historyStore: UsageHistoryStore(defaults: defaults),
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+
+        XCTAssertEqual(model.currentUsageAlertsByAccountID["codex"]?.map(\.kind), [.usage])
+
+        configurationStore.updateUsageAlertsEnabled(false)
+
+        XCTAssertTrue(model.currentUsageAlertsByAccountID.isEmpty)
+    }
+
+    @MainActor
+    func testProviderUsageCardActiveAlertRaisesCardSeverity() {
+        let result = ProviderUsageResult(
+            accountID: "openRouter",
+            providerID: .openRouter,
+            title: "OpenRouter",
+            subtitle: "Credit balance",
+            bars: [],
+            creditsRemaining: 20,
+            fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+        )
+        let alert = UsageAlertDetail(
+            id: "balance.openRouter",
+            accountID: "openRouter",
+            kind: .balance,
+            title: "Balance below $25.00",
+            message: "$20.00 remaining for OpenRouter.",
+            severity: .warning
+        )
+        let card = ProviderUsageCard(
+            result: result,
+            historyOptions: [],
+            alerts: [alert],
+            isHistoryEnabled: false
+        )
+
+        XCTAssertEqual(card.alerts, [alert])
+        XCTAssertEqual(card.cardSeverity, .warning)
+    }
+
     func testUsageAlertEvaluatorPreservesSuppressionForExactAccountsThatDidNotRefresh() {
         let activeAlertIDs: Set<String> = [
             "usage.codex.weekly",
@@ -5782,6 +5848,15 @@ private struct StubUsageProvider: UsageProvider {
     func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
         result
     }
+}
+
+@MainActor
+private final class StubUsageAlertNotifier: UsageAlertNotifying {
+    func requestAuthorization() async -> Bool {
+        true
+    }
+
+    func deliver(_ notification: UsageAlertNotification) async throws {}
 }
 
 private final class FailingSecretStore: SecretStore, @unchecked Sendable {

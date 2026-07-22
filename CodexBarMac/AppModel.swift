@@ -87,6 +87,16 @@ final class AppModel: ObservableObject {
         displayedResults.map(\.highestSeverity).max() ?? .normal
     }
 
+    var currentUsageAlertsByAccountID: [String: [UsageAlertDetail]] {
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: refreshService.results,
+            settings: configurationStore.usageAlertSettings,
+            activeAlertIDs: configurationStore.usageAlertActiveIDs
+        )
+
+        return Dictionary(grouping: evaluation.activeAlerts, by: \.accountID)
+    }
+
     var displayedResults: [ProviderUsageResult] {
         let enabledConfigurations = configurationStore.enabledConfigurations
         let configurationByID = Dictionary(
