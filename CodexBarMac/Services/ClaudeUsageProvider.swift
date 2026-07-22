@@ -78,6 +78,13 @@ public final class ClaudeUsageProvider: UsageProvider {
                         accessToken: &token,
                         canRefresh: true
                     ), !rateLimitResult.bars.isEmpty {
+                        let retainedStaleOAuthFields = usageResult.isIncompleteRefresh
+                            && (
+                                usageResult.creditsRemaining != nil
+                                    || !usageResult.monetaryMetrics.isEmpty
+                                    || !usageResult.usageMessages.isEmpty
+                                    || usageResult.hasReachedSpendLimit
+                            )
                         let merged = ProviderUsageResult(
                             accountID: usageResult.accountID,
                             providerID: usageResult.providerID,
@@ -90,8 +97,8 @@ public final class ClaudeUsageProvider: UsageProvider {
                             monetaryMetrics: usageResult.monetaryMetrics,
                             usageMessages: usageResult.usageMessages,
                             hasReachedSpendLimit: usageResult.hasReachedSpendLimit,
-                            // Keep incompleteness when stale OAuth monetary fields are retained.
-                            isIncompleteRefresh: usageResult.isIncompleteRefresh
+                            // Fresh probe bars are complete unless stale OAuth monetary fields are kept.
+                            isIncompleteRefresh: retainedStaleOAuthFields
                                 || rateLimitResult.isIncompleteRefresh,
                             fetchedAt: rateLimitResult.fetchedAt
                         )

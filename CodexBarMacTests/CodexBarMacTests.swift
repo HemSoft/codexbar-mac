@@ -919,6 +919,7 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.used), [42, 65])
         XCTAssertEqual(result.monetaryMetrics.map(\.kind), [.spent, .spendLimit, .remainingHeadroom])
         XCTAssertEqual(try XCTUnwrap(result.monetaryMetrics.first?.amount), Decimal(string: "12.5")!)
+        XCTAssertFalse(result.isIncompleteRefresh)
     }
 
     func testClaudeUsageProviderReturnsCachedBarsWhenMonetaryProbeMisses() async throws {
@@ -1023,6 +1024,7 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.used), [42])
         XCTAssertEqual(result.subtitle, "Live Claude usage")
         XCTAssertFalse(result.subtitle.localizedCaseInsensitiveContains("lacks permission"))
+        XCTAssertFalse(result.isIncompleteRefresh)
     }
 
     func testClaudeUsageProviderPreservesSnapshotAfter401TriggeredRefresh() async throws {
