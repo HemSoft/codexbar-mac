@@ -114,7 +114,6 @@ struct ProviderUsageCard: View {
         !history.points.isEmpty
             || !result.bars.isEmpty
             || result.creditsRemaining != nil
-            || !result.monetaryMetrics.isEmpty
     }
 
     private var statusColor: Color {

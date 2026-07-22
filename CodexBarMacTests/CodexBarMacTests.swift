@@ -678,6 +678,17 @@ final class CodexBarMacTests: XCTestCase {
             reachedLimit.usageMessages,
             ["The monthly usage-credit spend limit has been reached."]
         )
+
+        let lossyExtraUsage = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"limits":[{"kind":"weekly_all","percent":24,"is_active":true}],"extra_usage":{"is_enabled":true,"used_credits":"not-a-number","monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: "pro"
+        ))
+        XCTAssertEqual(lossyExtraUsage.bars.first?.used, 24)
+        XCTAssertTrue(lossyExtraUsage.monetaryMetrics.isEmpty)
+        XCTAssertEqual(
+            lossyExtraUsage.usageMessages,
+            ["Usage credits are enabled, but monetary details are temporarily unavailable."]
+        )
     }
 
     func testClaudeCredentialStorePreservesFilePermissionsAndMetadata() throws {

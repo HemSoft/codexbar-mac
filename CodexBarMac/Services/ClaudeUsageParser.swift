@@ -105,6 +105,16 @@ public enum ClaudeUsageParser {
             case decimalPlaces = "decimal_places"
             case disabledReason = "disabled_reason"
         }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled)
+            monthlyLimit = try? container.decodeIfPresent(Decimal.self, forKey: .monthlyLimit)
+            usedCredits = try? container.decodeIfPresent(Decimal.self, forKey: .usedCredits)
+            currency = try container.decodeIfPresent(String.self, forKey: .currency)
+            decimalPlaces = try? container.decodeIfPresent(Int.self, forKey: .decimalPlaces)
+            disabledReason = try container.decodeIfPresent(String.self, forKey: .disabledReason)
+        }
     }
 
     public static func parse(
