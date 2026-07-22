@@ -3705,6 +3705,48 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(store.configurations(for: .gemini).isEmpty)
     }
 
+    func testProviderAccountConfigurationDefaultsLegacyHistoryVisibilityOn() throws {
+        let json = """
+        {
+          "id": "codex.personal",
+          "providerID": "codex",
+          "isEnabled": true,
+          "accountLabel": "Personal",
+          "authMethod": "codexAuthJSON"
+        }
+        """
+
+        let configuration = try JSONDecoder().decode(
+            ProviderAccountConfiguration.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertTrue(configuration.showsHistory)
+    }
+
+    @MainActor
+    func testProviderHistoryVisibilityPersistsIndependentlyAcrossAccounts() throws {
+        let suiteName = "CodexBarMacTests.HistoryVisibility.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+        var codex = store.addAccount(for: .codex)
+        let claude = store.addAccount(for: .claude)
+
+        XCTAssertTrue(codex.showsHistory)
+        XCTAssertTrue(claude.showsHistory)
+
+        codex.showsHistory = false
+        XCTAssertTrue(store.update(codex))
+
+        let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+        XCTAssertFalse(try XCTUnwrap(reloadedStore.configuration(accountID: codex.id)?.showsHistory))
+        XCTAssertTrue(try XCTUnwrap(reloadedStore.configuration(accountID: claude.id)?.showsHistory))
+    }
+
     @MainActor
     func testProviderAccountGroupsPersistAndValidateNames() throws {
         let suiteName = "CodexBarMacTests.Groups.\(UUID().uuidString)"
@@ -5325,6 +5367,42 @@ final class CodexBarMacTests: XCTestCase {
         let fractionUsed = try XCTUnwrap(reloadedStore.snapshots.first?.bars.first?.fractionUsed)
         XCTAssertEqual(fractionUsed, 0.42, accuracy: 0.0001)
         XCTAssertNil(reloadedStore.snapshots.first?.creditsRemaining)
+    }
+
+    @MainActor
+    func testProviderUsageCardHistoryVisibilityDoesNotDeleteSnapshots() {
+        let suiteName = "CodexBarMacTests.HistoryVisibility.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fetchedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live Codex usage",
+            bars: [UsageBar(label: "5h limit", used: 42, limit: 100)],
+            fetchedAt: fetchedAt
+        )
+        let store = UsageHistoryStore(defaults: defaults)
+        store.record(results: [result], now: fetchedAt)
+        let historyOptions = store.historySeriesOptions(for: result)
+
+        let hiddenCard = ProviderUsageCard(
+            result: result,
+            historyOptions: historyOptions,
+            isHistoryEnabled: false
+        )
+        let visibleCard = ProviderUsageCard(
+            result: result,
+            historyOptions: historyOptions,
+            isHistoryEnabled: true
+        )
+
+        XCTAssertFalse(hiddenCard.showsHistory)
+        XCTAssertTrue(visibleCard.showsHistory)
+        XCTAssertFalse(historyOptions.isEmpty)
+        XCTAssertEqual(store.snapshots.count, 1)
     }
 
     @MainActor
