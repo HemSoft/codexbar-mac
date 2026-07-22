@@ -78,18 +78,48 @@ public final class ClaudeUsageProvider: UsageProvider {
                         accessToken: &token,
                         canRefresh: true
                     ), !rateLimitResult.bars.isEmpty {
-                        await snapshotCache.store(rateLimitResult, accountID: configuration.id)
-                        return rateLimitResult
+                        let retainedStaleOAuthFields = usageResult.isIncompleteRefresh
+                            && (
+                                usageResult.creditsRemaining != nil
+                                    || !usageResult.monetaryMetrics.isEmpty
+                                    || !usageResult.usageMessages.isEmpty
+                                    || usageResult.hasReachedSpendLimit
+                            )
+                        let merged = ProviderUsageResult(
+                            accountID: usageResult.accountID,
+                            providerID: usageResult.providerID,
+                            title: usageResult.title,
+                            subtitle: oauthOutcome.isSuccessfulSnapshot
+                                ? usageResult.subtitle
+                                : rateLimitResult.subtitle,
+                            bars: rateLimitResult.bars,
+                            creditsRemaining: usageResult.creditsRemaining,
+                            monetaryMetrics: usageResult.monetaryMetrics,
+                            usageMessages: usageResult.usageMessages,
+                            hasReachedSpendLimit: usageResult.hasReachedSpendLimit,
+                            // Fresh probe bars are complete unless stale OAuth monetary fields are kept.
+                            isIncompleteRefresh: retainedStaleOAuthFields
+                                || rateLimitResult.isIncompleteRefresh,
+                            fetchedAt: rateLimitResult.fetchedAt
+                        )
+                        await snapshotCache.store(merged, accountID: configuration.id)
+                        return merged
                     }
                 } catch {
                     if oauthOutcome.isSuccessfulSnapshot {
-                        await snapshotCache.storePreservingBars(usageResult, accountID: configuration.id)
+                        return await snapshotCache.storePreservingBars(
+                            usageResult,
+                            accountID: configuration.id
+                        )
                     }
                     return usageResult
                 }
             }
             if oauthOutcome.isSuccessfulSnapshot {
-                await snapshotCache.storePreservingBars(usageResult, accountID: configuration.id)
+                return await snapshotCache.storePreservingBars(
+                    usageResult,
+                    accountID: configuration.id
+                )
             }
             return usageResult
         }
@@ -177,7 +207,8 @@ public final class ClaudeUsageProvider: UsageProvider {
             let result = applyAccountMetadata(to: parsed, configuration: configuration)
             return OAuthUsageOutcome(
                 result: result,
-                permitsFallbackProbe: false,
+                // Metric/message-only payloads should still try the rate-limit header probe.
+                permitsFallbackProbe: result.bars.isEmpty,
                 isSuccessfulSnapshot: true
             )
         case 401 where canRefresh && loaded.credentials.refreshToken?.isEmpty == false:
@@ -576,6 +607,10 @@ public final class ClaudeUsageProvider: UsageProvider {
             subtitle: "\(message) Showing last known data.",
             bars: cached.bars,
             creditsRemaining: cached.creditsRemaining,
+            monetaryMetrics: cached.monetaryMetrics,
+            usageMessages: cached.usageMessages,
+            hasReachedSpendLimit: cached.hasReachedSpendLimit,
+            isIncompleteRefresh: true,
             fetchedAt: cached.fetchedAt
         )
     }
@@ -613,6 +648,10 @@ public final class ClaudeUsageProvider: UsageProvider {
             subtitle: result.subtitle,
             bars: result.bars,
             creditsRemaining: result.creditsRemaining,
+            monetaryMetrics: result.monetaryMetrics,
+            usageMessages: result.usageMessages,
+            hasReachedSpendLimit: result.hasReachedSpendLimit,
+            isIncompleteRefresh: result.isIncompleteRefresh,
             fetchedAt: result.fetchedAt
         )
     }
@@ -647,21 +686,29 @@ private actor ClaudeUsageSnapshotCache {
         retryDates[accountID] = nil
     }
 
-    func storePreservingBars(_ result: ProviderUsageResult, accountID: String) {
+    @discardableResult
+    func storePreservingBars(_ result: ProviderUsageResult, accountID: String) -> ProviderUsageResult {
         guard result.bars.isEmpty, let cached = results[accountID], !cached.bars.isEmpty else {
             store(result, accountID: accountID)
-            return
+            return result
         }
-        results[accountID] = ProviderUsageResult(
+        let preserved = ProviderUsageResult(
             accountID: result.accountID,
             providerID: result.providerID,
             title: result.title,
             subtitle: result.subtitle,
             bars: cached.bars,
             creditsRemaining: result.creditsRemaining,
-            fetchedAt: cached.fetchedAt
+            monetaryMetrics: result.monetaryMetrics,
+            usageMessages: result.usageMessages,
+            hasReachedSpendLimit: result.hasReachedSpendLimit,
+            // Cached quota bars are not part of this refresh's live payload.
+            isIncompleteRefresh: true,
+            fetchedAt: result.fetchedAt
         )
+        results[accountID] = preserved
         retryDates[accountID] = nil
+        return preserved
     }
 
     func result(accountID: String) -> ProviderUsageResult? {

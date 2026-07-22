@@ -66,6 +66,39 @@ struct ProviderUsageCard: View {
                 }
             }
 
+            if !result.monetaryMetrics.isEmpty {
+                Divider()
+
+                ForEach(result.monetaryMetrics) { metric in
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack {
+                            Text(metric.label)
+                            Spacer()
+                            Text(metric.formattedAmount())
+                                .fontWeight(.semibold)
+                                .monospacedDigit()
+                        }
+                        .font(.footnote)
+
+                        if let detail = metric.detail {
+                            Text(detail)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(monetaryAccessibilityLabel(metric))
+                }
+            }
+
+            ForEach(result.usageMessages, id: \.self) { message in
+                Label(message, systemImage: "info.circle")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(message)
+            }
+
             if showsHistory {
                 UsageHistoryCompactView(series: history)
             }
@@ -78,11 +111,19 @@ struct ProviderUsageCard: View {
     }
 
     private var showsHistory: Bool {
-        !history.points.isEmpty || !result.bars.isEmpty || result.creditsRemaining != nil
+        !history.points.isEmpty
+            || !result.bars.isEmpty
+            || result.creditsRemaining != nil
     }
 
     private var statusColor: Color {
         result.subtitle.hasPrefix("Refresh failed:") ? .red : .secondary
+    }
+
+    private func monetaryAccessibilityLabel(_ metric: ProviderMonetaryMetric) -> String {
+        [metric.label, metric.formattedAmount(), metric.detail]
+            .compactMap { $0 }
+            .joined(separator: ", ")
     }
 
     private static let currencyFormatter: NumberFormatter = {
