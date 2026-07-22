@@ -46,6 +46,17 @@ public final class CopilotUsageProvider: UsageProvider {
     }
 
     public func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
+        if configuration.copilotAccountScope == .organization {
+            let organization = configuration.githubOrganization.trimmingCharacters(in: .whitespacesAndNewlines)
+            if organization.isEmpty {
+                return failureResult(
+                    "Not configured - enter organization.",
+                    configuration: configuration,
+                    isIncompleteRefresh: false
+                )
+            }
+        }
+
         guard let resolved = await resolveAccessToken(for: configuration) else {
             return failureResult(
                 "Not configured - sign in with GitHub CLI or add a token.",
@@ -94,11 +105,10 @@ public final class CopilotUsageProvider: UsageProvider {
         }
 
         let enterprise = configuration.githubEnterprise.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let encodedOrganization = organization.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+        guard let encodedOrganization = Self.pathEncodedComponent(organization) else {
             return nil
         }
-        let calendar = Calendar(identifier: .gregorian)
-        let dateComponents = calendar.dateComponents(in: TimeZone(secondsFromGMT: 0)!, from: date)
+        let dateComponents = Calendar.utcGregorian.dateComponents([.year, .month], from: date)
         guard let year = dateComponents.year, let month = dateComponents.month else {
             return nil
         }
@@ -113,7 +123,7 @@ public final class CopilotUsageProvider: UsageProvider {
         if enterprise.isEmpty {
             path = "/organizations/\(encodedOrganization)/settings/billing/ai_credit/usage"
         } else {
-            guard let encodedEnterprise = enterprise.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            guard let encodedEnterprise = Self.pathEncodedComponent(enterprise) else {
                 return nil
             }
             path = "/enterprises/\(encodedEnterprise)/settings/billing/ai_credit/usage"
@@ -143,7 +153,7 @@ public final class CopilotUsageProvider: UsageProvider {
         let organization = configuration.githubOrganization.trimmingCharacters(in: .whitespacesAndNewlines)
         guard
             !organization.isEmpty,
-            let encodedOrganization = organization.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+            let encodedOrganization = Self.pathEncodedComponent(organization)
         else {
             return nil
         }
@@ -266,11 +276,18 @@ public final class CopilotUsageProvider: UsageProvider {
                 configuration: configuration
             )
         case 401 where canRetryWithFreshCLIToken:
-            return try await retryPersonalAfterCLIRefresh(
+            return try await retryAfterCLIRefresh(
                 configuration: configuration,
                 accessToken: accessToken,
                 tokenSource: tokenSource
-            )
+            ) { configuration, token, source in
+                try await self.fetchPersonalUsage(
+                    configuration: configuration,
+                    accessToken: token,
+                    tokenSource: source,
+                    canRetryWithFreshCLIToken: false
+                )
+            }
         case 401:
             return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
         case 403 where Self.isRateLimited(httpResponse):
@@ -310,7 +327,7 @@ public final class CopilotUsageProvider: UsageProvider {
 
         switch httpResponse.statusCode {
         case 200..<300:
-            let effectiveAllotment = try await resolveOrganizationAllotment(
+            let effectiveAllotment = await resolveOrganizationAllotment(
                 configuration: configuration,
                 accessToken: accessToken,
                 date: now()
@@ -328,11 +345,18 @@ public final class CopilotUsageProvider: UsageProvider {
                 configuration: configuration
             )
         case 401 where canRetryWithFreshCLIToken:
-            return try await retryOrganizationAfterCLIRefresh(
+            return try await retryAfterCLIRefresh(
                 configuration: configuration,
                 accessToken: accessToken,
                 tokenSource: tokenSource
-            )
+            ) { configuration, token, source in
+                try await self.fetchOrganizationUsage(
+                    configuration: configuration,
+                    accessToken: token,
+                    tokenSource: source,
+                    canRetryWithFreshCLIToken: false
+                )
+            }
         case 401:
             return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
         case 403 where Self.isRateLimited(httpResponse):
@@ -355,57 +379,30 @@ public final class CopilotUsageProvider: UsageProvider {
         }
     }
 
-    private func retryPersonalAfterCLIRefresh(
+    private func retryAfterCLIRefresh(
         configuration: ProviderAccountConfiguration,
         accessToken: String,
-        tokenSource: ResolvedTokenSource
+        tokenSource: ResolvedTokenSource,
+        retry: (ProviderAccountConfiguration, String, ResolvedTokenSource) async throws -> ProviderUsageResult
     ) async throws -> ProviderUsageResult {
-        if case .cli(let username) = tokenSource {
-            cliTokenCache.invalidate(username: username)
-            guard let refreshed = await resolveAccessToken(for: configuration) else {
-                return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
-            }
-            guard refreshed.token != accessToken else {
-                return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
-            }
-            return try await fetchPersonalUsage(
-                configuration: configuration,
-                accessToken: refreshed.token,
-                tokenSource: refreshed.source,
-                canRetryWithFreshCLIToken: false
-            )
+        guard case .cli(let username) = tokenSource else {
+            return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
         }
-        return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
-    }
-
-    private func retryOrganizationAfterCLIRefresh(
-        configuration: ProviderAccountConfiguration,
-        accessToken: String,
-        tokenSource: ResolvedTokenSource
-    ) async throws -> ProviderUsageResult {
-        if case .cli(let username) = tokenSource {
-            cliTokenCache.invalidate(username: username)
-            guard let refreshed = await resolveAccessToken(for: configuration) else {
-                return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
-            }
-            guard refreshed.token != accessToken else {
-                return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
-            }
-            return try await fetchOrganizationUsage(
-                configuration: configuration,
-                accessToken: refreshed.token,
-                tokenSource: refreshed.source,
-                canRetryWithFreshCLIToken: false
-            )
+        cliTokenCache.invalidate(username: username)
+        guard let refreshed = await resolveAccessToken(for: configuration) else {
+            return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
         }
-        return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
+        guard refreshed.token != accessToken else {
+            return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
+        }
+        return try await retry(configuration, refreshed.token, refreshed.source)
     }
 
     private func resolveOrganizationAllotment(
         configuration: ProviderAccountConfiguration,
         accessToken: String,
         date: Date = Date()
-    ) async throws -> Double? {
+    ) async -> Double? {
         if let override = configuration.copilotTotalAllotment, override > 0 {
             return override
         }
@@ -414,7 +411,9 @@ public final class CopilotUsageProvider: UsageProvider {
             return nil
         }
 
-        let (data, response) = try await session.data(for: request)
+        guard let (data, response) = try? await session.data(for: request) else {
+            return nil
+        }
         guard
             let httpResponse = response as? HTTPURLResponse,
             (200..<300).contains(httpResponse.statusCode),
@@ -424,8 +423,7 @@ public final class CopilotUsageProvider: UsageProvider {
             return nil
         }
 
-        let calendar = Calendar(identifier: .gregorian)
-        let components = calendar.dateComponents(in: TimeZone(secondsFromGMT: 0)!, from: date)
+        let components = Calendar.utcGregorian.dateComponents([.year, .month], from: date)
         guard let year = components.year, let month = components.month else {
             return nil
         }
@@ -437,6 +435,12 @@ public final class CopilotUsageProvider: UsageProvider {
                 planType: seatInfo.planType
             )
         )
+    }
+
+    private static func pathEncodedComponent(_ value: String) -> String? {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed)
     }
 
     private func failureResult(

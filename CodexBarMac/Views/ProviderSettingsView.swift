@@ -296,8 +296,8 @@ struct ProviderSettingsView: View {
     }
 
     private func syncCopilotAllotmentText() {
-        if let allotment = configuration.copilotTotalAllotment, allotment > 0 {
-            copilotAllotmentText = String(Int(allotment.rounded()))
+        if let allotment = configuration.copilotTotalAllotment, allotment > 0, allotment.isFinite {
+            copilotAllotmentText = String(format: "%.0f", allotment.rounded())
         } else {
             copilotAllotmentText = ""
         }
@@ -305,7 +305,7 @@ struct ProviderSettingsView: View {
 
     private static func parsedCopilotAllotment(from text: String) -> Double? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let value = Double(trimmed), value > 0 else {
+        guard !trimmed.isEmpty, let value = Double(trimmed), value > 0, value.isFinite else {
             return nil
         }
         return value

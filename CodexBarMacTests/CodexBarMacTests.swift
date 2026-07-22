@@ -1777,6 +1777,31 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(components.queryItemValue(named: "organization"), "Relias-Engineering")
     }
 
+    func testCopilotOrganizationBillingRequestEncodesPathSeparatorsInOrgNames() throws {
+        let provider = CopilotUsageProvider(
+            secretStore: InMemorySecretStore(),
+            githubAPIBaseURL: URL(string: "https://api.github.com")!
+        )
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            authMethod: .cliToken,
+            copilotAccountScope: .organization,
+            githubOrganization: "Relias/Engineering",
+            githubEnterprise: "berte/lsmann"
+        )
+
+        let request = try XCTUnwrap(provider.makeOrganizationBillingRequest(
+            accessToken: "github-token",
+            configuration: configuration,
+            date: Date(timeIntervalSince1970: 1_782_882_000)
+        ))
+        let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.percentEncodedPath, "/enterprises/berte%2Flsmann/settings/billing/ai_credit/usage")
+        XCTAssertTrue(try XCTUnwrap(request.url?.absoluteString).contains("berte%2Flsmann"))
+        XCTAssertEqual(components.queryItemValue(named: "organization"), "Relias/Engineering")
+    }
+
     func testCopilotOrganizationSeatCountRequestUsesOrgBillingEndpoint() throws {
         let provider = CopilotUsageProvider(
             secretStore: InMemorySecretStore(),
@@ -1972,10 +1997,6 @@ final class CodexBarMacTests: XCTestCase {
             providerID: .copilot,
             authMethod: .cliToken,
             copilotAccountScope: .organization
-        )
-        try secretStore.saveSecret(
-            "legacy-access",
-            account: ProviderConfigurationStore.keychainAccount(for: missingOrgConfiguration)
         )
         let notConfigured = try await provider.fetchUsage(for: missingOrgConfiguration)
         XCTAssertEqual(notConfigured.subtitle, "Not configured - enter organization.")

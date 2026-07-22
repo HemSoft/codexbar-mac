@@ -310,16 +310,13 @@ public enum CopilotBillingUsageParser {
     }
 
     private static func monthStart(for date: Date) -> Date {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let calendar = Calendar.utcGregorian
         let components = calendar.dateComponents([.year, .month], from: date)
         return calendar.date(from: components) ?? date
     }
 
     private static func monthEnd(after periodStart: Date) -> Date {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        return calendar.date(byAdding: .month, value: 1, to: periodStart) ?? periodStart
+        Calendar.utcGregorian.date(byAdding: .month, value: 1, to: periodStart) ?? periodStart
     }
 
     private static func projectedPeriodEndUsage(
@@ -374,9 +371,7 @@ private struct CopilotBillingTimePeriod: Decodable {
             return nil
         }
 
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        return calendar.date(from: DateComponents(year: year, month: month, day: day ?? 1))
+        return Calendar.utcGregorian.date(from: DateComponents(year: year, month: month, day: day ?? 1))
     }
 }
 
