@@ -722,6 +722,18 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(balanceOnly.monetaryMetrics.first?.amount, Decimal(5))
         XCTAssertEqual(balanceOnly.monetaryMetrics.first?.detail, "Prepaid balance")
 
+        let limitAndBalance = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":2},"limit":{"amount_minor":5000,"currency":"USD","exponent":2},"balance":{"amount_minor":800,"currency":"USD","exponent":2}}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertEqual(
+            limitAndBalance.monetaryMetrics.map(\.kind),
+            [.spent, .spendLimit, .remainingHeadroom, .balance]
+        )
+        XCTAssertEqual(limitAndBalance.monetaryMetrics.map(\.minorUnits), [
+            Decimal(1250), Decimal(5000), Decimal(3750), Decimal(800),
+        ])
+
         let disabledSpend = try XCTUnwrap(ClaudeUsageParser.parse(
             Data(#"{"spend":{"enabled":false,"used":{"amount_minor":0,"currency":"USD","exponent":2},"limit":null,"balance":null}}"#.utf8),
             subscriptionType: nil
@@ -894,6 +906,59 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.used), [42, 65])
         XCTAssertEqual(result.monetaryMetrics.map(\.kind), [.spent, .spendLimit, .remainingHeadroom])
         XCTAssertEqual(try XCTUnwrap(result.monetaryMetrics.first?.amount), Decimal(string: "12.5")!)
+    }
+
+    func testClaudeUsageProviderReturnsCachedBarsWhenMonetaryProbeMisses() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 4_000_000_000_000,
+            accessToken: "claude-access"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = ClaudeUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            credentialsFilePath: credentialsPath,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)"
+        )
+
+        var oauthCalls = 0
+        MockURLProtocol.handler = { request in
+            if request.url?.path == "/api/oauth/usage" {
+                oauthCalls += 1
+                if oauthCalls == 1 {
+                    return (
+                        HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                        Data(#"{"limits":[{"kind":"weekly_all","percent":33,"is_active":true}]}"#.utf8)
+                    )
+                }
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":2},"limit":{"amount_minor":5000,"currency":"USD","exponent":2}}}"#.utf8)
+                )
+            }
+
+            XCTAssertEqual(request.url?.path, "/v1/messages")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 400, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let seeded = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
+        XCTAssertEqual(seeded.bars.map(\.used), [33])
+
+        let refreshed = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
+        XCTAssertEqual(refreshed.bars.map(\.used), [33])
+        XCTAssertEqual(refreshed.monetaryMetrics.map(\.kind), [.spent, .spendLimit, .remainingHeadroom])
+        XCTAssertEqual(try XCTUnwrap(refreshed.monetaryMetrics.first?.amount), Decimal(string: "12.5")!)
     }
 
     func testClaudeUsageProviderUsesProbeSubtitleWhenOAuthFailsButProbeSucceeds() async throws {

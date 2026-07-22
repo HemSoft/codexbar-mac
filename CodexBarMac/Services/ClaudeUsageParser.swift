@@ -575,7 +575,9 @@ public enum ClaudeUsageParser {
                     messages.append("The monthly usage-credit spend limit has been reached.")
                 }
             }
-        } else if let balance = matchingAmount(spend.balance) {
+        }
+
+        if let balance = matchingAmount(spend.balance) {
             metrics.append(ProviderMonetaryMetric(
                 kind: .balance,
                 label: "Usage credit balance",
@@ -584,7 +586,7 @@ public enum ClaudeUsageParser {
                 decimalPlaces: spend.balance?.exponent ?? decimalPlaces,
                 detail: "Prepaid balance"
             ))
-        } else if matchingAmount(spend.used) != nil {
+        } else if matchingAmount(spend.limit) == nil, matchingAmount(spend.used) != nil {
             messages.append("Usage credits are enabled with no monthly spend limit reported.")
         }
 
