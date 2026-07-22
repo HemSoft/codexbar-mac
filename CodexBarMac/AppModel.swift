@@ -89,7 +89,7 @@ final class AppModel: ObservableObject {
 
     var currentUsageAlertsByAccountID: [String: [UsageAlertDetail]] {
         let evaluation = UsageAlertEvaluator.evaluate(
-            results: refreshService.results,
+            results: displayedResults,
             settings: configurationStore.usageAlertSettings,
             activeAlertIDs: configurationStore.usageAlertActiveIDs
         )

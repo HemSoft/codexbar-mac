@@ -4127,11 +4127,12 @@ final class CodexBarMacTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let result = ProviderUsageResult(
-            accountID: "codex",
-            providerID: .codex,
-            title: "Codex",
-            subtitle: "Live usage",
-            bars: [UsageBar(label: "Weekly", used: 90, limit: 100)],
+            accountID: "openRouter",
+            providerID: .openRouter,
+            title: "OpenRouter",
+            subtitle: "Credit balance",
+            bars: [],
+            creditsRemaining: 2,
             fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
         )
         let configurationStore = ProviderConfigurationStore(
@@ -4148,8 +4149,15 @@ final class CodexBarMacTests: XCTestCase {
             launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
             usageAlertNotifier: StubUsageAlertNotifier()
         )
+        var configuration = configurationStore.configuration(for: .openRouter)
+        configuration.accountLabel = "Research"
+        XCTAssertTrue(configurationStore.update(configuration))
 
-        XCTAssertEqual(model.currentUsageAlertsByAccountID["codex"]?.map(\.kind), [.usage])
+        XCTAssertEqual(model.currentUsageAlertsByAccountID["openRouter"]?.map(\.kind), [.balance])
+        XCTAssertEqual(
+            model.currentUsageAlertsByAccountID["openRouter"]?.first?.message,
+            "$2.00 remaining for Research."
+        )
 
         configurationStore.updateUsageAlertsEnabled(false)
 
