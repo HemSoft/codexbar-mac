@@ -46,6 +46,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Developer Experience
 
+- Repository-scoped `identify-issues` skill with automatic Cursor Cloud installation for scheduled issue-discovery tasks.
 - `CodexBarMacTests` target with parser and provider unit tests using redacted fixtures.
 - GitHub Actions CI on `macos-26` (Xcode 26.6) runs `xcodebuild test` for pulls and pushes to `main` (check name: **Build and Test**).
 - `./test.sh` runs the same local `xcodebuild test` flow used by CI.
