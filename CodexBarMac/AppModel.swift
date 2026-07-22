@@ -94,7 +94,7 @@ final class AppModel: ObservableObject {
         )
         let enabledAccountIDs = Set(enabledConfigurations.map(\.id))
 
-        return refreshService.results
+        let alphabeticallyOrderedResults: [ProviderUsageResult] = refreshService.results
             .filter { enabledAccountIDs.contains($0.accountID) }
             .map { result in
                 guard let configuration = configurationByID[result.accountID],
@@ -116,9 +116,14 @@ final class AppModel: ObservableObject {
                     fetchedAt: result.fetchedAt
                 )
             }
-            .sorted {
-                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            .sorted { lhs, rhs in
+                lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
             }
+
+        return DashboardUsageSorter.orderedResults(
+            alphabeticallyOrderedResults,
+            mode: configurationStore.dashboardOrderingMode
+        )
     }
 
     var lastRefreshedText: String {

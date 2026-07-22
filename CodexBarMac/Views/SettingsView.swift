@@ -31,6 +31,13 @@ struct SettingsView: View {
                         }
                     }
 
+                    Picker("Dashboard Order", selection: dashboardOrderingModeBinding) {
+                        ForEach(DashboardOrderingMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
                     Toggle("Launch at Login", isOn: launchAtLoginBinding)
 
                     if model.launchAtLoginManager.requiresApproval {
@@ -263,6 +270,13 @@ struct SettingsView: View {
         Binding(
             get: { configurationStore.usageAlertSettings.usageThreshold * 100 },
             set: { configurationStore.updateUsageAlertUsageThreshold($0 / 100) }
+        )
+    }
+
+    private var dashboardOrderingModeBinding: Binding<DashboardOrderingMode> {
+        Binding(
+            get: { configurationStore.dashboardOrderingMode },
+            set: { configurationStore.updateDashboardOrderingMode($0) }
         )
     }
 
