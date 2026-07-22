@@ -90,8 +90,9 @@ public final class ClaudeUsageProvider: UsageProvider {
                             monetaryMetrics: usageResult.monetaryMetrics,
                             usageMessages: usageResult.usageMessages,
                             hasReachedSpendLimit: usageResult.hasReachedSpendLimit,
-                            // Probe-backed bars are a successful live snapshot even if OAuth failed.
-                            isIncompleteRefresh: rateLimitResult.isIncompleteRefresh,
+                            // Keep incompleteness when stale OAuth monetary fields are retained.
+                            isIncompleteRefresh: usageResult.isIncompleteRefresh
+                                || rateLimitResult.isIncompleteRefresh,
                             fetchedAt: rateLimitResult.fetchedAt
                         )
                         await snapshotCache.store(merged, accountID: configuration.id)
@@ -688,7 +689,7 @@ private actor ClaudeUsageSnapshotCache {
             usageMessages: result.usageMessages,
             hasReachedSpendLimit: result.hasReachedSpendLimit,
             isIncompleteRefresh: result.isIncompleteRefresh,
-            fetchedAt: cached.fetchedAt
+            fetchedAt: result.fetchedAt
         )
         retryDates[accountID] = nil
     }
