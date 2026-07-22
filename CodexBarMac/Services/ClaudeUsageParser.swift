@@ -286,8 +286,10 @@ public enum ClaudeUsageParser {
             dateTimeFormatter: dateTimeFormatter
         )
 
-        let monetary = usage.spend.map(spendMetrics(from:))
-            ?? extraUsageMetrics(from: usage.extraUsage)
+        let monetary = preferredMonetaryMetrics(
+            spend: usage.spend,
+            extraUsage: usage.extraUsage
+        )
 
         guard !bars.isEmpty || !monetary.metrics.isEmpty || !monetary.messages.isEmpty else {
             return nil
@@ -502,6 +504,25 @@ public enum ClaudeUsageParser {
         }
         semanticKeys.insert(key)
         bars.append(bar)
+    }
+
+    private static func preferredMonetaryMetrics(
+        spend: Spend?,
+        extraUsage: ExtraUsage?
+    ) -> (metrics: [ProviderMonetaryMetric], messages: [String]) {
+        let extraMonetary = extraUsageMetrics(from: extraUsage)
+        guard let spend else {
+            return extraMonetary
+        }
+
+        let spendMonetary = spendMetrics(from: spend)
+        if !spendMonetary.metrics.isEmpty || spend.enabled == false {
+            return spendMonetary
+        }
+        if !extraMonetary.metrics.isEmpty {
+            return extraMonetary
+        }
+        return spendMonetary
     }
 
     private static func spendMetrics(

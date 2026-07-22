@@ -751,6 +751,19 @@ final class CodexBarMacTests: XCTestCase {
             lossySpend.usageMessages,
             ["Usage credits are enabled, but monetary details are temporarily unavailable."]
         )
+
+        let unusableSpendFallsBackToExtraUsage = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"used":"broken"},"extra_usage":{"is_enabled":true,"used_credits":1250,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertEqual(
+            unusableSpendFallsBackToExtraUsage.monetaryMetrics.map(\.kind),
+            [.spent, .spendLimit, .remainingHeadroom]
+        )
+        XCTAssertEqual(
+            unusableSpendFallsBackToExtraUsage.monetaryMetrics.map(\.minorUnits),
+            [Decimal(1250), Decimal(5000), Decimal(3750)]
+        )
     }
 
     func testClaudeCredentialStorePreservesFilePermissionsAndMetadata() throws {
@@ -959,6 +972,7 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(refreshed.bars.map(\.used), [33])
         XCTAssertEqual(refreshed.monetaryMetrics.map(\.kind), [.spent, .spendLimit, .remainingHeadroom])
         XCTAssertEqual(try XCTUnwrap(refreshed.monetaryMetrics.first?.amount), Decimal(string: "12.5")!)
+        XCTAssertTrue(refreshed.isIncompleteRefresh)
     }
 
     func testClaudeUsageProviderUsesProbeSubtitleWhenOAuthFailsButProbeSucceeds() async throws {

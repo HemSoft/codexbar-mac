@@ -695,7 +695,8 @@ private actor ClaudeUsageSnapshotCache {
             monetaryMetrics: result.monetaryMetrics,
             usageMessages: result.usageMessages,
             hasReachedSpendLimit: result.hasReachedSpendLimit,
-            isIncompleteRefresh: result.isIncompleteRefresh,
+            // Cached quota bars are not part of this refresh's live payload.
+            isIncompleteRefresh: true,
             fetchedAt: result.fetchedAt
         )
         results[accountID] = preserved
