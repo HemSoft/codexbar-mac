@@ -29,31 +29,44 @@ public final class CodexUsageProvider: UsageProvider {
     }
 
     public func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
-        let location = credentialLocation(for: configuration)
-        guard
-            var credentials = try readCredentials(location: location)
-        else {
+        try await fetchUsage(
+            configuration: configuration,
+            locations: credentialLocations(for: configuration)
+        )
+    }
+
+    private func fetchUsage(
+        configuration: ProviderAccountConfiguration,
+        locations: [CredentialLocation]
+    ) async throws -> ProviderUsageResult {
+        guard let location = locations.first else {
             return failureResult(
                 notConfiguredMessage(for: configuration),
                 configuration: configuration,
                 isIncompleteRefresh: false
             )
         }
+        let fallbackLocations = Array(locations.dropFirst())
+        guard var credentials = try readCredentials(location: location) else {
+            return try await fetchUsage(configuration: configuration, locations: fallbackLocations)
+        }
 
         var didRefresh = false
         if credentials.shouldRefresh(at: now()) {
             guard credentials.refreshToken?.isEmpty == false else {
                 if credentials.isExpired(at: now()) {
-                    return failureResult(
+                    return try await fallbackOrFailure(
                         "ChatGPT / Codex credential expired and cannot be renewed. Sign in again.",
-                        configuration: configuration
+                        configuration: configuration,
+                        locations: fallbackLocations
                     )
                 }
                 return try await fetchUsage(
                     configuration: configuration,
                     credentials: credentials,
                     location: location,
-                    canRefresh: false
+                    canRefresh: false,
+                    fallbackLocations: fallbackLocations
                 )
             }
 
@@ -62,21 +75,24 @@ public final class CodexUsageProvider: UsageProvider {
                 credentials = refreshed
                 didRefresh = true
             case .rejected:
-                return failureResult(
+                return try await fallbackOrFailure(
                     "ChatGPT / Codex credential renewal was rejected. Sign in again.",
-                    configuration: configuration
+                    configuration: configuration,
+                    locations: fallbackLocations
                 )
             case .temporarilyUnavailable:
                 if credentials.isExpired(at: now()) {
-                    return failureResult(
+                    return try await fallbackOrFailure(
                         "Could not renew the ChatGPT / Codex credential. Try again.",
-                        configuration: configuration
+                        configuration: configuration,
+                        locations: fallbackLocations
                     )
                 }
             case .persistenceFailed:
-                return failureResult(
+                return try await fallbackOrFailure(
                     "Could not securely save the renewed ChatGPT / Codex credential. Sign in again.",
-                    configuration: configuration
+                    configuration: configuration,
+                    locations: fallbackLocations
                 )
             }
         }
@@ -85,7 +101,8 @@ public final class CodexUsageProvider: UsageProvider {
             configuration: configuration,
             credentials: credentials,
             location: location,
-            canRefresh: !didRefresh
+            canRefresh: !didRefresh,
+            fallbackLocations: fallbackLocations
         )
     }
 
@@ -93,7 +110,8 @@ public final class CodexUsageProvider: UsageProvider {
         configuration: ProviderAccountConfiguration,
         credentials: CodexCredentials,
         location: CredentialLocation,
-        canRefresh: Bool
+        canRefresh: Bool,
+        fallbackLocations: [CredentialLocation]
     ) async throws -> ProviderUsageResult {
         let (data, response) = try await session.data(for: makeUsageRequest(credentials: credentials))
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -114,33 +132,39 @@ public final class CodexUsageProvider: UsageProvider {
                     configuration: configuration,
                     credentials: refreshed,
                     location: location,
-                    canRefresh: false
+                    canRefresh: false,
+                    fallbackLocations: fallbackLocations
                 )
             case .rejected:
-                return failureResult(
+                return try await fallbackOrFailure(
                     "ChatGPT / Codex credential renewal was rejected. Sign in again.",
-                    configuration: configuration
+                    configuration: configuration,
+                    locations: fallbackLocations
                 )
             case .temporarilyUnavailable:
-                return failureResult(
+                return try await fallbackOrFailure(
                     "Could not renew the ChatGPT / Codex credential. Try again.",
-                    configuration: configuration
+                    configuration: configuration,
+                    locations: fallbackLocations
                 )
             case .persistenceFailed:
-                return failureResult(
+                return try await fallbackOrFailure(
                     "Could not securely save the renewed ChatGPT / Codex credential. Sign in again.",
-                    configuration: configuration
+                    configuration: configuration,
+                    locations: fallbackLocations
                 )
             }
         case 401:
-            return failureResult(
+            return try await fallbackOrFailure(
                 authenticationFailureMessage(for: credentials),
-                configuration: configuration
+                configuration: configuration,
+                locations: fallbackLocations
             )
         case 403:
-            return failureResult(
+            return try await fallbackOrFailure(
                 "This ChatGPT account does not have access to Codex usage.",
-                configuration: configuration
+                configuration: configuration,
+                locations: fallbackLocations
             )
         default:
             return failureResult("ChatGPT usage returned HTTP \(httpResponse.statusCode).", configuration: configuration)
@@ -270,33 +294,22 @@ public final class CodexUsageProvider: UsageProvider {
         return .success(latest)
     }
 
-    private func credentialLocation(for configuration: ProviderAccountConfiguration) -> CredentialLocation {
+    private func credentialLocations(for configuration: ProviderAccountConfiguration) -> [CredentialLocation] {
+        let keychain = CredentialLocation.keychain(
+            ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
         switch configuration.authMethod {
-        case .codexAuthJSON:
-            return .authFile(
-                authFilePath,
-                keychainAccount: ProviderConfigurationStore.keychainAccount(for: configuration)
-            )
-        case .browserSession:
-            return .browserSession
+        case .codexAuthJSON, .browserSession:
+            return [.authFile(authFilePath), keychain]
         default:
-            return .keychain(ProviderConfigurationStore.keychainAccount(for: configuration))
+            return [keychain]
         }
     }
 
     private func readCredentials(location: CredentialLocation) throws -> CodexCredentials? {
         switch location {
-        case .authFile(let path, let keychainAccount):
-            if let credentials = CodexAuthFileStore.readCredentials(at: path) {
-                return credentials
-            }
-            guard let keychainAccount,
-                  let secret = try secretStore.readSecret(account: keychainAccount) else {
-                return nil
-            }
-            return CodexCredentialsParser.parse(secret)
-        case .browserSession:
-            return nil
+        case .authFile(let path):
+            return CodexAuthFileStore.readCredentials(at: path)
         case .keychain(let account):
             guard let secret = try secretStore.readSecret(account: account) else {
                 return nil
@@ -307,17 +320,8 @@ public final class CodexUsageProvider: UsageProvider {
 
     private func saveCredentials(_ credentials: CodexCredentials, location: CredentialLocation) throws {
         switch location {
-        case .authFile(let path, let keychainAccount):
-            if FileManager.default.fileExists(atPath: path) {
-                try CodexAuthFileStore.writeCredentials(credentials, at: path)
-            } else if let keychainAccount {
-                try secretStore.saveSecret(
-                    CodexCredentialsParser.storedCredential(from: credentials),
-                    account: keychainAccount
-                )
-            }
-        case .browserSession:
-            break
+        case .authFile(let path):
+            try CodexAuthFileStore.writeCredentials(credentials, at: path)
         case .keychain(let account):
             try secretStore.saveSecret(
                 CodexCredentialsParser.storedCredential(from: credentials),
@@ -329,9 +333,9 @@ public final class CodexUsageProvider: UsageProvider {
     private func notConfiguredMessage(for configuration: ProviderAccountConfiguration) -> String {
         switch configuration.authMethod {
         case .codexAuthJSON:
-            "Not configured - sign in with Codex CLI."
+            "Not configured - run Codex CLI or sign in with ChatGPT."
         case .browserSession:
-            "Browser sign-in is not available on Mac yet. Use Codex CLI credentials."
+            "Not configured - run Codex CLI or sign in with ChatGPT."
         default:
             "Not configured - sign in with ChatGPT."
         }
@@ -351,6 +355,17 @@ public final class CodexUsageProvider: UsageProvider {
             isIncompleteRefresh: isIncompleteRefresh,
             fetchedAt: now()
         )
+    }
+
+    private func fallbackOrFailure(
+        _ message: String,
+        configuration: ProviderAccountConfiguration,
+        locations: [CredentialLocation]
+    ) async throws -> ProviderUsageResult {
+        guard !locations.isEmpty else {
+            return failureResult(message, configuration: configuration)
+        }
+        return try await fetchUsage(configuration: configuration, locations: locations)
     }
 
     private func authenticationFailureMessage(for credentials: CodexCredentials) -> String {
@@ -384,16 +399,13 @@ public final class CodexUsageProvider: UsageProvider {
 }
 
 private enum CredentialLocation: Equatable {
-    case authFile(String, keychainAccount: String?)
-    case browserSession
+    case authFile(String)
     case keychain(String)
 
     var coordinatorKey: String {
         switch self {
-        case .authFile(let path, let keychainAccount):
-            "auth-file:\(path)|keychain:\(keychainAccount ?? "")"
-        case .browserSession:
-            "browser-session"
+        case .authFile(let path):
+            "auth-file:\(path)"
         case .keychain(let account):
             "keychain:\(account)"
         }

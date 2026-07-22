@@ -153,7 +153,7 @@ public enum ProviderAuthMethod: String, Codable, CaseIterable, Identifiable, Sen
         case .apiKey:
             "API Key"
         case .browserSession:
-            "Browser Session"
+            "Browser Sign-In"
         case .codexAuthJSON:
             "Codex auth.json"
         case .cliToken:

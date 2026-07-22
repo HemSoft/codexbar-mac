@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Native Settings window for appearance, auto-refresh, launch at login, and per-provider account management with immediate dashboard updates.
 - Keychain-backed API key storage and local CLI credential discovery for Codex (`~/.codex/auth.json`), GitHub CLI (`gh auth status`), and Claude Code (`~/.claude/.credentials.json`).
 - Live ChatGPT / Codex usage fetching from local CLI credentials with proactive token refresh, 5-hour and weekly usage windows, and reset countdowns.
+- Browser OAuth sign-in for ChatGPT / Codex and Claude with PKCE loopback callbacks and Keychain token storage, used as a fallback while local CLI credentials remain preferred.
 - Live Claude usage fetching from Claude Code OAuth credentials with session, weekly, OAuth-app weekly, and model-scoped limit bars.
 - Claude monetary rows for usage credits spent, monthly spend limit, remaining headroom, and prepaid balance when OAuth usage includes `spend` (preferred) or legacy `extra_usage`.
 - Live GitHub Copilot usage fetching from GitHub CLI credentials with premium and chat quota bars per account, including organization AI-credit billing (optional enterprise path and allotment override) from Settings.

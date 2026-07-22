@@ -203,7 +203,7 @@ public final class CursorWebAuthService: Sendable {
 
 #if canImport(AuthenticationServices) && canImport(AppKit)
 @MainActor
-final class CursorWebAuthenticationPresenter: NSObject, ASWebAuthenticationPresentationContextProviding {
+final class ProviderWebAuthenticationPresenter: NSObject, ASWebAuthenticationPresentationContextProviding {
     private var session: ASWebAuthenticationSession?
     private var sessionGeneration = CursorWebAuthenticationSessionGeneration()
     private var cancellationHandler: (() -> Void)?
@@ -266,6 +266,8 @@ final class CursorWebAuthenticationPresenter: NSObject, ASWebAuthenticationPrese
         cancellationHandler = nil
     }
 }
+
+typealias CursorWebAuthenticationPresenter = ProviderWebAuthenticationPresenter
 #endif
 
 struct CursorWebAuthenticationSessionGeneration {
