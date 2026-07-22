@@ -68,6 +68,9 @@
 		10000000000000000000003E /* UsageHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000040 /* UsageHistoryStore.swift */; };
 		10000000000000000000003F /* MoonshotUsageProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000041 /* MoonshotUsageProvider.swift */; };
 		100000000000000000000040 /* CredentialNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000042 /* CredentialNormalizer.swift */; };
+		100000000000000000000041 /* ProviderWebAuthSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000043 /* ProviderWebAuthSupport.swift */; };
+		100000000000000000000042 /* CodexWebAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000044 /* CodexWebAuthService.swift */; };
+		100000000000000000000043 /* ClaudeWebAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000045 /* ClaudeWebAuthService.swift */; };
 		100000000000000000000025 /* CodexBarMacTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000028 /* CodexBarMacTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -135,6 +138,9 @@
 		200000000000000000000040 /* UsageHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageHistoryStore.swift; sourceTree = "<group>"; };
 		200000000000000000000041 /* MoonshotUsageProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoonshotUsageProvider.swift; sourceTree = "<group>"; };
 		200000000000000000000042 /* CredentialNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialNormalizer.swift; sourceTree = "<group>"; };
+		200000000000000000000043 /* ProviderWebAuthSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderWebAuthSupport.swift; sourceTree = "<group>"; };
+		200000000000000000000044 /* CodexWebAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexWebAuthService.swift; sourceTree = "<group>"; };
+		200000000000000000000045 /* ClaudeWebAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWebAuthService.swift; sourceTree = "<group>"; };
 		200000000000000000000027 /* CodexBarMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000028 /* CodexBarMacTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarMacTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -252,11 +258,14 @@
 				200000000000000000000022 /* CodexAuthFileStore.swift */,
 				200000000000000000000023 /* CredentialRefreshCoordinator.swift */,
 				200000000000000000000024 /* CodexTokenRefresh.swift */,
+				200000000000000000000043 /* ProviderWebAuthSupport.swift */,
+				200000000000000000000044 /* CodexWebAuthService.swift */,
 				200000000000000000000025 /* CodexUsageParser.swift */,
 				200000000000000000000026 /* CodexUsageProvider.swift */,
 				200000000000000000000029 /* ClaudeUsageParser.swift */,
 				20000000000000000000002A /* ClaudeUsageProvider.swift */,
 				20000000000000000000002B /* ClaudeCredentialStore.swift */,
+				200000000000000000000045 /* ClaudeWebAuthService.swift */,
 				20000000000000000000002D /* CopilotCredentialsParser.swift */,
 				20000000000000000000002E /* CopilotUsageParser.swift */,
 				20000000000000000000002F /* CopilotUsageProvider.swift */,
@@ -472,6 +481,9 @@
 				10000000000000000000003E /* UsageHistoryStore.swift in Sources */,
 				10000000000000000000003F /* MoonshotUsageProvider.swift in Sources */,
 				100000000000000000000040 /* CredentialNormalizer.swift in Sources */,
+				100000000000000000000041 /* ProviderWebAuthSupport.swift in Sources */,
+				100000000000000000000042 /* CodexWebAuthService.swift in Sources */,
+				100000000000000000000043 /* ClaudeWebAuthService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

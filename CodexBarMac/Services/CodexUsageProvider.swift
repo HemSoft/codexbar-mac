@@ -272,13 +272,11 @@ public final class CodexUsageProvider: UsageProvider {
 
     private func credentialLocation(for configuration: ProviderAccountConfiguration) -> CredentialLocation {
         switch configuration.authMethod {
-        case .codexAuthJSON:
+        case .codexAuthJSON, .browserSession:
             return .authFile(
                 authFilePath,
                 keychainAccount: ProviderConfigurationStore.keychainAccount(for: configuration)
             )
-        case .browserSession:
-            return .browserSession
         default:
             return .keychain(ProviderConfigurationStore.keychainAccount(for: configuration))
         }
@@ -295,8 +293,6 @@ public final class CodexUsageProvider: UsageProvider {
                 return nil
             }
             return CodexCredentialsParser.parse(secret)
-        case .browserSession:
-            return nil
         case .keychain(let account):
             guard let secret = try secretStore.readSecret(account: account) else {
                 return nil
@@ -316,8 +312,6 @@ public final class CodexUsageProvider: UsageProvider {
                     account: keychainAccount
                 )
             }
-        case .browserSession:
-            break
         case .keychain(let account):
             try secretStore.saveSecret(
                 CodexCredentialsParser.storedCredential(from: credentials),
@@ -329,9 +323,9 @@ public final class CodexUsageProvider: UsageProvider {
     private func notConfiguredMessage(for configuration: ProviderAccountConfiguration) -> String {
         switch configuration.authMethod {
         case .codexAuthJSON:
-            "Not configured - sign in with Codex CLI."
+            "Not configured - run Codex CLI or sign in with ChatGPT."
         case .browserSession:
-            "Browser sign-in is not available on Mac yet. Use Codex CLI credentials."
+            "Not configured - run Codex CLI or sign in with ChatGPT."
         default:
             "Not configured - sign in with ChatGPT."
         }
@@ -385,15 +379,12 @@ public final class CodexUsageProvider: UsageProvider {
 
 private enum CredentialLocation: Equatable {
     case authFile(String, keychainAccount: String?)
-    case browserSession
     case keychain(String)
 
     var coordinatorKey: String {
         switch self {
         case .authFile(let path, let keychainAccount):
             "auth-file:\(path)|keychain:\(keychainAccount ?? "")"
-        case .browserSession:
-            "browser-session"
         case .keychain(let account):
             "keychain:\(account)"
         }

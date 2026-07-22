@@ -164,17 +164,116 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertNotNil(root?["last_refresh"] as? String)
     }
 
-    func testCodexUsageProviderExplainsUnavailableBrowserFallback() async throws {
+    func testCodexUsageProviderExplainsCLIAndBrowserFallback() async throws {
         let configuration = ProviderAccountConfiguration(
             providerID: .codex,
             authMethod: .browserSession
         )
-        let provider = CodexUsageProvider(now: { Date(timeIntervalSince1970: 2_000_000_000) })
+        let provider = CodexUsageProvider(
+            secretStore: InMemorySecretStore(),
+            authFilePath: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathComponent("auth.json").path,
+            now: { Date(timeIntervalSince1970: 2_000_000_000) }
+        )
 
         let result = try await provider.fetchUsage(for: configuration)
 
-        XCTAssertTrue(result.subtitle.contains("Browser sign-in is not available on Mac yet"))
+        XCTAssertTrue(result.subtitle.contains("Codex CLI or sign in with ChatGPT"))
         XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testCodexBrowserConfigurationUsesSavedKeychainCredential() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            providerID: .codex,
+            authMethod: .browserSession
+        )
+        try secretStore.saveSecret(
+            CodexCredentialsParser.storedCredential(from: CodexCredentials(
+                accessToken: "browser-access",
+                expiresAt: 2_000_003_600
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CodexUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            usageEndpoint: URL(string: "https://example.test/codex-usage")!,
+            authFilePath: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathComponent("auth.json").path,
+            now: { now }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer browser-access")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":21,"reset_at":2000007200,"limit_window_seconds":18000}}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 21)
+    }
+
+    func testCodexAuthURLUsesPKCELoopbackFlow() throws {
+        let url = CodexWebAuthService.authorizationURL(
+            redirectURI: "http://localhost:1455/auth/callback",
+            state: "state",
+            codeChallenge: "challenge"
+        )
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.host, "auth.openai.com")
+        XCTAssertEqual(components.path, "/oauth/authorize")
+        XCTAssertEqual(components.queryItemValue(named: "redirect_uri"), "http://localhost:1455/auth/callback")
+        XCTAssertEqual(components.queryItemValue(named: "code_challenge_method"), "S256")
+        XCTAssertEqual(components.queryItemValue(named: "originator"), "codex_cli_rs")
+    }
+
+    func testCodexTokenRequestBodyUsesPKCECodeExchange() {
+        let body = String(
+            data: CodexWebAuthService.makeTokenRequestBody(
+                code: "code value",
+                redirectURI: "http://localhost:1455/auth/callback",
+                codeVerifier: "verifier value"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertEqual(
+            body,
+            "grant_type=authorization_code&code=code%20value&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&client_id=app_EMoamEEZ73f0CkXaXp7hrann&code_verifier=verifier%20value"
+        )
+    }
+
+    @MainActor
+    func testCodexBrowserSignInUsesLocalhostRedirectAndTimesOut() async throws {
+        let service = CodexWebAuthService(callbackTimeoutNanoseconds: 10_000_000)
+        var presentedURL: URL?
+
+        do {
+            _ = try await service.signIn {
+                presentedURL = $0
+                return true
+            }
+            XCTFail("Expected ChatGPT browser sign-in to time out without a callback.")
+        } catch {
+            XCTAssertEqual(error as? CodexWebAuthService.AuthError, .callbackTimedOut)
+        }
+
+        let components = try XCTUnwrap(
+            URLComponents(url: try XCTUnwrap(presentedURL), resolvingAgainstBaseURL: false)
+        )
+        let redirectURI = try XCTUnwrap(components.queryItemValue(named: "redirect_uri"))
+        XCTAssertEqual(URL(string: redirectURI)?.host, "localhost")
     }
 
     func testCodexUsageProviderFallsBackToSavedKeychainCredentialWithoutAuthFile() async throws {
@@ -819,6 +918,78 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(oauth?["scopes"] as? [String], ["user:inference", "user:profile"])
     }
 
+    func testClaudeAuthURLUsesPKCELoopbackFlow() throws {
+        let url = ClaudeWebAuthService.authorizationURL(
+            redirectURI: "http://localhost:1461/callback",
+            state: "state",
+            codeChallenge: "challenge"
+        )
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.host, "claude.com")
+        XCTAssertEqual(components.path, "/cai/oauth/authorize")
+        XCTAssertEqual(components.queryItemValue(named: "redirect_uri"), "http://localhost:1461/callback")
+        XCTAssertEqual(components.queryItemValue(named: "code_challenge"), "challenge")
+        XCTAssertEqual(components.queryItemValue(named: "code_challenge_method"), "S256")
+        XCTAssertEqual(components.queryItemValue(named: "state"), "state")
+    }
+
+    func testClaudeTokenRequestBodyUsesAuthorizationCodeExchange() throws {
+        let data = ClaudeWebAuthService.makeTokenRequestBody(
+            code: "code value",
+            redirectURI: "http://localhost:1461/callback",
+            state: "state value",
+            codeVerifier: "verifier value"
+        )
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+
+        XCTAssertEqual(body["grant_type"], "authorization_code")
+        XCTAssertEqual(body["code"], "code value")
+        XCTAssertEqual(body["redirect_uri"], "http://localhost:1461/callback")
+        XCTAssertEqual(body["client_id"], "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
+        XCTAssertEqual(body["code_verifier"], "verifier value")
+        XCTAssertEqual(body["state"], "state value")
+    }
+
+    @MainActor
+    func testClaudeBrowserSignInUsesLocalhostRedirectAndTimesOut() async throws {
+        let service = ClaudeWebAuthService(callbackTimeoutNanoseconds: 10_000_000)
+        var presentedURL: URL?
+
+        do {
+            _ = try await service.signIn {
+                presentedURL = $0
+                return true
+            }
+            XCTFail("Expected Claude browser sign-in to time out without a callback.")
+        } catch {
+            XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .callbackTimedOut)
+        }
+
+        let components = try XCTUnwrap(
+            URLComponents(url: try XCTUnwrap(presentedURL), resolvingAgainstBaseURL: false)
+        )
+        let redirectURI = try XCTUnwrap(components.queryItemValue(named: "redirect_uri"))
+        XCTAssertEqual(URL(string: redirectURI)?.host, "localhost")
+    }
+
+    func testTokenEndpointErrorFormatterRedactsUntrustedDetails() {
+        let body = Data(#"{"error":"invalid_grant","error_description":"authorization code=secret-code client_id=secret-client"}"#.utf8)
+
+        let message = TokenEndpointErrorFormatter.message(statusCode: 400, body: body)
+
+        XCTAssertEqual(message, "HTTP 400 (invalid_grant)")
+        XCTAssertFalse(message.contains("secret-code"))
+        XCTAssertFalse(message.contains("secret-client"))
+        XCTAssertEqual(
+            TokenEndpointErrorFormatter.message(
+                statusCode: 502,
+                body: Data("authorization: Bearer secret-token".utf8)
+            ),
+            "HTTP 502"
+        )
+    }
+
     func testClaudeCredentialStoreRejectsWhitespaceOnlyAccessTokens() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -875,6 +1046,45 @@ final class CodexBarMacTests: XCTestCase {
         let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
 
         XCTAssertEqual(result.bars.map(\.used), [25, 50])
+    }
+
+    func testClaudeUsageProviderUsesBrowserCredentialWhenLocalCredentialsAreAbsent() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            providerID: .claude,
+            authMethod: .browserSession
+        )
+        try secretStore.saveSecret(
+            ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                expiresAt: 4_000_000_000_000,
+                accessToken: "browser-claude-access",
+                refreshToken: "redacted-refresh"
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = ClaudeUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            credentialsFilePath: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathComponent(".credentials.json").path,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)"
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer browser-claude-access")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":31,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 31)
     }
 
     func testClaudeUsageProviderProbesRateLimitsWhenOAuthReturnsMonetaryOnly() async throws {

@@ -164,9 +164,9 @@ public final class ClaudeUsageProvider: UsageProvider {
     private func notConfiguredMessage(for configuration: ProviderAccountConfiguration) -> String {
         switch configuration.authMethod {
         case .browserSession:
-            "Browser sign-in is not available on Mac yet. Sign in with Claude Code."
+            "Not configured - sign in with Claude Code or Claude in the browser."
         default:
-            "Not configured - sign in with Claude Code."
+            "Not configured - sign in with Claude Code or Claude in the browser."
         }
     }
 

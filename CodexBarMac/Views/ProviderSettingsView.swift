@@ -9,6 +9,13 @@ struct ProviderSettingsView: View {
 
     @State private var configuration: ProviderAccountConfiguration
     @State private var secret = ""
+    @State private var isSigningInWithCodex = false
+    @State private var codexAuthError: String?
+    @State private var codexSignInTask: Task<Void, Never>?
+    @State private var isSigningInWithClaude = false
+    @State private var claudeAuthError: String?
+    @State private var claudeAuthDiagnostic: String?
+    @State private var claudeSignInTask: Task<Void, Never>?
     @State private var isSigningInWithCursor = false
     @State private var cursorAuthError: String?
     @State private var cursorSignInTask: Task<Void, Never>?
@@ -16,8 +23,10 @@ struct ProviderSettingsView: View {
     @State private var openCodeCredentialMessage: String?
     @State private var copilotAllotmentText = ""
 #if canImport(AuthenticationServices) && canImport(AppKit)
-    @State private var cursorAuthPresenter = CursorWebAuthenticationPresenter()
+    @State private var webAuthPresenter = ProviderWebAuthenticationPresenter()
 #endif
+    private let codexAuthService = CodexWebAuthService()
+    private let claudeAuthService = ClaudeWebAuthService()
     private let cursorAuthService = CursorWebAuthService()
 
     init(
@@ -90,7 +99,11 @@ struct ProviderSettingsView: View {
 
                 credentialStatusView
 
-                if providerID == .cursor {
+                if providerID == .codex {
+                    codexCredentialControls
+                } else if providerID == .claude {
+                    claudeCredentialControls
+                } else if providerID == .cursor {
                     cursorCredentialControls
                 } else if providerID == .openCodeZen {
                     openCodeCredentialControls
@@ -104,7 +117,8 @@ struct ProviderSettingsView: View {
                     .disabled(secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
 
-                if configurationStore.hasSecret(for: configuration), providerID != .cursor, providerID != .openCodeZen {
+                if configurationStore.hasSecret(for: configuration),
+                   ![.codex, .claude, .cursor, .openCodeZen].contains(providerID) {
                     Button("Remove Saved Key", role: .destructive) {
                         removeSecret()
                     }
@@ -125,9 +139,11 @@ struct ProviderSettingsView: View {
             syncCopilotAllotmentText()
         }
         .onDisappear {
+            codexSignInTask?.cancel()
+            claudeSignInTask?.cancel()
             cursorSignInTask?.cancel()
 #if canImport(AuthenticationServices) && canImport(AppKit)
-            cursorAuthPresenter.finish()
+            webAuthPresenter.finish()
 #endif
         }
         .onChange(of: configuration) { oldValue, newValue in
@@ -157,6 +173,62 @@ struct ProviderSettingsView: View {
                 return
             }
             configuration.copilotTotalAllotment = parsed
+        }
+    }
+
+    @ViewBuilder
+    private var codexCredentialControls: some View {
+        Button {
+            startCodexSignIn()
+        } label: {
+            if isSigningInWithCodex {
+                ProgressView()
+            } else {
+                Text(configurationStore.hasSecret(for: configuration) ? "Sign in Again" : "Sign in with ChatGPT")
+            }
+        }
+        .disabled(isSigningInWithCodex)
+
+        if configurationStore.hasSecret(for: configuration) {
+            Button("Remove Browser Sign-In", role: .destructive) {
+                removeBrowserCredential()
+            }
+        }
+
+        if let codexAuthError {
+            Text(codexAuthError)
+                .foregroundStyle(.red)
+        }
+    }
+
+    @ViewBuilder
+    private var claudeCredentialControls: some View {
+        Button {
+            startClaudeSignIn()
+        } label: {
+            if isSigningInWithClaude {
+                ProgressView()
+            } else {
+                Text(configurationStore.hasSecret(for: configuration) ? "Sign in Again" : "Sign in with Claude")
+            }
+        }
+        .disabled(isSigningInWithClaude)
+
+        if configurationStore.hasSecret(for: configuration) {
+            Button("Remove Browser Sign-In", role: .destructive) {
+                removeBrowserCredential()
+            }
+        }
+
+        if let claudeAuthDiagnostic {
+            Text(claudeAuthDiagnostic)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+
+        if let claudeAuthError {
+            Text(claudeAuthError)
+                .foregroundStyle(.red)
         }
     }
 
@@ -253,13 +325,13 @@ struct ProviderSettingsView: View {
     private var availableAuthMethods: [ProviderAuthMethod] {
         switch providerID {
         case .codex:
-            [.codexAuthJSON]
+            [.codexAuthJSON, .browserSession]
         case .copilot:
             [.cliToken, .browserSession]
         case .openRouter, .openCodeZen, .moonshot:
             [.apiKey]
         case .claude:
-            [.browserSession, .oauth]
+            [.oauth, .browserSession]
         case .cursor:
             [.browserSession]
         case .gemini:
@@ -280,7 +352,7 @@ struct ProviderSettingsView: View {
     private var credentialGuidance: String {
         switch providerID {
         case .codex:
-            "CodexBar reads Codex CLI credentials from ~/.codex/auth.json. Browser sign-in will be added in a later issue."
+            "CodexBar prefers Codex CLI credentials from ~/.codex/auth.json. If they are unavailable, sign in with ChatGPT in the browser; CodexBar stores those tokens in Keychain."
         case .copilot:
             if configuration.copilotAccountScope == .organization {
                 "Enter the GitHub organization (and optional enterprise) for Copilot AI-credit billing. Prefer GitHub CLI credentials with org billing access, or save a token with the required org permissions."
@@ -288,7 +360,7 @@ struct ProviderSettingsView: View {
                 "GitHub Copilot can use GitHub CLI credentials discovered from `gh auth status`, or a token saved in the Keychain."
             }
         case .claude:
-            "Claude Code OAuth credentials from the macOS Keychain or ~/.claude/.credentials.json are preferred when available. Browser sign-in remains the fallback."
+            "CodexBar prefers Claude Code OAuth credentials from the macOS Keychain or ~/.claude/.credentials.json. If they are unavailable, sign in with Claude in the browser; CodexBar stores those tokens in its Keychain entry."
         case .openRouter:
             "Store an OpenRouter management API key in the Keychain. Inference-only keys cannot read credit balance."
         case .openCodeZen:
@@ -338,6 +410,136 @@ struct ProviderSettingsView: View {
 
         Task {
             await onCredentialsChanged()
+        }
+    }
+
+    private func removeBrowserCredential() {
+        configurationStore.saveSecret("", for: configuration)
+        codexAuthError = configurationStore.lastError
+        claudeAuthError = configurationStore.lastError
+        claudeAuthDiagnostic = nil
+
+        Task {
+            await onCredentialsChanged()
+        }
+    }
+
+    @MainActor
+    private func startCodexSignIn() {
+        guard codexSignInTask == nil else {
+            return
+        }
+        codexSignInTask = Task { @MainActor in
+            await signInWithCodex()
+        }
+    }
+
+    @MainActor
+    private func signInWithCodex() async {
+        isSigningInWithCodex = true
+        codexAuthError = nil
+        defer {
+#if canImport(AuthenticationServices) && canImport(AppKit)
+            webAuthPresenter.finish()
+#endif
+            codexSignInTask = nil
+            isSigningInWithCodex = false
+        }
+
+        do {
+            let result = try await codexAuthService.signIn { url in
+#if canImport(AuthenticationServices) && canImport(AppKit)
+                return webAuthPresenter.present(url: url) {
+                    codexSignInTask?.cancel()
+                }
+#else
+                _ = url
+                return false
+#endif
+            }
+            var updated = configuration
+            updated.authMethod = .browserSession
+            guard configurationStore.update(updated) else {
+                codexAuthError = configurationStore.lastError
+                return
+            }
+            configuration = updated
+            configurationStore.saveSecret(result.storedCredential, for: updated)
+            guard configurationStore.lastError == nil else {
+                codexAuthError = configurationStore.lastError
+                return
+            }
+            secret = ""
+            await onCredentialsChanged()
+        } catch {
+            codexAuthError = Task.isCancelled
+                ? "ChatGPT sign-in canceled. The existing account was not changed."
+                : error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func startClaudeSignIn() {
+        guard claudeSignInTask == nil else {
+            return
+        }
+        claudeSignInTask = Task { @MainActor in
+            await signInWithClaude()
+        }
+    }
+
+    @MainActor
+    private func signInWithClaude() async {
+        isSigningInWithClaude = true
+        claudeAuthError = nil
+        claudeAuthDiagnostic = nil
+        defer {
+#if canImport(AuthenticationServices) && canImport(AppKit)
+            webAuthPresenter.finish()
+#endif
+            claudeSignInTask = nil
+            isSigningInWithClaude = false
+        }
+
+        do {
+            let result = try await claudeAuthService.signIn(
+                presentAuthorizationURL: { url in
+#if canImport(AuthenticationServices) && canImport(AppKit)
+                    return webAuthPresenter.present(url: url) {
+                        claudeSignInTask?.cancel()
+                    }
+#else
+                    _ = url
+                    return false
+#endif
+                },
+                reportStage: { message in
+                    claudeAuthDiagnostic = message
+                }
+            )
+            var updated = configuration
+            updated.authMethod = .browserSession
+            guard configurationStore.update(updated) else {
+                claudeAuthError = configurationStore.lastError
+                return
+            }
+            configuration = updated
+            configurationStore.saveSecret(result.storedCredential, for: updated)
+            guard configurationStore.lastError == nil else {
+                claudeAuthError = configurationStore.lastError
+                claudeAuthDiagnostic = "Claude sign-in failed."
+                return
+            }
+            secret = ""
+            claudeAuthDiagnostic = "Claude sign-in complete."
+            await onCredentialsChanged()
+        } catch {
+            claudeAuthError = Task.isCancelled
+                ? "Claude sign-in canceled. The existing account was not changed."
+                : error.localizedDescription
+            if claudeAuthDiagnostic == nil {
+                claudeAuthDiagnostic = "Claude sign-in failed."
+            }
         }
     }
 
@@ -412,7 +614,7 @@ struct ProviderSettingsView: View {
         cursorAuthError = nil
         defer {
 #if canImport(AuthenticationServices) && canImport(AppKit)
-            cursorAuthPresenter.finish()
+            webAuthPresenter.finish()
 #endif
             cursorSignInTask = nil
             isSigningInWithCursor = false
@@ -421,7 +623,7 @@ struct ProviderSettingsView: View {
         do {
             let result = try await cursorAuthService.signIn { url in
 #if canImport(AuthenticationServices) && canImport(AppKit)
-                return cursorAuthPresenter.present(url: url) {
+                return webAuthPresenter.present(url: url) {
                     cursorSignInTask?.cancel()
                 }
 #else
