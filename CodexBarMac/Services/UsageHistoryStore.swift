@@ -164,6 +164,7 @@ public struct UsageHistorySeries: Equatable, Sendable {
     public let accountID: String
     public let points: [UsageHistoryPoint]
     public let isBalance: Bool
+    public let isIncreaseFavorable: Bool
     public let currencyCode: String?
     public let decimalPlaces: Int
 
@@ -171,18 +172,28 @@ public struct UsageHistorySeries: Equatable, Sendable {
         accountID: String,
         points: [UsageHistoryPoint],
         isBalance: Bool,
+        isIncreaseFavorable: Bool? = nil,
         currencyCode: String? = nil,
         decimalPlaces: Int = 2
     ) {
         self.accountID = accountID
         self.points = points
         self.isBalance = isBalance
+        self.isIncreaseFavorable = isIncreaseFavorable ?? isBalance
         self.currencyCode = currencyCode
         self.decimalPlaces = decimalPlaces
     }
 
     public var latestValueDescription: String {
         points.last.map { valueDescription(for: $0.value) } ?? "No data"
+    }
+
+    public var minimumValueDescription: String {
+        points.map(\.value).min().map(valueDescription(for:)) ?? "--"
+    }
+
+    public var maximumValueDescription: String {
+        points.map(\.value).max().map(valueDescription(for:)) ?? "--"
     }
 
     public var rangeDescription: String {
@@ -293,6 +304,18 @@ public struct UsageHistorySeries: Equatable, Sendable {
     private static let flatDeltaThreshold = 0.0001
 }
 
+public struct UsageHistorySeriesOption: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let label: String
+    public let series: UsageHistorySeries
+
+    public init(id: String, label: String, series: UsageHistorySeries) {
+        self.id = id
+        self.label = label
+        self.series = series
+    }
+}
+
 @MainActor
 public final class UsageHistoryStore: ObservableObject {
     @Published public private(set) var snapshots: [UsageHistorySnapshot]
@@ -393,6 +416,62 @@ public final class UsageHistoryStore: ObservableObject {
             currencyCode: monetaryFormat?.0,
             decimalPlaces: min(max(monetaryFormat?.1 ?? 2, 0), 6)
         )
+    }
+
+    public func historySeriesOptions(
+        for result: ProviderUsageResult,
+        since start: Date? = nil
+    ) -> [UsageHistorySeriesOption] {
+        let accountSnapshots = snapshots(for: result.accountID, since: start)
+        var options: [UsageHistorySeriesOption] = []
+        let monetaryPrimary = result.bars.isEmpty && result.creditsRemaining == nil
+            ? primaryBalanceLikeMetric(in: result.monetaryMetrics)
+            : nil
+
+        if !result.bars.isEmpty || result.creditsRemaining != nil {
+            options.append(UsageHistorySeriesOption(
+                id: "primary",
+                label: result.creditsRemaining == nil ? "Usage" : "Balance",
+                series: historySeries(for: result, since: start)
+            ))
+        } else if let monetaryPrimary {
+            options.append(UsageHistorySeriesOption(
+                id: "primary",
+                label: monetaryPrimary.label,
+                series: historySeries(for: result, since: start)
+            ))
+        }
+
+        for metric in result.monetaryMetrics where metric.id != monetaryPrimary?.id {
+            let points = accountSnapshots.compactMap { snapshot -> UsageHistoryPoint? in
+                guard let storedMetric = snapshot.monetaryMetrics?.first(where: {
+                    $0.kind == metric.kind && $0.currencyCode == metric.currencyCode
+                }) else {
+                    return nil
+                }
+                return UsageHistoryPoint(snapshot: snapshot, value: storedMetric.doubleValue)
+            }
+            options.append(UsageHistorySeriesOption(
+                id: "money.\(metric.id)",
+                label: metric.label,
+                series: UsageHistorySeries(
+                    accountID: result.accountID,
+                    points: points,
+                    isBalance: true,
+                    isIncreaseFavorable: metric.kind != .spent,
+                    currencyCode: metric.currencyCode,
+                    decimalPlaces: metric.clampedDecimalPlaces
+                )
+            ))
+        }
+
+        return options.isEmpty
+            ? [UsageHistorySeriesOption(
+                id: "primary",
+                label: "Usage",
+                series: historySeries(for: result, since: start)
+            )]
+            : options
     }
 
     public func trendSummary(for result: ProviderUsageResult, now: Date = Date()) -> UsageTrendSummary? {
