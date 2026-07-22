@@ -3198,6 +3198,55 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testProviderAccountGroupsPersistAndValidateNames() throws {
+        let suiteName = "CodexBarMacTests.Groups.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+        let work = try XCTUnwrap(store.addGroup(named: "  Work  "))
+        let personal = try XCTUnwrap(store.addGroup(named: "Personal"))
+
+        XCTAssertEqual(store.groups.map(\.name), ["Personal", "Work"])
+        XCTAssertNil(store.addGroup(named: "work"))
+        XCTAssertEqual(store.lastError, "Group names must be unique.")
+
+        var renamed = personal
+        renamed.name = "  Home  "
+        XCTAssertTrue(store.updateGroup(renamed))
+
+        let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+        XCTAssertEqual(reloadedStore.groups.map(\.name), ["Home", "Work"])
+        XCTAssertEqual(reloadedStore.group(for: work.id)?.name, "Work")
+    }
+
+    @MainActor
+    func testRemovingProviderAccountGroupUngroupsAssignedAccounts() throws {
+        let suiteName = "CodexBarMacTests.GroupRemoval.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+        let group = try XCTUnwrap(store.addGroup(named: "Work"))
+        var account = store.addAccount(for: .codex)
+        account.groupID = group.id
+        XCTAssertTrue(store.update(account))
+        XCTAssertEqual(store.configuration(accountID: account.id)?.groupID, group.id)
+
+        store.removeGroup(group)
+
+        XCTAssertTrue(store.groups.isEmpty)
+        XCTAssertNil(store.configuration(accountID: account.id)?.groupID)
+        let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+        XCTAssertTrue(reloadedStore.groups.isEmpty)
+        XCTAssertNil(reloadedStore.configuration(accountID: account.id)?.groupID)
+    }
+
+    @MainActor
     func testUsageAlertSettingsPersistAndClamp() {
         let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

@@ -90,6 +90,67 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     @discardableResult
+    public func addGroup(named name: String) -> ProviderAccountGroup? {
+        let normalizedName = Self.normalizedGroupName(name)
+        guard !normalizedName.isEmpty else {
+            lastError = "Group names cannot be empty."
+            return nil
+        }
+
+        guard isGroupNameUnique(normalizedName) else {
+            lastError = "Group names must be unique."
+            return nil
+        }
+
+        let group = ProviderAccountGroup(name: normalizedName)
+        groups.append(group)
+        sortGroups()
+        saveGroups()
+        return group
+    }
+
+    @discardableResult
+    public func updateGroup(_ group: ProviderAccountGroup) -> Bool {
+        let normalizedName = Self.normalizedGroupName(group.name)
+        guard !normalizedName.isEmpty else {
+            lastError = "Group names cannot be empty."
+            return false
+        }
+
+        guard isGroupNameUnique(normalizedName, excluding: group.id) else {
+            lastError = "Group names must be unique."
+            return false
+        }
+
+        guard let index = groups.firstIndex(where: { $0.id == group.id }) else {
+            lastError = "Group no longer exists."
+            return false
+        }
+
+        groups[index].name = normalizedName
+        sortGroups()
+        sortConfigurations()
+        saveGroups()
+        saveConfigurations()
+        return true
+    }
+
+    public func removeGroup(_ group: ProviderAccountGroup) {
+        groups.removeAll { $0.id == group.id }
+        configurations = configurations.map { configuration in
+            var updated = configuration
+            if updated.groupID == group.id {
+                updated.groupID = nil
+            }
+            return updated
+        }
+        sortGroups()
+        sortConfigurations()
+        saveGroups()
+        saveConfigurations()
+    }
+
+    @discardableResult
     public func addAccount(for providerID: ProviderID) -> ProviderAccountConfiguration {
         addAccount(for: providerID, copilotScope: .personal)
     }
@@ -526,6 +587,16 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
     }
 
+    private func saveGroups() {
+        do {
+            let data = try JSONEncoder().encode(groups)
+            defaults.set(data, forKey: groupsKey)
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     private enum DefaultsKey {
         static let configurations = "providerConfigurations"
         static let groups = "providerAccountGroups"
@@ -644,6 +715,10 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
     }
 
+    private func sortGroups() {
+        groups.sort(by: Self.groupSort)
+    }
+
     private static func configurationSort(
         _ lhs: ProviderAccountConfiguration,
         _ rhs: ProviderAccountConfiguration,
@@ -672,6 +747,13 @@ public final class ProviderConfigurationStore: ObservableObject {
         return !configurations.contains {
             $0.id != configuration.id
                 && $0.displayName.localizedCaseInsensitiveCompare(name) == .orderedSame
+        }
+    }
+
+    private func isGroupNameUnique(_ name: String, excluding groupID: String? = nil) -> Bool {
+        !groups.contains {
+            $0.id != groupID
+                && $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
         }
     }
 

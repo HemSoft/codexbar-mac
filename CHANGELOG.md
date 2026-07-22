@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Live Gemini Pro and Flash quota fetching from Gemini CLI OAuth credentials in `~/.gemini/oauth_creds.json`, with automatic token refresh and reset countdowns.
 - Configurable usage alerts via macOS notifications with threshold crossing detection, honoring each provider's enabled/disabled setting, and warning/critical severity alerts.
 - Local on-device usage history with compact sparklines on provider popover cards after successful refreshes.
+- Account groups in Settings, including create, rename, delete, and per-account group assignment.
 
 ### Fixed
 
