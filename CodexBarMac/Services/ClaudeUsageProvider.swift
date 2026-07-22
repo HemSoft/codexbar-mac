@@ -90,7 +90,8 @@ public final class ClaudeUsageProvider: UsageProvider {
                             monetaryMetrics: usageResult.monetaryMetrics,
                             usageMessages: usageResult.usageMessages,
                             hasReachedSpendLimit: usageResult.hasReachedSpendLimit,
-                            isIncompleteRefresh: usageResult.isIncompleteRefresh,
+                            // Probe-backed bars are a successful live snapshot even if OAuth failed.
+                            isIncompleteRefresh: rateLimitResult.isIncompleteRefresh,
                             fetchedAt: rateLimitResult.fetchedAt
                         )
                         await snapshotCache.store(merged, accountID: configuration.id)
