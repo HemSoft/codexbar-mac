@@ -4,6 +4,7 @@ import SwiftUI
 struct ProviderUsageCard: View {
     let result: ProviderUsageResult
     let historyOptions: [UsageHistorySeriesOption]
+    let isHistoryEnabled: Bool
 
     @State private var isShowingHistory = false
 
@@ -131,10 +132,10 @@ struct ProviderUsageCard: View {
             ?? UsageHistorySeries(accountID: result.accountID, points: [], isBalance: false)
     }
 
-    private var showsHistory: Bool {
-        !history.points.isEmpty
+    var showsHistory: Bool {
+        isHistoryEnabled && (!history.points.isEmpty
             || !result.bars.isEmpty
-            || result.creditsRemaining != nil
+            || result.creditsRemaining != nil)
     }
 
     private var statusColor: Color {
