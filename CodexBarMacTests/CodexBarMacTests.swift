@@ -223,6 +223,154 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.first?.used, 21)
     }
 
+    func testCodexBrowserConfigurationPrefersHealthyLocalCredential() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let authFilePath = directory.appendingPathComponent("auth.json").path
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try CodexAuthFileStore.writeCredentials(
+            CodexCredentials(accessToken: "local-access", expiresAt: 2_000_003_600),
+            at: authFilePath
+        )
+
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            providerID: .codex,
+            authMethod: .browserSession
+        )
+        try secretStore.saveSecret(
+            CodexCredentialsParser.storedCredential(from: CodexCredentials(
+                accessToken: "browser-access",
+                expiresAt: 2_000_003_600
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CodexUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            usageEndpoint: URL(string: "https://example.test/codex-usage")!,
+            authFilePath: authFilePath,
+            now: { now }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer local-access")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":22,"reset_at":2000007200,"limit_window_seconds":18000}}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 22)
+    }
+
+    func testCodexBrowserConfigurationFallsBackWhenLocalCredentialIsExpired() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let authFilePath = directory.appendingPathComponent("auth.json").path
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try CodexAuthFileStore.writeCredentials(
+            CodexCredentials(accessToken: "expired-local", expiresAt: 1_999_999_000),
+            at: authFilePath
+        )
+
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            providerID: .codex,
+            authMethod: .browserSession
+        )
+        try secretStore.saveSecret(
+            CodexCredentialsParser.storedCredential(from: CodexCredentials(
+                accessToken: "browser-access",
+                expiresAt: 2_000_003_600
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CodexUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            usageEndpoint: URL(string: "https://example.test/codex-usage")!,
+            authFilePath: authFilePath,
+            now: { now }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer browser-access")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":23,"reset_at":2000007200,"limit_window_seconds":18000}}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 23)
+    }
+
+    func testCodexBrowserConfigurationFallsBackWhenLocalCredentialIsRejected() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let authFilePath = directory.appendingPathComponent("auth.json").path
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try CodexAuthFileStore.writeCredentials(
+            CodexCredentials(accessToken: "revoked-local", expiresAt: 2_000_003_600),
+            at: authFilePath
+        )
+
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            providerID: .codex,
+            authMethod: .browserSession
+        )
+        try secretStore.saveSecret(
+            CodexCredentialsParser.storedCredential(from: CodexCredentials(
+                accessToken: "browser-access",
+                expiresAt: 2_000_003_600
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CodexUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            usageEndpoint: URL(string: "https://example.test/codex-usage")!,
+            authFilePath: authFilePath,
+            now: { now }
+        )
+        MockURLProtocol.handler = { request in
+            let authorization = request.value(forHTTPHeaderField: "Authorization")
+            if authorization == "Bearer revoked-local" {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 401, httpVersion: nil, headerFields: nil)!,
+                    Data()
+                )
+            }
+            XCTAssertEqual(authorization, "Bearer browser-access")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":24,"reset_at":2000007200,"limit_window_seconds":18000}}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 24)
+    }
+
     func testCodexAuthURLUsesPKCELoopbackFlow() throws {
         let url = CodexWebAuthService.authorizationURL(
             redirectURI: "http://localhost:1455/auth/callback",
