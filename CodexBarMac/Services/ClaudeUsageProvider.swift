@@ -34,11 +34,31 @@ public final class ClaudeUsageProvider: UsageProvider {
     }
 
     public func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
-        guard var loaded = loadCredentials(configuration: configuration) else {
+        try await fetchUsage(
+            configuration: configuration,
+            candidates: credentialCandidates(configuration: configuration)
+        )
+    }
+
+    private func fetchUsage(
+        configuration: ProviderAccountConfiguration,
+        candidates: [LoadedCredentials]
+    ) async throws -> ProviderUsageResult {
+        guard var loaded = candidates.first else {
             return failureResult(
                 notConfiguredMessage(for: configuration),
                 configuration: configuration,
                 isIncompleteRefresh: false
+            )
+        }
+        let fallbackCandidates = Array(candidates.dropFirst())
+
+        if !credentialIsFresh(loaded.credentials),
+           loaded.credentials.refreshToken?.isEmpty != false {
+            return try await fallbackOrFailure(
+                "Claude credential expired and cannot be renewed. Sign in again.",
+                configuration: configuration,
+                candidates: fallbackCandidates
             )
         }
 
@@ -50,14 +70,30 @@ public final class ClaudeUsageProvider: UsageProvider {
         case .unchanged(let credentials), .refreshed(let credentials):
             loaded.credentials = credentials
         case .temporarilyUnavailable:
-            return failureResult("Could not renew the Claude credential. Try again.", configuration: configuration)
+            return try await fallbackOrFailure(
+                "Could not renew the Claude credential. Try again.",
+                configuration: configuration,
+                candidates: fallbackCandidates
+            )
         case .rejected:
-            return failureResult("Claude credential renewal was rejected. Sign in again.", configuration: configuration)
+            return try await fallbackOrFailure(
+                "Claude credential renewal was rejected. Sign in again.",
+                configuration: configuration,
+                candidates: fallbackCandidates
+            )
         case .persistenceFailed:
-            return failureResult("Could not securely save the renewed Claude credential. Sign in again.", configuration: configuration)
+            return try await fallbackOrFailure(
+                "Could not securely save the renewed Claude credential. Sign in again.",
+                configuration: configuration,
+                candidates: fallbackCandidates
+            )
         }
         guard var token = loaded.credentials.accessToken, !token.isEmpty else {
-            return failureResult("Claude credential is missing an access token.", configuration: configuration)
+            return try await fallbackOrFailure(
+                "Claude credential is missing an access token.",
+                configuration: configuration,
+                candidates: fallbackCandidates
+            )
         }
         await snapshotCache.prepare(accountID: configuration.id, credential: token)
 
@@ -67,6 +103,12 @@ public final class ClaudeUsageProvider: UsageProvider {
             accessToken: &token,
             canRefresh: true
         )
+        if oauthOutcome.shouldTryFallbackCredential, !fallbackCandidates.isEmpty {
+            return try await fetchUsage(
+                configuration: configuration,
+                candidates: fallbackCandidates
+            )
+        }
         if let usageResult = oauthOutcome.result {
             let retryAt = await snapshotCache.retryAt(accountID: configuration.id)
             let canProbe = retryAt.map { $0 <= now() } ?? true
@@ -141,24 +183,25 @@ public final class ClaudeUsageProvider: UsageProvider {
         let storage: ClaudeCredentialStore.Storage?
     }
 
-    private func loadCredentials(configuration: ProviderAccountConfiguration) -> LoadedCredentials? {
+    private func credentialCandidates(configuration: ProviderAccountConfiguration) -> [LoadedCredentials] {
+        var candidates: [LoadedCredentials] = []
         if let local = ClaudeCredentialStore.readCredentials(
             keychainAccount: keychainAccount,
             credentialsFilePath: credentialsFilePath
         ) {
-            return LoadedCredentials(credentials: local.credentials, storage: local.storage)
+            candidates.append(LoadedCredentials(credentials: local.credentials, storage: local.storage))
         }
 
         let account = ProviderConfigurationStore.keychainAccount(for: configuration)
-        guard
+        if
             let storedSecret = try? secretStore.readSecret(account: account),
             let parsedCredentials = ClaudeCredentialsParser.parse(storedSecret),
             parsedCredentials.accessToken?.isEmpty == false
-        else {
-            return nil
+        {
+            candidates.append(LoadedCredentials(credentials: parsedCredentials, storage: nil))
         }
 
-        return LoadedCredentials(credentials: parsedCredentials, storage: nil)
+        return candidates
     }
 
     private func notConfiguredMessage(for configuration: ProviderAccountConfiguration) -> String {
@@ -221,13 +264,15 @@ public final class ClaudeUsageProvider: UsageProvider {
                 guard let newToken = refreshed.accessToken, !newToken.isEmpty else {
                     return OAuthUsageOutcome(
                         result: failureResult("Claude credential was rejected. Sign in again.", configuration: configuration),
-                        permitsFallbackProbe: false
+                        permitsFallbackProbe: false,
+                        shouldTryFallbackCredential: true
                     )
                 }
                 guard newToken != accessToken else {
                     return OAuthUsageOutcome(
                         result: failureResult("Claude credential was rejected. Sign in again.", configuration: configuration),
-                        permitsFallbackProbe: false
+                        permitsFallbackProbe: false,
+                        shouldTryFallbackCredential: true
                     )
                 }
                 loaded.credentials = refreshed
@@ -245,33 +290,39 @@ public final class ClaudeUsageProvider: UsageProvider {
             case .rejected:
                 return OAuthUsageOutcome(
                     result: failureResult("Claude credential renewal was rejected. Sign in again.", configuration: configuration),
-                    permitsFallbackProbe: false
+                    permitsFallbackProbe: false,
+                    shouldTryFallbackCredential: true
                 )
             case .temporarilyUnavailable:
                 return OAuthUsageOutcome(
                     result: failureResult("Could not renew the Claude credential. Try again.", configuration: configuration),
-                    permitsFallbackProbe: false
+                    permitsFallbackProbe: false,
+                    shouldTryFallbackCredential: true
                 )
             case .persistenceFailed:
                 return OAuthUsageOutcome(
                     result: failureResult("Could not securely save the renewed Claude credential. Sign in again.", configuration: configuration),
-                    permitsFallbackProbe: false
+                    permitsFallbackProbe: false,
+                    shouldTryFallbackCredential: true
                 )
             case .unchanged:
                 return OAuthUsageOutcome(
                     result: failureResult("Claude credential was rejected. Sign in again.", configuration: configuration),
-                    permitsFallbackProbe: false
+                    permitsFallbackProbe: false,
+                    shouldTryFallbackCredential: true
                 )
             }
         case 401:
             return OAuthUsageOutcome(
                 result: failureResult("Claude credential was rejected. Sign in again.", configuration: configuration),
-                permitsFallbackProbe: false
+                permitsFallbackProbe: false,
+                shouldTryFallbackCredential: true
             )
         case 403:
             return OAuthUsageOutcome(
                 result: failureResult("Claude credential lacks permission to read subscription usage.", configuration: configuration),
-                permitsFallbackProbe: true
+                permitsFallbackProbe: true,
+                shouldTryFallbackCredential: true
             )
         case 404:
             return OAuthUsageOutcome(
@@ -592,6 +643,17 @@ public final class ClaudeUsageProvider: UsageProvider {
         )
     }
 
+    private func fallbackOrFailure(
+        _ message: String,
+        configuration: ProviderAccountConfiguration,
+        candidates: [LoadedCredentials]
+    ) async throws -> ProviderUsageResult {
+        guard !candidates.isEmpty else {
+            return failureResult(message, configuration: configuration)
+        }
+        return try await fetchUsage(configuration: configuration, candidates: candidates)
+    }
+
     private func staleOrFailureResult(
         _ message: String,
         configuration: ProviderAccountConfiguration
@@ -736,15 +798,18 @@ private struct OAuthUsageOutcome {
     let result: ProviderUsageResult?
     let permitsFallbackProbe: Bool
     let isSuccessfulSnapshot: Bool
+    let shouldTryFallbackCredential: Bool
 
     init(
         result: ProviderUsageResult?,
         permitsFallbackProbe: Bool,
-        isSuccessfulSnapshot: Bool = false
+        isSuccessfulSnapshot: Bool = false,
+        shouldTryFallbackCredential: Bool = false
     ) {
         self.result = result
         self.permitsFallbackProbe = permitsFallbackProbe
         self.isSuccessfulSnapshot = isSuccessfulSnapshot
+        self.shouldTryFallbackCredential = shouldTryFallbackCredential
     }
 }
 

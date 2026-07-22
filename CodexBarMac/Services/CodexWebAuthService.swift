@@ -192,19 +192,7 @@ public final class CodexWebAuthService: Sendable {
     }
 
     public static func accountID(from token: String) -> String? {
-        let parts = token.split(separator: ".")
-        guard parts.count >= 2 else {
-            return nil
-        }
-
-        guard
-            let payloadData = Data(base64URLString: String(parts[1])),
-            let root = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any]
-        else {
-            return nil
-        }
-
-        return root["chatgpt_account_id"] as? String
+        CodexCredentialsParser.parse(token)?.accountID
     }
 
     private func exchangeCodeForTokens(
@@ -241,7 +229,7 @@ public final class CodexWebAuthService: Sendable {
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
             idToken: tokens.idToken,
-            accountID: tokens.idToken.flatMap(Self.accountID) ?? Self.accountID(from: tokens.accessToken),
+            accountID: parsedIDToken?.accountID ?? parsedAccessToken?.accountID,
             expiresAt: tokens.expiresAt.map(CodexCredentials.normalizedEpochSeconds)
                 ?? tokens.expiresIn.map { Int64(now.addingTimeInterval(TimeInterval($0)).timeIntervalSince1970) }
                 ?? parsedAccessToken?.expiresAt
@@ -263,18 +251,6 @@ private extension URLComponents {
 }
 
 private extension Data {
-    init?(base64URLString: String) {
-        var base64 = base64URLString
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-
-        let padding = base64.count % 4
-        if padding > 0 {
-            base64.append(String(repeating: "=", count: 4 - padding))
-        }
-        self.init(base64Encoded: base64)
-    }
-
     func base64URLEncodedString() -> String {
         base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")

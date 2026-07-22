@@ -402,6 +402,15 @@ final class CodexBarMacTests: XCTestCase {
         )
     }
 
+    func testCodexWebAuthReadsNamespacedAccountID() {
+        let header = #"{"alg":"none"}"#.base64URLEncodedForTest()
+        let payload = #"{"https://api.openai.com/auth":{"chatgpt_account_id":"namespaced-account"}}"#
+            .base64URLEncodedForTest()
+        let token = "\(header).\(payload).signature"
+
+        XCTAssertEqual(CodexWebAuthService.accountID(from: token), "namespaced-account")
+    }
+
     @MainActor
     func testCodexBrowserSignInUsesLocalhostRedirectAndTimesOut() async throws {
         let service = CodexWebAuthService(callbackTimeoutNanoseconds: 10_000_000)
@@ -1233,6 +1242,147 @@ final class CodexBarMacTests: XCTestCase {
         let result = try await provider.fetchUsage(for: configuration)
 
         XCTAssertEqual(result.bars.first?.used, 31)
+    }
+
+    func testClaudeBrowserConfigurationPrefersHealthyLocalCredential() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 2_000_003_600,
+            accessToken: "healthy-local"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(providerID: .claude, authMethod: .browserSession)
+        try secretStore.saveSecret(
+            ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                expiresAt: 2_000_003_600,
+                accessToken: "browser-access"
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = ClaudeUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            credentialsFilePath: credentialsPath,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)",
+            now: { now }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer healthy-local")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":21,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 21)
+    }
+
+    func testClaudeBrowserConfigurationFallsBackWhenLocalCredentialIsExpired() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 1_999_999_900,
+            accessToken: "expired-local"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(providerID: .claude, authMethod: .browserSession)
+        try secretStore.saveSecret(
+            ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                expiresAt: 2_000_003_600,
+                accessToken: "browser-access"
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = ClaudeUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            credentialsFilePath: credentialsPath,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)",
+            now: { now }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer browser-access")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":32,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 32)
+    }
+
+    func testClaudeBrowserConfigurationFallsBackWhenLocalCredentialIsRejected() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 2_000_003_600,
+            accessToken: "revoked-local"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(providerID: .claude, authMethod: .browserSession)
+        try secretStore.saveSecret(
+            ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                expiresAt: 2_000_003_600,
+                accessToken: "browser-access"
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = ClaudeUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            credentialsFilePath: credentialsPath,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)",
+            now: { now }
+        )
+        MockURLProtocol.handler = { request in
+            if request.value(forHTTPHeaderField: "Authorization") == "Bearer revoked-local" {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 401, httpVersion: nil, headerFields: nil)!,
+                    Data()
+                )
+            }
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer browser-access")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":43,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 43)
     }
 
     func testClaudeUsageProviderProbesRateLimitsWhenOAuthReturnsMonetaryOnly() async throws {
