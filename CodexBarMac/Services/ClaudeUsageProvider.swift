@@ -90,6 +90,7 @@ public final class ClaudeUsageProvider: UsageProvider {
                             monetaryMetrics: usageResult.monetaryMetrics,
                             usageMessages: usageResult.usageMessages,
                             hasReachedSpendLimit: usageResult.hasReachedSpendLimit,
+                            isIncompleteRefresh: usageResult.isIncompleteRefresh,
                             fetchedAt: rateLimitResult.fetchedAt
                         )
                         await snapshotCache.store(merged, accountID: configuration.id)
@@ -594,6 +595,7 @@ public final class ClaudeUsageProvider: UsageProvider {
             monetaryMetrics: cached.monetaryMetrics,
             usageMessages: cached.usageMessages,
             hasReachedSpendLimit: cached.hasReachedSpendLimit,
+            isIncompleteRefresh: true,
             fetchedAt: cached.fetchedAt
         )
     }

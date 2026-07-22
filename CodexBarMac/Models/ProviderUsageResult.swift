@@ -64,7 +64,10 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
     public let isIncompleteRefresh: Bool
     public let fetchedAt: Date
 
-    private let spendLimitReachedOverride: Bool
+    /// When `true`, forces `hasReachedSpendLimit` to `true` regardless of `monetaryMetrics`.
+    /// A `false` value does not suppress a metrics-derived `true`; it falls back to comparing
+    /// `.spent` / `.spendLimit` metrics.
+    private let forcedSpendLimitReached: Bool
 
     public init(
         accountID: String? = nil,
@@ -87,7 +90,7 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
         self.creditsRemaining = creditsRemaining
         self.monetaryMetrics = monetaryMetrics
         self.usageMessages = usageMessages
-        self.spendLimitReachedOverride = hasReachedSpendLimit
+        self.forcedSpendLimitReached = hasReachedSpendLimit
         self.isIncompleteRefresh = isIncompleteRefresh
         self.fetchedAt = fetchedAt
     }
@@ -97,7 +100,7 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
     }
 
     public var hasReachedSpendLimit: Bool {
-        if spendLimitReachedOverride {
+        if forcedSpendLimitReached {
             return true
         }
 

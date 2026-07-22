@@ -78,6 +78,8 @@ public struct UsageHistorySnapshot: Identifiable, Equatable, Codable, Sendable {
     public let capturedAt: Date
     public let bars: [UsageHistoryBarSnapshot]
     public let creditsRemaining: Double?
+    // Kept optional so pre-existing persisted snapshots (written before this field
+    // existed) decode as `nil` instead of failing JSONDecoder entirely.
     public let monetaryMetrics: [UsageHistoryMonetaryMetricSnapshot]?
     public let highestSeverity: UsageSeverity
 
@@ -115,7 +117,7 @@ public struct UsageHistorySnapshot: Identifiable, Equatable, Codable, Sendable {
     }
 }
 
-fileprivate func primaryBalanceLikeMetric<T>(in metrics: [T]) -> T? where T: MonetaryMetricSnapshot {
+private func primaryBalanceLikeMetric<T>(in metrics: [T]) -> T? where T: MonetaryMetricSnapshot {
     metrics.first(where: { $0.metricKind == .balance })
         ?? metrics.first(where: { $0.metricKind == .remainingHeadroom })
 }

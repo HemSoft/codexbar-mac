@@ -463,8 +463,7 @@ public enum ClaudeUsageParser {
             return ([], ["Usage credits are disabled."])
         }
         let reportedCurrency = extraUsage.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let currency = reportedCurrency.flatMap { $0.isEmpty ? nil : $0 } ?? "USD"
-        guard currency.count == 3, let usedCredits = extraUsage.usedCredits else {
+        guard let currency = resolvedCurrencyCode(from: reportedCurrency), let usedCredits = extraUsage.usedCredits else {
             return ([], ["Usage credits are enabled, but monetary details are temporarily unavailable."])
         }
         let decimalPlaces = extraUsage.decimalPlaces ?? currencyDecimalPlaces(currency)
@@ -507,6 +506,15 @@ public enum ClaudeUsageParser {
             messages.append("Usage credits are enabled with no monthly spend limit reported.")
         }
         return (metrics, messages)
+    }
+
+    private static func resolvedCurrencyCode(from reportedCurrency: String?) -> String? {
+        let currency = reportedCurrency.flatMap { $0.isEmpty ? nil : $0 } ?? "USD"
+        let normalized = currency.uppercased()
+        guard normalized.count == 3, normalized.allSatisfy(\.isLetter) else {
+            return nil
+        }
+        return normalized
     }
 
     private static func uniqueMessages(_ messages: [String]) -> [String] {
