@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Processor"
+  short_description: "Drive GitHub PRs through any reviewer loop"
+  default_prompt: "Use $pr-processor to process this pull request until all selected reviewers are clean and current checks pass."
