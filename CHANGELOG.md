@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Local on-device usage history with compact sparklines on provider popover cards after successful refreshes.
 - Expanded on-device history sheets with interactive charts, metric summaries, series selection, and recent samples.
 - Account groups in Settings, including create, rename, delete, and per-account group assignment.
+- Manual or smart dashboard ordering, with smart mode prioritizing urgent usage, low balances, and projected limit exhaustion.
 
 ### Fixed
 

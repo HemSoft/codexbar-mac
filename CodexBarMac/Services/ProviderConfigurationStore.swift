@@ -9,6 +9,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var localCredentialHints: [String: String]
     @Published public private(set) var appAppearance: AppAppearance
     @Published public private(set) var autoRefreshInterval: AutoRefreshInterval
+    @Published public private(set) var dashboardOrderingMode: DashboardOrderingMode
     @Published public private(set) var usageAlertSettings: UsageAlertSettings
     @Published public private(set) var usageAlertActiveIDs: Set<String>
     @Published public private(set) var lastError: String?
@@ -19,6 +20,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let groupsKey = DefaultsKey.groups
     private let appAppearanceKey = DefaultsKey.appAppearance
     private let autoRefreshIntervalKey = DefaultsKey.autoRefreshInterval
+    private let dashboardOrderingModeKey = DefaultsKey.dashboardOrderingMode
     private let usageAlertSettingsKey = DefaultsKey.usageAlertSettings
     private let usageAlertActiveIDsKey = DefaultsKey.usageAlertActiveIDs
     private let suppressedCopilotDiscoveryUsernamesKey = DefaultsKey.suppressedCopilotDiscoveryUsernames
@@ -43,6 +45,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         self.localCredentialHints = [:]
         self.appAppearance = Self.loadAppAppearance(from: defaults)
         self.autoRefreshInterval = Self.loadAutoRefreshInterval(from: defaults)
+        self.dashboardOrderingMode = Self.loadDashboardOrderingMode(from: defaults)
         self.usageAlertSettings = Self.loadUsageAlertSettings(from: defaults)
         self.usageAlertActiveIDs = Self.loadUsageAlertActiveIDs(from: defaults)
         sortConfigurations()
@@ -228,6 +231,11 @@ public final class ProviderConfigurationStore: ObservableObject {
     public func updateAutoRefreshInterval(_ interval: AutoRefreshInterval) {
         autoRefreshInterval = interval
         defaults.set(interval.rawValue, forKey: autoRefreshIntervalKey)
+    }
+
+    public func updateDashboardOrderingMode(_ mode: DashboardOrderingMode) {
+        dashboardOrderingMode = mode
+        defaults.set(mode.rawValue, forKey: dashboardOrderingModeKey)
     }
 
     public func updateUsageAlertSettings(_ settings: UsageAlertSettings) {
@@ -602,6 +610,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         static let groups = "providerAccountGroups"
         static let appAppearance = "appAppearance"
         static let autoRefreshInterval = "autoRefreshInterval"
+        static let dashboardOrderingMode = "dashboardOrderingMode"
         static let usageAlertSettings = "usageAlertSettings"
         static let usageAlertActiveIDs = "usageAlertActiveIDs"
         static let suppressedCopilotDiscoveryUsernames = "suppressedCopilotDiscoveryUsernames"
@@ -669,6 +678,17 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
 
         return interval
+    }
+
+    private static func loadDashboardOrderingMode(from defaults: UserDefaults) -> DashboardOrderingMode {
+        guard
+            let rawValue = defaults.string(forKey: DefaultsKey.dashboardOrderingMode),
+            let mode = DashboardOrderingMode(rawValue: rawValue)
+        else {
+            return .manual
+        }
+
+        return mode
     }
 
     private func saveUsageAlertSettings() {

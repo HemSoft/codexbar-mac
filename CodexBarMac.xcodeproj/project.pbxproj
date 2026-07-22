@@ -71,6 +71,8 @@
 		100000000000000000000041 /* ProviderWebAuthSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000043 /* ProviderWebAuthSupport.swift */; };
 		100000000000000000000042 /* CodexWebAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000044 /* CodexWebAuthService.swift */; };
 		100000000000000000000043 /* ClaudeWebAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000045 /* ClaudeWebAuthService.swift */; };
+		100000000000000000000044 /* DashboardOrderingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000046 /* DashboardOrderingMode.swift */; };
+		100000000000000000000045 /* DashboardUsageSorter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000047 /* DashboardUsageSorter.swift */; };
 		100000000000000000000025 /* CodexBarMacTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000028 /* CodexBarMacTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -141,6 +143,8 @@
 		200000000000000000000043 /* ProviderWebAuthSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderWebAuthSupport.swift; sourceTree = "<group>"; };
 		200000000000000000000044 /* CodexWebAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexWebAuthService.swift; sourceTree = "<group>"; };
 		200000000000000000000045 /* ClaudeWebAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWebAuthService.swift; sourceTree = "<group>"; };
+		200000000000000000000046 /* DashboardOrderingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardOrderingMode.swift; sourceTree = "<group>"; };
+		200000000000000000000047 /* DashboardUsageSorter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardUsageSorter.swift; sourceTree = "<group>"; };
 		200000000000000000000027 /* CodexBarMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000028 /* CodexBarMacTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarMacTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -224,6 +228,7 @@
 				200000000000000000000009 /* ProviderUsageResult.swift */,
 				20000000000000000000000A /* ProviderAccountConfiguration.swift */,
 				20000000000000000000000B /* AutoRefreshInterval.swift */,
+				200000000000000000000046 /* DashboardOrderingMode.swift */,
 				20000000000000000000000C /* AppAppearance.swift */,
 				20000000000000000000001C /* CodexCredentials.swift */,
 				20000000000000000000001E /* ClaudeCredentials.swift */,
@@ -249,6 +254,7 @@
 				20000000000000000000000E /* UsageProvider.swift */,
 				20000000000000000000000F /* DemoUsageProvider.swift */,
 				200000000000000000000010 /* UsageRefreshService.swift */,
+				200000000000000000000047 /* DashboardUsageSorter.swift */,
 				200000000000000000000011 /* ProviderConfigurationStore.swift */,
 				200000000000000000000012 /* SecretStore.swift */,
 				20000000000000000000001B /* KeychainService.swift */,
@@ -429,11 +435,13 @@
 				100000000000000000000007 /* ProviderUsageResult.swift in Sources */,
 				100000000000000000000008 /* ProviderAccountConfiguration.swift in Sources */,
 				100000000000000000000009 /* AutoRefreshInterval.swift in Sources */,
+				100000000000000000000044 /* DashboardOrderingMode.swift in Sources */,
 				10000000000000000000000A /* AppAppearance.swift in Sources */,
 				10000000000000000000000B /* UserFacingDateTimeFormatter.swift in Sources */,
 				10000000000000000000000C /* UsageProvider.swift in Sources */,
 				10000000000000000000000D /* DemoUsageProvider.swift in Sources */,
 				10000000000000000000000E /* UsageRefreshService.swift in Sources */,
+				100000000000000000000045 /* DashboardUsageSorter.swift in Sources */,
 				10000000000000000000000F /* ProviderConfigurationStore.swift in Sources */,
 				100000000000000000000010 /* SecretStore.swift in Sources */,
 				100000000000000000000011 /* AppModel.swift in Sources */,
