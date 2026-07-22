@@ -421,6 +421,9 @@ public final class UsageHistoryStore: ObservableObject {
     ) -> [UsageHistorySeriesOption] {
         let accountSnapshots = snapshots(for: result.accountID, since: start)
         var options: [UsageHistorySeriesOption] = []
+        let monetaryPrimary = result.bars.isEmpty && result.creditsRemaining == nil
+            ? primaryBalanceLikeMetric(in: result.monetaryMetrics)
+            : nil
 
         if !result.bars.isEmpty || result.creditsRemaining != nil {
             options.append(UsageHistorySeriesOption(
@@ -428,9 +431,15 @@ public final class UsageHistoryStore: ObservableObject {
                 label: result.creditsRemaining == nil ? "Usage" : "Balance",
                 series: historySeries(for: result, since: start)
             ))
+        } else if let monetaryPrimary {
+            options.append(UsageHistorySeriesOption(
+                id: "primary",
+                label: monetaryPrimary.label,
+                series: historySeries(for: result, since: start)
+            ))
         }
 
-        for metric in result.monetaryMetrics {
+        for metric in result.monetaryMetrics where metric.id != monetaryPrimary?.id {
             let points = accountSnapshots.compactMap { snapshot -> UsageHistoryPoint? in
                 guard let storedMetric = snapshot.monetaryMetrics?.first(where: {
                     $0.kind == metric.kind && $0.currencyCode == metric.currencyCode

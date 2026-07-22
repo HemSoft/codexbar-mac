@@ -5419,6 +5419,63 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testUsageHistoryStoreKeepsBalanceLikeSeriesPrimaryForMonetaryOnlyResult() {
+        let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        func result(at date: Date, spent: Decimal, headroom: Decimal) -> ProviderUsageResult {
+            ProviderUsageResult(
+                accountID: "claude.main",
+                providerID: .claude,
+                title: "Claude",
+                subtitle: "Live",
+                bars: [],
+                monetaryMetrics: [
+                    ProviderMonetaryMetric(
+                        kind: .spent,
+                        label: "Usage credits spent",
+                        minorUnits: spent,
+                        currencyCode: "USD",
+                        decimalPlaces: 2
+                    ),
+                    ProviderMonetaryMetric(
+                        kind: .spendLimit,
+                        label: "Monthly spend limit",
+                        minorUnits: 10_000,
+                        currencyCode: "USD",
+                        decimalPlaces: 2
+                    ),
+                    ProviderMonetaryMetric(
+                        kind: .remainingHeadroom,
+                        label: "Remaining spend headroom",
+                        minorUnits: headroom,
+                        currencyCode: "USD",
+                        decimalPlaces: 2
+                    ),
+                ],
+                fetchedAt: date
+            )
+        }
+
+        let t0 = Date(timeIntervalSince1970: 1_788_475_200)
+        let t1 = t0.addingTimeInterval(3_600)
+        let first = result(at: t0, spent: 1_000, headroom: 9_000)
+        let second = result(at: t1, spent: 1_250, headroom: 8_750)
+        let store = UsageHistoryStore(defaults: defaults)
+        store.record(results: [first, second], now: t1)
+
+        let options = store.historySeriesOptions(for: second)
+
+        XCTAssertEqual(
+            options.map(\.label),
+            ["Remaining spend headroom", "Usage credits spent", "Monthly spend limit"]
+        )
+        XCTAssertEqual(options[0].series.points.map(\.value), [90.0, 87.5])
+        XCTAssertEqual(options[0].series.direction, .down)
+    }
+
+    @MainActor
     func testUsageHistoryStoreRecordsClaudeMonetaryMetrics() {
         let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
