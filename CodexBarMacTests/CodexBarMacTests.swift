@@ -5414,6 +5414,7 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(options.map(\.label), ["Usage", "Usage credits spent"])
         XCTAssertEqual(options[0].series.points.map(\.value), [0.2, 0.35])
         XCTAssertEqual(options[1].series.points.map(\.value), [10.0, 12.5])
+        XCTAssertFalse(options[1].series.isIncreaseFavorable)
         XCTAssertEqual(options[1].series.minimumValueDescription, "$10.00")
         XCTAssertEqual(options[1].series.maximumValueDescription, "$12.50")
     }

@@ -573,9 +573,9 @@ private extension UsageHistorySeries {
         case .flat:
             .secondary
         case .up:
-            isBalance ? .green : .orange
+            isIncreaseFavorable ? .green : .orange
         case .down:
-            isBalance ? .orange : .green
+            isIncreaseFavorable ? .orange : .green
         }
     }
 }

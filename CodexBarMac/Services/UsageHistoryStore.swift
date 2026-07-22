@@ -164,6 +164,7 @@ public struct UsageHistorySeries: Equatable, Sendable {
     public let accountID: String
     public let points: [UsageHistoryPoint]
     public let isBalance: Bool
+    public let isIncreaseFavorable: Bool
     public let currencyCode: String?
     public let decimalPlaces: Int
 
@@ -171,12 +172,14 @@ public struct UsageHistorySeries: Equatable, Sendable {
         accountID: String,
         points: [UsageHistoryPoint],
         isBalance: Bool,
+        isIncreaseFavorable: Bool? = nil,
         currencyCode: String? = nil,
         decimalPlaces: Int = 2
     ) {
         self.accountID = accountID
         self.points = points
         self.isBalance = isBalance
+        self.isIncreaseFavorable = isIncreaseFavorable ?? isBalance
         self.currencyCode = currencyCode
         self.decimalPlaces = decimalPlaces
     }
@@ -455,6 +458,7 @@ public final class UsageHistoryStore: ObservableObject {
                     accountID: result.accountID,
                     points: points,
                     isBalance: true,
+                    isIncreaseFavorable: metric.kind != .spent,
                     currencyCode: metric.currencyCode,
                     decimalPlaces: metric.clampedDecimalPlaces
                 )
