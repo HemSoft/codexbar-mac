@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var alertPermissionMessage: String?
     @State private var alertAuthorizationGeneration = 0
     @State private var alertAuthorizationTask: Task<Void, Never>?
+    @State private var newGroupName = ""
 
     private var configurationStore: ProviderConfigurationStore {
         model.configurationStore
@@ -66,6 +67,42 @@ struct SettingsView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                }
+
+                Section("Groups") {
+                    if configurationStore.groups.isEmpty {
+                        Text("No groups")
+                            .foregroundStyle(.secondary)
+                    }
+
+                    ForEach(configurationStore.groups) { group in
+                        GroupSettingsRow(
+                            group: group,
+                            onRename: { name in
+                                var updated = group
+                                updated.name = name
+                                return configurationStore.updateGroup(updated)
+                            },
+                            onDelete: {
+                                configurationStore.removeGroup(group)
+                            }
+                        )
+                    }
+
+                    HStack {
+                        TextField("New group", text: $newGroupName)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(addGroup)
+
+                        Button(action: addGroup) {
+                            Label("Add Group", systemImage: "plus.circle")
+                        }
+                        .disabled(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    Text("Deleting a group moves its accounts to Ungrouped.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Accounts") {
@@ -308,6 +345,14 @@ struct SettingsView: View {
         }
     }
 
+    private func addGroup() {
+        guard configurationStore.addGroup(named: newGroupName) != nil else {
+            return
+        }
+
+        newGroupName = ""
+    }
+
     private func enabledBinding(
         for configuration: ProviderAccountConfiguration
     ) -> Binding<Bool> {
@@ -327,6 +372,51 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+}
+
+private struct GroupSettingsRow: View {
+    let group: ProviderAccountGroup
+    let onRename: (String) -> Bool
+    let onDelete: () -> Void
+
+    @State private var name: String
+
+    init(
+        group: ProviderAccountGroup,
+        onRename: @escaping (String) -> Bool,
+        onDelete: @escaping () -> Void
+    ) {
+        self.group = group
+        self.onRename = onRename
+        self.onDelete = onDelete
+        self._name = State(initialValue: group.name)
+    }
+
+    var body: some View {
+        HStack {
+            TextField("Group name", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(renameGroup)
+
+            Button("Rename", action: renameGroup)
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines) == group.name)
+
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Delete group")
+        }
+        .onChange(of: group.name) { _, newValue in
+            name = newValue
+        }
+    }
+
+    private func renameGroup() {
+        if !onRename(name) {
+            name = group.name
+        }
     }
 }
 
