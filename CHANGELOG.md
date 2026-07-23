@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- OpenCode ZEN bootstrap credentials are restricted to the current user before import and removed after every detected import attempt, including invalid payloads and storage failures.
 - Browser sign-in callbacks now handle HTTP requests split across network packets and reject incomplete or oversized requests cleanly.
 - Claude usage refreshes no longer send inference requests when OAuth usage is unavailable or incomplete, while preserving cached rate-limit bars alongside partial usage data.
 - Gemini Code Assist project IDs are accepted when returned as objects (`id` / `projectId`) as well as strings, and Cloud Resource Manager is queried when no project is otherwise available so menu-bar launches without shell env can still fetch quota.

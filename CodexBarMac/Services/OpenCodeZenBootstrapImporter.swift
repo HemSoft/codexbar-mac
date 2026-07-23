@@ -7,7 +7,8 @@ enum OpenCodeZenBootstrapImporter {
     static func importIfNeeded(
         configurationStore: ProviderConfigurationStore,
         fileManager: FileManager = .default,
-        importDirectory: URL? = nil
+        importDirectory: URL? = nil,
+        readData: (URL) throws -> Data = { try Data(contentsOf: $0) }
     ) {
         let directory = importDirectory ?? fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
         guard let importURL = directory?.appendingPathComponent(importFileName) else {
@@ -18,18 +19,38 @@ enum OpenCodeZenBootstrapImporter {
             return
         }
 
+        defer {
+            try? fileManager.removeItem(at: importURL)
+        }
+
+        guard protectImportFile(at: importURL, fileManager: fileManager) else {
+            return
+        }
+
         guard
-            let data = try? Data(contentsOf: importURL),
+            let data = try? readData(importURL),
             let payload = String(data: data, encoding: .utf8)
         else {
             return
         }
 
-        guard importPayload(payload, configurationStore: configurationStore) else {
-            return
-        }
+        importPayload(payload, configurationStore: configurationStore)
+    }
 
-        try? fileManager.removeItem(at: importURL)
+    @discardableResult
+    static func protectImportFile(
+        at importURL: URL,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        do {
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: importURL.path
+            )
+            return true
+        } catch {
+            return false
+        }
     }
 
     @discardableResult
