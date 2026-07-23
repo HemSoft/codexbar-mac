@@ -1404,7 +1404,7 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.first?.used, 43)
     }
 
-    func testClaudeUsageProviderProbesRateLimitsWhenOAuthReturnsMonetaryOnly() async throws {
+    func testClaudeUsageProviderReturnsMonetaryOnlyWithoutMessagesProbe() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1423,41 +1423,27 @@ final class CodexBarMacTests: XCTestCase {
             credentialsFilePath: credentialsPath,
             keychainAccount: "codexbar-tests-\(UUID().uuidString)"
         )
+        var requestCount = 0
         MockURLProtocol.handler = { request in
-            if request.url?.path == "/api/oauth/usage" {
-                return (
-                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                    Data(#"{"extra_usage":{"is_enabled":true,"used_credits":1250,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8)
-                )
-            }
-
-            XCTAssertEqual(request.url?.path, "/v1/messages")
+            requestCount += 1
+            XCTAssertEqual(request.url?.path, "/api/oauth/usage")
             return (
-                HTTPURLResponse(
-                    url: try XCTUnwrap(request.url),
-                    statusCode: 400,
-                    httpVersion: nil,
-                    headerFields: [
-                        "anthropic-ratelimit-unified-5h-utilization": "0.42",
-                        "anthropic-ratelimit-unified-5h-reset": "1893456000",
-                        "anthropic-ratelimit-unified-7d-utilization": "0.65",
-                        "anthropic-ratelimit-unified-7d-reset": "1894060800",
-                    ]
-                )!,
-                Data()
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"extra_usage":{"is_enabled":true,"used_credits":1250,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8)
             )
         }
         defer { MockURLProtocol.handler = nil }
 
         let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
 
-        XCTAssertEqual(result.bars.map(\.used), [42, 65])
+        XCTAssertEqual(requestCount, 1)
+        XCTAssertTrue(result.bars.isEmpty)
         XCTAssertEqual(result.monetaryMetrics.map(\.kind), [.spent, .spendLimit, .remainingHeadroom])
         XCTAssertEqual(try XCTUnwrap(result.monetaryMetrics.first?.amount), Decimal(string: "12.5")!)
-        XCTAssertFalse(result.isIncompleteRefresh)
+        XCTAssertTrue(result.isIncompleteRefresh)
     }
 
-    func testClaudeUsageProviderReturnsCachedBarsWhenMonetaryProbeMisses() async throws {
+    func testClaudeUsageProviderPreservesCachedBarsWhenOAuthReturnsMonetaryOnly() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1479,24 +1465,17 @@ final class CodexBarMacTests: XCTestCase {
 
         var oauthCalls = 0
         MockURLProtocol.handler = { request in
-            if request.url?.path == "/api/oauth/usage" {
-                oauthCalls += 1
-                if oauthCalls == 1 {
-                    return (
-                        HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                        Data(#"{"limits":[{"kind":"weekly_all","percent":33,"is_active":true}]}"#.utf8)
-                    )
-                }
+            XCTAssertEqual(request.url?.path, "/api/oauth/usage")
+            oauthCalls += 1
+            if oauthCalls == 1 {
                 return (
                     HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                    Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":2},"limit":{"amount_minor":5000,"currency":"USD","exponent":2}}}"#.utf8)
+                    Data(#"{"limits":[{"kind":"weekly_all","percent":33,"is_active":true}]}"#.utf8)
                 )
             }
-
-            XCTAssertEqual(request.url?.path, "/v1/messages")
             return (
-                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 400, httpVersion: nil, headerFields: nil)!,
-                Data()
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":2},"limit":{"amount_minor":5000,"currency":"USD","exponent":2}}}"#.utf8)
             )
         }
         defer { MockURLProtocol.handler = nil }
@@ -1505,13 +1484,14 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(seeded.bars.map(\.used), [33])
 
         let refreshed = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
+        XCTAssertEqual(oauthCalls, 2)
         XCTAssertEqual(refreshed.bars.map(\.used), [33])
         XCTAssertEqual(refreshed.monetaryMetrics.map(\.kind), [.spent, .spendLimit, .remainingHeadroom])
         XCTAssertEqual(try XCTUnwrap(refreshed.monetaryMetrics.first?.amount), Decimal(string: "12.5")!)
         XCTAssertTrue(refreshed.isIncompleteRefresh)
     }
 
-    func testClaudeUsageProviderUsesProbeSubtitleWhenOAuthFailsButProbeSucceeds() async throws {
+    func testClaudeUsageProviderDoesNotProbeMessagesWhenOAuthUsageIsForbidden() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1530,25 +1510,12 @@ final class CodexBarMacTests: XCTestCase {
             credentialsFilePath: credentialsPath,
             keychainAccount: "codexbar-tests-\(UUID().uuidString)"
         )
+        var requestCount = 0
         MockURLProtocol.handler = { request in
-            if request.url?.path == "/api/oauth/usage" {
-                return (
-                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
-                    Data()
-                )
-            }
-
-            XCTAssertEqual(request.url?.path, "/v1/messages")
+            requestCount += 1
+            XCTAssertEqual(request.url?.path, "/api/oauth/usage")
             return (
-                HTTPURLResponse(
-                    url: try XCTUnwrap(request.url),
-                    statusCode: 400,
-                    httpVersion: nil,
-                    headerFields: [
-                        "anthropic-ratelimit-unified-5h-utilization": "0.42",
-                        "anthropic-ratelimit-unified-5h-reset": "1893456000",
-                    ]
-                )!,
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
                 Data()
             )
         }
@@ -1556,10 +1523,10 @@ final class CodexBarMacTests: XCTestCase {
 
         let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
 
-        XCTAssertEqual(result.bars.map(\.used), [42])
-        XCTAssertEqual(result.subtitle, "Live Claude usage")
-        XCTAssertFalse(result.subtitle.localizedCaseInsensitiveContains("lacks permission"))
-        XCTAssertFalse(result.isIncompleteRefresh)
+        XCTAssertEqual(requestCount, 1)
+        XCTAssertTrue(result.bars.isEmpty)
+        XCTAssertEqual(result.subtitle, "Claude credential lacks permission to read subscription usage.")
+        XCTAssertTrue(result.isIncompleteRefresh)
     }
 
     func testClaudeUsageProviderPreservesSnapshotAfter401TriggeredRefresh() async throws {
