@@ -1443,6 +1443,44 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(result.isIncompleteRefresh)
     }
 
+    func testClaudeUsageProviderDoesNotProbeMessagesWhenOAuthPayloadIsUnrecognized() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 4_000_000_000_000,
+            accessToken: "claude-access"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = ClaudeUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            credentialsFilePath: credentialsPath,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)"
+        )
+        var requestCount = 0
+        MockURLProtocol.handler = { request in
+            requestCount += 1
+            XCTAssertEqual(request.url?.path, "/api/oauth/usage")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
+
+        XCTAssertEqual(requestCount, 1)
+        XCTAssertTrue(result.bars.isEmpty)
+        XCTAssertEqual(result.subtitle, "Claude usage did not include rate-limit windows.")
+        XCTAssertTrue(result.isIncompleteRefresh)
+    }
+
     func testClaudeUsageProviderPreservesCachedBarsWhenOAuthReturnsMonetaryOnly() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
