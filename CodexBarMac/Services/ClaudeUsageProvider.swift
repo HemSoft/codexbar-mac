@@ -252,7 +252,10 @@ public final class ClaudeUsageProvider: UsageProvider {
             )
         case 403:
             return OAuthUsageOutcome(
-                result: failureResult("Claude credential lacks permission to read subscription usage.", configuration: configuration),
+                result: await staleOrFailureResult(
+                    "Claude credential lacks permission to read subscription usage.",
+                    configuration: configuration
+                ),
                 shouldTryFallbackCredential: true
             )
         case 404:

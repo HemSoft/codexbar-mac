@@ -1567,6 +1567,52 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(result.isIncompleteRefresh)
     }
 
+    func testClaudeUsageProviderPreservesCachedBarsWhenOAuthUsageIsForbidden() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 4_000_000_000_000,
+            accessToken: "claude-access"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = ClaudeUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            credentialsFilePath: credentialsPath,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)"
+        )
+        var requestCount = 0
+        MockURLProtocol.handler = { request in
+            requestCount += 1
+            XCTAssertEqual(request.url?.path, "/api/oauth/usage")
+            if requestCount == 1 {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"limits":[{"kind":"weekly_all","percent":37,"is_active":true}]}"#.utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let fresh = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
+        let forbidden = try await provider.fetchUsage(for: .defaultConfiguration(for: .claude))
+
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertEqual(forbidden.bars, fresh.bars)
+        XCTAssertTrue(forbidden.subtitle.contains("lacks permission"))
+        XCTAssertTrue(forbidden.subtitle.contains("Showing last known data."))
+        XCTAssertTrue(forbidden.isIncompleteRefresh)
+    }
+
     func testClaudeUsageProviderPreservesSnapshotAfter401TriggeredRefresh() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
