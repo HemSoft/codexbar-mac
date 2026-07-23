@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Browser OAuth sign-in for ChatGPT / Codex and Claude with PKCE loopback callbacks and Keychain token storage, used as a fallback while local CLI credentials remain preferred.
 - Live Claude usage fetching from Claude Code OAuth credentials with session, weekly, OAuth-app weekly, and model-scoped limit bars.
 - Claude monetary rows for usage credits spent, monthly spend limit, remaining headroom, and prepaid balance when OAuth usage includes `spend` (preferred) or legacy `extra_usage`.
-- Live GitHub Copilot usage fetching from GitHub CLI credentials with premium and chat quota bars per account, including organization AI-credit billing (optional enterprise path and allotment override) from Settings.
+- Live GitHub Copilot usage fetching from preferred GitHub CLI credentials or Keychain-backed browser OAuth with automatic token renewal, with premium and chat quota bars per account and organization AI-credit billing (optional enterprise path and allotment override) from Settings.
 - Live OpenRouter credit balance fetching from Keychain-stored management API keys.
 - Live Cursor plan usage fetching from Keychain-stored browser sessions or the local Cursor app auth file, with PKCE browser sign-in and session-expiry prompts.
 - Live OpenCode ZEN credit balance fetching from Keychain-stored dashboard auth values and workspace IDs, with Windows settings JSON import support.

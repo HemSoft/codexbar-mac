@@ -1623,6 +1623,96 @@ final class CodexBarMacTests: XCTestCase {
         )
     }
 
+    func testCopilotBrowserAuthorizationUsesPKCEAndRegisteredLoopbackRedirect() throws {
+        let url = CopilotWebAuthService.authorizationURL(
+            clientID: "client-id",
+            redirectURI: "http://127.0.0.1:1456/callback",
+            state: "state-value",
+            codeChallenge: "challenge-value"
+        )
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.host, "github.com")
+        XCTAssertEqual(components.path, "/login/oauth/authorize")
+        XCTAssertEqual(components.queryItemValue(named: "client_id"), "client-id")
+        XCTAssertEqual(components.queryItemValue(named: "redirect_uri"), "http://127.0.0.1:1456/callback")
+        XCTAssertEqual(components.queryItemValue(named: "scope"), "repo read:org gist")
+        XCTAssertEqual(components.queryItemValue(named: "state"), "state-value")
+        XCTAssertEqual(components.queryItemValue(named: "code_challenge"), "challenge-value")
+        XCTAssertEqual(components.queryItemValue(named: "code_challenge_method"), "S256")
+        XCTAssertEqual(components.queryItemValue(named: "prompt"), "select_account")
+    }
+
+    @MainActor
+    func testCopilotBrowserSignInUsesIPv4LoopbackAndTimesOut() async throws {
+        let service = CopilotWebAuthService(callbackTimeoutNanoseconds: 10_000_000)
+        var presentedURL: URL?
+
+        do {
+            _ = try await service.signIn(
+                configuration: CopilotOAuthConfiguration(clientID: "client", clientSecret: "secret")
+            ) { url in
+                presentedURL = url
+                return true
+            }
+            XCTFail("Expected GitHub browser sign-in to time out without a callback.")
+        } catch {
+            XCTAssertEqual(error as? CopilotWebAuthService.AuthError, .callbackTimedOut)
+        }
+
+        let components = try XCTUnwrap(
+            URLComponents(url: try XCTUnwrap(presentedURL), resolvingAgainstBaseURL: false)
+        )
+        let redirectURI = try XCTUnwrap(components.queryItemValue(named: "redirect_uri"))
+        XCTAssertEqual(URL(string: redirectURI)?.host, "127.0.0.1")
+    }
+
+    func testCopilotOAuthRequestBodiesUseFormEncoding() {
+        let tokenBody = String(
+            data: CopilotWebAuthService.makeTokenRequestBody(
+                clientID: "client",
+                clientSecret: "secret",
+                code: "code value",
+                redirectURI: "http://127.0.0.1:1456/callback",
+                codeVerifier: "verifier value"
+            ),
+            encoding: .utf8
+        )
+        XCTAssertEqual(
+            tokenBody,
+            "client_id=client&client_secret=secret&code=code%20value&redirect_uri=http%3A%2F%2F127.0.0.1%3A1456%2Fcallback&code_verifier=verifier%20value"
+        )
+
+        let refreshBody = String(
+            data: CopilotWebAuthService.makeRefreshTokenRequestBody(
+                clientID: "client",
+                clientSecret: "secret",
+                refreshToken: "refresh value"
+            ),
+            encoding: .utf8
+        )
+        XCTAssertEqual(
+            refreshBody,
+            "client_id=client&client_secret=secret&grant_type=refresh_token&refresh_token=refresh%20value"
+        )
+    }
+
+    func testCopilotWebAuthResultStoresRefreshableCredential() throws {
+        let stored = CopilotWebAuthResult(
+            accessToken: "redacted-access",
+            refreshToken: "redacted-refresh",
+            expiresAt: 2_000_000_000,
+            refreshTokenExpiresAt: 2_100_000_000
+        ).storedCredential(username: "octocat")
+        let parsed = try XCTUnwrap(CopilotCredentialsParser.parse(stored))
+
+        XCTAssertEqual(parsed.accessToken, "redacted-access")
+        XCTAssertEqual(parsed.refreshToken, "redacted-refresh")
+        XCTAssertEqual(parsed.username, "octocat")
+        XCTAssertEqual(parsed.expiresAt, 2_000_000_000)
+        XCTAssertEqual(parsed.refreshTokenExpiresAt, 2_100_000_000)
+    }
+
     func testCopilotUsageRequestMatchesWindowsCopilotHeaders() {
         let provider = CopilotUsageProvider(
             secretStore: InMemorySecretStore(),
@@ -1915,6 +2005,82 @@ final class CodexBarMacTests: XCTestCase {
         let result = try await provider.fetchUsage(for: configuration)
 
         XCTAssertEqual(result.bars.first?.used, 60)
+    }
+
+    func testCopilotBrowserCredentialRefreshesAndPersistsRotation() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            accountLabel: "octocat",
+            authMethod: .browserSession
+        )
+        let account = ProviderConfigurationStore.keychainAccount(for: configuration)
+        try secretStore.saveSecret(
+            CopilotCredentialsParser.storedCredential(from: CopilotCredentials(
+                accessToken: "old-access",
+                username: "octocat",
+                refreshToken: "old-refresh",
+                expiresAt: 2_000_000_060,
+                refreshTokenExpiresAt: 2_100_000_000
+            )),
+            account: account
+        )
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            usageEndpoint: URL(string: "https://example.test/copilot-usage")!,
+            tokenEndpoint: URL(string: "https://example.test/github-token")!,
+            oauthConfiguration: CopilotOAuthConfiguration(clientID: "client", clientSecret: "secret"),
+            now: { now }
+        )
+        var requestCount = 0
+        MockURLProtocol.handler = { request in
+            requestCount += 1
+            if request.url?.path == "/github-token" {
+                XCTAssertEqual(request.timeoutInterval, 15)
+                XCTAssertEqual(
+                    String(data: try XCTUnwrap(requestBodyData(from: request)), encoding: .utf8),
+                    "client_id=client&client_secret=secret&grant_type=refresh_token&refresh_token=old-refresh"
+                )
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!,
+                    Data(#"{"access_token":"new-access","refresh_token":"new-refresh","expires_in":28800,"refresh_token_expires_in":15897600}"#.utf8)
+                )
+            }
+
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "token new-access")
+            let persisted = try XCTUnwrap(
+                CopilotCredentialsParser.parse(try XCTUnwrap(secretStore.readSecret(account: account)))
+            )
+            XCTAssertEqual(persisted.accessToken, "new-access")
+            XCTAssertEqual(persisted.refreshToken, "new-refresh")
+            XCTAssertEqual(persisted.username, "octocat")
+            XCTAssertEqual(persisted.expiresAt, 2_000_028_800)
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"login":"octocat","quota_snapshots":{"premium_interactions":{"entitlement":100,"remaining":75,"unlimited":false}}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertEqual(result.bars.first?.used, 25)
     }
 
     func testCopilotUsageProviderDoesNotCacheActiveCLIAccountToken() async throws {

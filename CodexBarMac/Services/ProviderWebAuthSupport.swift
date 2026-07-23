@@ -66,9 +66,15 @@ enum TokenEndpointErrorFormatter {
 
 enum LoopbackOAuthBindHost {
     case localhost
+    case ipv4
 
     fileprivate var endpointHost: NWEndpoint.Host {
-        Self.preferredLocalhostLoopbackHost()
+        switch self {
+        case .localhost:
+            Self.preferredLocalhostLoopbackHost()
+        case .ipv4:
+            .ipv4(.loopback)
+        }
     }
 
     private static func preferredLocalhostLoopbackHost() -> NWEndpoint.Host {

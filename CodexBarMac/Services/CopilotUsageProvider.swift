@@ -3,6 +3,7 @@ import Foundation
 public final class CopilotUsageProvider: UsageProvider {
     deinit {}
 
+    private static let refreshCoordinator = CredentialRefreshCoordinator<CopilotCredentialRefreshResult>()
     private static let activeCLIAccountCacheKey = "__active__"
     private typealias GitHubTokenResolver = @Sendable (String?) throws -> String?
 
@@ -21,6 +22,8 @@ public final class CopilotUsageProvider: UsageProvider {
     private let session: URLSession
     private let usageEndpoint: URL
     private let githubAPIBaseURL: URL
+    private let tokenEndpoint: URL
+    private let oauthConfiguration: CopilotOAuthConfiguration
     private let gitHubTokenResolver: GitHubTokenResolver
     private let now: @Sendable () -> Date
     private let cliTokenCache = CopilotCLITokenCache()
@@ -32,6 +35,8 @@ public final class CopilotUsageProvider: UsageProvider {
         session: URLSession = .shared,
         usageEndpoint: URL = URL(string: "https://api.github.com/copilot_internal/user")!,
         githubAPIBaseURL: URL = URL(string: "https://api.github.com")!,
+        tokenEndpoint: URL = CopilotWebAuthService.tokenEndpoint,
+        oauthConfiguration: CopilotOAuthConfiguration = .bundled,
         gitHubTokenResolver: (@Sendable (String?) throws -> String?)? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -39,6 +44,8 @@ public final class CopilotUsageProvider: UsageProvider {
         self.session = session
         self.usageEndpoint = usageEndpoint
         self.githubAPIBaseURL = githubAPIBaseURL
+        self.tokenEndpoint = tokenEndpoint
+        self.oauthConfiguration = oauthConfiguration
         self.gitHubTokenResolver = gitHubTokenResolver ?? { username in
             try LocalCredentialDiscovery.gitHubAuthToken(for: username)
         }
@@ -92,6 +99,18 @@ public final class CopilotUsageProvider: UsageProvider {
         request.setValue(Self.editorPluginVersion, forHTTPHeaderField: "Editor-Plugin-Version")
         request.setValue(Self.githubApiVersion, forHTTPHeaderField: "X-Github-Api-Version")
         return request
+    }
+
+    public func fetchUsername(accessToken: String) async throws -> String? {
+        let (data, response) = try await session.data(for: makeUsageRequest(accessToken: accessToken))
+        guard
+            let httpResponse = response as? HTTPURLResponse,
+            (200..<300).contains(httpResponse.statusCode)
+        else {
+            return nil
+        }
+
+        return CopilotUsageParser.username(from: data)
     }
 
     func makeOrganizationBillingRequest(
@@ -190,7 +209,7 @@ public final class CopilotUsageProvider: UsageProvider {
     }
 
     private enum ResolvedTokenSource {
-        case keychain
+        case keychain(CopilotCredentials)
         case cli(username: String)
     }
 
@@ -209,7 +228,7 @@ public final class CopilotUsageProvider: UsageProvider {
                 return cliToken
             }
 
-            if let keychainToken = resolveKeychainToken(for: configuration) {
+            if let keychainToken = await resolveKeychainToken(for: configuration) {
                 return keychainToken
             }
 
@@ -220,17 +239,32 @@ public final class CopilotUsageProvider: UsageProvider {
             return nil
         }
 
-        return resolveKeychainToken(for: configuration)
+        return await resolveKeychainToken(for: configuration)
     }
 
-    private func resolveKeychainToken(for configuration: ProviderAccountConfiguration) -> ResolvedAccessToken? {
+    private func resolveKeychainToken(for configuration: ProviderAccountConfiguration) async -> ResolvedAccessToken? {
         let keychainAccount = ProviderConfigurationStore.keychainAccount(for: configuration)
-        if let storedSecret = try? secretStore.readSecret(account: keychainAccount),
-           let credentials = CopilotCredentialsParser.parse(storedSecret) {
-            return ResolvedAccessToken(token: credentials.accessToken, source: .keychain)
+        guard
+            let storedSecret = try? secretStore.readSecret(account: keychainAccount),
+            var credentials = CopilotCredentialsParser.parse(storedSecret)
+        else {
+            return nil
         }
 
-        return nil
+        if credentials.shouldRefresh(at: now()), credentials.refreshToken?.isEmpty == false {
+            switch await refreshCredentials(credentials, keychainAccount: keychainAccount) {
+            case .success(let refreshed):
+                credentials = refreshed
+            case .temporarilyUnavailable where !credentials.isExpired(at: now()):
+                break
+            case .expired, .rejected, .temporarilyUnavailable, .persistenceFailed:
+                return nil
+            }
+        } else if credentials.isExpired(at: now()) {
+            return nil
+        }
+
+        return ResolvedAccessToken(token: credentials.accessToken, source: .keychain(credentials))
     }
 
     private func resolveCLIToken(for configuration: ProviderAccountConfiguration) async -> ResolvedAccessToken? {
@@ -276,7 +310,7 @@ public final class CopilotUsageProvider: UsageProvider {
                 configuration: configuration
             )
         case 401 where canRetryWithFreshCLIToken:
-            return try await retryAfterCLIRefresh(
+            return try await retryAfterCredentialRefresh(
                 configuration: configuration,
                 accessToken: accessToken,
                 tokenSource: tokenSource
@@ -345,7 +379,7 @@ public final class CopilotUsageProvider: UsageProvider {
                 configuration: configuration
             )
         case 401 where canRetryWithFreshCLIToken:
-            return try await retryAfterCLIRefresh(
+            return try await retryAfterCredentialRefresh(
                 configuration: configuration,
                 accessToken: accessToken,
                 tokenSource: tokenSource
@@ -379,23 +413,150 @@ public final class CopilotUsageProvider: UsageProvider {
         }
     }
 
-    private func retryAfterCLIRefresh(
+    private func retryAfterCredentialRefresh(
         configuration: ProviderAccountConfiguration,
         accessToken: String,
         tokenSource: ResolvedTokenSource,
         retry: (ProviderAccountConfiguration, String, ResolvedTokenSource) async throws -> ProviderUsageResult
     ) async throws -> ProviderUsageResult {
-        guard case .cli(let username) = tokenSource else {
-            return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
+        let refreshed: ResolvedAccessToken?
+        switch tokenSource {
+        case .cli(let username):
+            cliTokenCache.invalidate(username: username)
+            refreshed = await resolveAccessToken(for: configuration)
+        case .keychain(let credentials):
+            let keychainAccount = ProviderConfigurationStore.keychainAccount(for: configuration)
+            switch await refreshCredentials(credentials, keychainAccount: keychainAccount) {
+            case .success(let updated):
+                refreshed = ResolvedAccessToken(token: updated.accessToken, source: .keychain(updated))
+            case .expired, .rejected, .temporarilyUnavailable, .persistenceFailed:
+                refreshed = nil
+            }
         }
-        cliTokenCache.invalidate(username: username)
-        guard let refreshed = await resolveAccessToken(for: configuration) else {
-            return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
-        }
-        guard refreshed.token != accessToken else {
-            return failureResult("GitHub credential was rejected. Sign in again.", configuration: configuration)
+
+        guard let refreshed, refreshed.token != accessToken else {
+            return failureResult(authenticationFailureMessage(for: tokenSource), configuration: configuration)
         }
         return try await retry(configuration, refreshed.token, refreshed.source)
+    }
+
+    private func refreshCredentials(
+        _ credentials: CopilotCredentials,
+        keychainAccount: String
+    ) async -> CopilotCredentialRefreshResult {
+        await Self.refreshCoordinator.run(for: keychainAccount) { [self] in
+            await performCredentialRefresh(credentials, keychainAccount: keychainAccount)
+        }
+    }
+
+    private func performCredentialRefresh(
+        _ credentials: CopilotCredentials,
+        keychainAccount: String
+    ) async -> CopilotCredentialRefreshResult {
+        do {
+            guard
+                let storedSecret = try secretStore.readSecret(account: keychainAccount),
+                let latestCredentials = CopilotCredentialsParser.parse(storedSecret)
+            else {
+                return .rejected
+            }
+            if latestCredentials != credentials {
+                return .success(latestCredentials)
+            }
+        } catch {
+            return .temporarilyUnavailable
+        }
+
+        guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
+            return .rejected
+        }
+        if let refreshTokenExpiresAt = credentials.refreshTokenExpiresAt,
+           Date(timeIntervalSince1970: TimeInterval(refreshTokenExpiresAt)) <= now() {
+            return .expired
+        }
+
+        let clientID = oauthConfiguration.clientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clientSecret = oauthConfiguration.clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clientID.isEmpty, !clientSecret.isEmpty else {
+            return .temporarilyUnavailable
+        }
+
+        var request = URLRequest(url: tokenEndpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = CopilotWebAuthService.makeRefreshTokenRequestBody(
+            clientID: clientID,
+            clientSecret: clientSecret,
+            refreshToken: refreshToken
+        )
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return .temporarilyUnavailable
+            }
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                return [400, 401, 403].contains(httpResponse.statusCode) ? .rejected : .temporarilyUnavailable
+            }
+            guard let tokenResponse = try? JSONDecoder().decode(CopilotTokenRefreshResponse.self, from: data) else {
+                return .temporarilyUnavailable
+            }
+            if tokenResponse.error != nil {
+                return .rejected
+            }
+            guard let accessToken = tokenResponse.accessToken, !accessToken.isEmpty else {
+                return .temporarilyUnavailable
+            }
+
+            let refreshedAt = now()
+            let updated = CopilotCredentials(
+                accessToken: accessToken,
+                username: credentials.username,
+                refreshToken: tokenResponse.refreshToken ?? credentials.refreshToken,
+                expiresAt: tokenResponse.expiresIn.map {
+                    Int64(refreshedAt.addingTimeInterval(TimeInterval($0)).timeIntervalSince1970)
+                },
+                refreshTokenExpiresAt: tokenResponse.refreshTokenExpiresIn.map {
+                    Int64(refreshedAt.addingTimeInterval(TimeInterval($0)).timeIntervalSince1970)
+                } ?? (tokenResponse.refreshToken == nil ? credentials.refreshTokenExpiresAt : nil)
+            )
+
+            do {
+                guard
+                    let storedSecret = try secretStore.readSecret(account: keychainAccount),
+                    let latestCredentials = CopilotCredentialsParser.parse(storedSecret)
+                else {
+                    return .rejected
+                }
+                if latestCredentials != credentials {
+                    return .success(latestCredentials)
+                }
+                try secretStore.saveSecret(
+                    CopilotCredentialsParser.storedCredential(from: updated),
+                    account: keychainAccount
+                )
+            } catch {
+                return .persistenceFailed
+            }
+            return .success(updated)
+        } catch {
+            return .temporarilyUnavailable
+        }
+    }
+
+    private func authenticationFailureMessage(for tokenSource: ResolvedTokenSource) -> String {
+        guard case .keychain(let credentials) = tokenSource else {
+            return "GitHub credential was rejected. Sign in again."
+        }
+        if credentials.isExpired(at: now()) {
+            return "GitHub credential expired. Sign in again."
+        }
+        if credentials.expiresAt != nil {
+            return "GitHub authorization was revoked. Sign in again."
+        }
+        return "GitHub credential was rejected. Sign in again."
     }
 
     private func resolveOrganizationAllotment(
@@ -481,6 +642,30 @@ public final class CopilotUsageProvider: UsageProvider {
             isIncompleteRefresh: result.isIncompleteRefresh,
             fetchedAt: result.fetchedAt
         )
+    }
+}
+
+private enum CopilotCredentialRefreshResult: Sendable {
+    case success(CopilotCredentials)
+    case expired
+    case rejected
+    case temporarilyUnavailable
+    case persistenceFailed
+}
+
+private struct CopilotTokenRefreshResponse: Decodable {
+    let accessToken: String?
+    let refreshToken: String?
+    let expiresIn: Int64?
+    let refreshTokenExpiresIn: Int64?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case expiresIn = "expires_in"
+        case refreshTokenExpiresIn = "refresh_token_expires_in"
+        case error
     }
 }
 
