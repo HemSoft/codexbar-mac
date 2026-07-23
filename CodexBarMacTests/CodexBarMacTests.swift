@@ -5980,6 +5980,61 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(persisted.idToken, "external-id-token")
     }
 
+    func testGeminiAuthFileStoreConditionalWritePreservesPostCheckExternalUpdate() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oauthFilePath = directory.appendingPathComponent("oauth_creds.json").path
+        try """
+        {
+          "access_token": "original-access-token",
+          "refresh_token": "original-refresh-token",
+          "expiry_date": 4102444800000,
+          "id_token": "original-id-token",
+          "account": "preserved-metadata"
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+        let original = try XCTUnwrap(GeminiAuthFileStore.readCredentials(at: oauthFilePath))
+
+        try """
+        {
+          "access_token": "external-access-token",
+          "refresh_token": "external-refresh-token",
+          "expiry_date": 4102444800000,
+          "id_token": "external-id-token",
+          "account": "preserved-metadata"
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+
+        let result = try GeminiAuthFileStore.writeCredentials(
+            GeminiCredentials(
+                accessToken: "response-access-token",
+                refreshToken: "original-refresh-token",
+                expiryDateMs: 4_102_444_800_000,
+                idToken: "original-id-token"
+            ),
+            ifUnchangedFrom: original,
+            at: oauthFilePath
+        )
+
+        let external = try XCTUnwrap(GeminiAuthFileStore.readCredentials(at: oauthFilePath))
+        XCTAssertEqual(result, .changed(external))
+        XCTAssertEqual(external.accessToken, "external-access-token")
+        XCTAssertEqual(external.refreshToken, "external-refresh-token")
+        XCTAssertEqual(external.idToken, "external-id-token")
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: oauthFilePath)))
+                as? [String: Any]
+        )
+        XCTAssertEqual(root["account"] as? String, "preserved-metadata")
+        let attributes = try FileManager.default.attributesOfItem(atPath: oauthFilePath)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
+
     func testGeminiUsageProviderMarksTransientTokenRefreshFailuresIncomplete() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let directory = FileManager.default.temporaryDirectory

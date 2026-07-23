@@ -261,18 +261,25 @@ public final class GeminiUsageProvider: UsageProvider {
                 )
 
                 do {
-                    switch externalCredentialUpdate(
-                        since: credentials,
-                        requiresDifferentAccessToken: force
+                    switch try GeminiAuthFileStore.writeCredentials(
+                        updated,
+                        ifUnchangedFrom: credentials,
+                        at: oauthFilePath
                     ) {
-                    case .valid(let externalAccessToken):
-                        return .success(externalAccessToken)
-                    case .unusable:
-                        return .transient
-                    case .unchanged:
+                    case .written:
                         break
+                    case .changed(let latest):
+                        switch externalCredentialUpdate(
+                            latest: latest,
+                            since: credentials,
+                            requiresDifferentAccessToken: force
+                        ) {
+                        case .valid(let externalAccessToken):
+                            return .success(externalAccessToken)
+                        case .unusable, .unchanged:
+                            return .transient
+                        }
                     }
-                    try GeminiAuthFileStore.writeCredentials(updated, at: oauthFilePath)
                 } catch {
                     return .transient
                 }
@@ -297,7 +304,19 @@ public final class GeminiUsageProvider: UsageProvider {
         since original: GeminiCredentials,
         requiresDifferentAccessToken: Bool
     ) -> ExternalCredentialUpdate {
-        guard let latest = GeminiAuthFileStore.readCredentials(at: oauthFilePath) else {
+        externalCredentialUpdate(
+            latest: GeminiAuthFileStore.readCredentials(at: oauthFilePath),
+            since: original,
+            requiresDifferentAccessToken: requiresDifferentAccessToken
+        )
+    }
+
+    private func externalCredentialUpdate(
+        latest: GeminiCredentials?,
+        since original: GeminiCredentials,
+        requiresDifferentAccessToken: Bool
+    ) -> ExternalCredentialUpdate {
+        guard let latest else {
             return .unusable
         }
         guard latest != original else {
