@@ -161,7 +161,7 @@ public final class GeminiUsageProvider: UsageProvider {
 
     private enum ExternalCredentialUpdate {
         case unchanged
-        case valid(String)
+        case valid(GeminiCredentials)
         case unusable
     }
 
@@ -212,8 +212,12 @@ public final class GeminiUsageProvider: UsageProvider {
                     since: credentials,
                     requiresDifferentAccessToken: force
                 ) {
-                case .valid(let externalAccessToken):
-                    return .success(externalAccessToken)
+                case .valid(let latest):
+                    return adoptExternalCredentialUpdate(
+                        latest,
+                        since: credentials,
+                        requiresDifferentAccessToken: force
+                    )
                 case .unusable:
                     return .transient
                 case .unchanged:
@@ -269,16 +273,11 @@ public final class GeminiUsageProvider: UsageProvider {
                     case .written:
                         break
                     case .changed(let latest):
-                        switch externalCredentialUpdate(
-                            latest: latest,
+                        return adoptExternalCredentialUpdate(
+                            latest,
                             since: credentials,
                             requiresDifferentAccessToken: force
-                        ) {
-                        case .valid(let externalAccessToken):
-                            return .success(externalAccessToken)
-                        case .unusable, .unchanged:
-                            return .transient
-                        }
+                        )
                     }
                 } catch {
                     return .transient
@@ -328,7 +327,53 @@ public final class GeminiUsageProvider: UsageProvider {
               !requiresDifferentAccessToken || accessToken != original.accessToken else {
             return .unusable
         }
-        return .valid(accessToken)
+        return .valid(latest)
+    }
+
+    private func adoptExternalCredentialUpdate(
+        _ latest: GeminiCredentials,
+        since original: GeminiCredentials,
+        requiresDifferentAccessToken: Bool
+    ) -> GeminiCredentialRefreshResult {
+        var candidate = latest
+        for _ in 0..<2 {
+            guard case .valid(let valid) = externalCredentialUpdate(
+                latest: candidate,
+                since: original,
+                requiresDifferentAccessToken: requiresDifferentAccessToken
+            ), let accessToken = valid.accessToken else {
+                return .transient
+            }
+
+            let merged = GeminiCredentials(
+                accessToken: accessToken,
+                refreshToken: valid.refreshToken ?? original.refreshToken,
+                expiryDateMs: valid.expiryDateMs,
+                idToken: valid.idToken ?? original.idToken,
+                clientID: valid.clientID,
+                clientSecret: valid.clientSecret
+            )
+            guard merged != valid else {
+                return .success(accessToken)
+            }
+
+            do {
+                switch try GeminiAuthFileStore.writeCredentials(
+                    merged,
+                    ifUnchangedFrom: valid,
+                    at: oauthFilePath
+                ) {
+                case .written:
+                    return .success(accessToken)
+                case .changed(let newer):
+                    candidate = newer
+                }
+            } catch {
+                return .transient
+            }
+        }
+
+        return .transient
     }
 
     private func fetchTierIfNeeded(accessToken: String, fingerprint: String) async {
