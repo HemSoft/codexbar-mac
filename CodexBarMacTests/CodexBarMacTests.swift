@@ -430,6 +430,85 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(CodexWebAuthService.accountID(from: token), "namespaced-account")
     }
 
+    func testLoopbackOAuthCallbackServerAcceptsRequestsSplitAcrossWrites() async throws {
+        let request = Data((
+            "GET /callback?code=authorization-code&state=expected-state HTTP/1.1\r\n" +
+                "Host: 127.0.0.1\r\nUser-Agent: CodexBarMacTests\r\n\r\n"
+        ).utf8)
+        let splitOffsets = [1, 37, request.count - 1]
+
+        for (index, splitOffset) in splitOffsets.enumerated() {
+            let port = UInt16(36_187 + index)
+            let server = try await makeLoopbackCallbackServer(preferredPorts: [port])
+            defer { server.cancel() }
+            let callbackTask = Task {
+                try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
+            }
+
+            let response = try await sendRawHTTPRequest(
+                port: port,
+                chunks: [Data(request[..<splitOffset]), Data(request[splitOffset...])]
+            )
+            let callbackURL = try await callbackTask.value
+
+            XCTAssertTrue(response.hasPrefix("HTTP/1.1 200 OK"))
+            XCTAssertEqual(callbackURL.path, "/callback")
+            XCTAssertEqual(
+                URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?
+                    .queryItemValue(named: "code"),
+                "authorization-code"
+            )
+        }
+    }
+
+    func testLoopbackOAuthCallbackServerRejectsOversizedRequest() async throws {
+        let port: UInt16 = 36_190
+        let server = try await makeLoopbackCallbackServer(
+            preferredPorts: [port],
+            maximumRequestLength: 64
+        )
+        defer { server.cancel() }
+        let callbackTask = Task {
+            try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
+        }
+
+        let response = try await sendRawHTTPRequest(
+            port: port,
+            chunks: [Data(("GET /callback?" + String(repeating: "x", count: 128)).utf8)]
+        )
+
+        XCTAssertTrue(response.hasPrefix("HTTP/1.1 413 Payload Too Large"))
+        do {
+            _ = try await callbackTask.value
+            XCTFail("Expected an oversized callback request to fail.")
+        } catch {
+            XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .missingAuthorizationCode)
+        }
+    }
+
+    func testLoopbackOAuthCallbackServerRejectsPrematurelyClosedRequest() async throws {
+        let port: UInt16 = 36_191
+        let server = try await makeLoopbackCallbackServer(preferredPorts: [port])
+        defer { server.cancel() }
+        let callbackTask = Task {
+            try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
+        }
+
+        let response = try await sendRawHTTPRequest(
+            port: port,
+            chunks: [Data("GET /callback?code=authorization-code".utf8)],
+            finishWriting: true
+        )
+
+        XCTAssertTrue(response.hasPrefix("HTTP/1.1 400 Bad Request"))
+        do {
+            _ = try await callbackTask.value
+            XCTFail("Expected a prematurely closed callback request to fail.")
+        } catch {
+            XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .missingAuthorizationCode)
+        }
+    }
+
     @MainActor
     func testCodexBrowserSignInUsesLocalhostRedirectAndTimesOut() async throws {
         let service = CodexWebAuthService(callbackTimeoutNanoseconds: 10_000_000)
@@ -6127,6 +6206,114 @@ final class CodexBarMacTests: XCTestCase {
         let series = store.historySeries(for: spentOnly)
         XCTAssertFalse(series.isBalance)
         XCTAssertTrue(series.points.isEmpty)
+    }
+
+    private func makeLoopbackCallbackServer(
+        preferredPorts: [UInt16],
+        maximumRequestLength: Int = 8_192
+    ) async throws -> LoopbackOAuthCallbackServer<ClaudeWebAuthService.AuthError> {
+        try await LoopbackOAuthCallbackServer<ClaudeWebAuthService.AuthError>.start(
+            preferredPorts: preferredPorts,
+            expectedState: "expected-state",
+            callbackPath: "/callback",
+            bindHost: .ipv4,
+            queueLabel: "com.hemsoft.CodexBarMacTests.loopbackOAuth.\(UUID().uuidString)",
+            couldNotStartError: .couldNotStartCallbackServer,
+            missingCodeError: .missingAuthorizationCode,
+            stateMismatchError: .stateMismatch,
+            timeoutError: .callbackTimedOut,
+            successHeading: "Sign-in complete",
+            failureHeading: "Sign-in failed",
+            maximumRequestLength: maximumRequestLength
+        )
+    }
+
+    private func sendRawHTTPRequest(
+        port: UInt16,
+        chunks: [Data],
+        finishWriting: Bool = false
+    ) async throws -> String {
+        try await Task.detached {
+            let socketDescriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+            guard socketDescriptor >= 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            defer { Darwin.close(socketDescriptor) }
+
+            var receiveTimeout = timeval(tv_sec: 2, tv_usec: 0)
+            guard setsockopt(
+                socketDescriptor,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                &receiveTimeout,
+                socklen_t(MemoryLayout<timeval>.size)
+            ) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = port.bigEndian
+            address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+            let connectionResult = withUnsafePointer(to: &address) { addressPointer in
+                addressPointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                    Darwin.connect(
+                        socketDescriptor,
+                        socketAddress,
+                        socklen_t(MemoryLayout<sockaddr_in>.size)
+                    )
+                }
+            }
+            guard connectionResult == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+
+            for (index, chunk) in chunks.enumerated() {
+                try chunk.withUnsafeBytes { bytes in
+                    var sentByteCount = 0
+                    while sentByteCount < bytes.count {
+                        let result = Darwin.send(
+                            socketDescriptor,
+                            bytes.baseAddress?.advanced(by: sentByteCount),
+                            bytes.count - sentByteCount,
+                            0
+                        )
+                        guard result > 0 else {
+                            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                        }
+                        sentByteCount += result
+                    }
+                }
+                if index < chunks.count - 1 {
+                    usleep(50_000)
+                }
+            }
+
+            if finishWriting {
+                guard Darwin.shutdown(socketDescriptor, SHUT_WR) == 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+            }
+
+            var response = Data()
+            var buffer = [UInt8](repeating: 0, count: 4_096)
+            while true {
+                let receivedByteCount = buffer.withUnsafeMutableBytes { bytes in
+                    Darwin.recv(socketDescriptor, bytes.baseAddress, bytes.count, 0)
+                }
+                if receivedByteCount > 0 {
+                    response.append(contentsOf: buffer.prefix(receivedByteCount))
+                } else if receivedByteCount == 0 {
+                    break
+                } else if errno == ECONNRESET, !response.isEmpty {
+                    break
+                } else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+            }
+            return String(decoding: response, as: UTF8.self)
+        }.value
     }
 }
 
