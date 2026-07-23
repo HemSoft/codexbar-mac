@@ -159,6 +159,12 @@ public final class GeminiUsageProvider: UsageProvider {
         case transient
     }
 
+    private enum ExternalCredentialUpdate {
+        case unchanged
+        case valid(String)
+        case unusable
+    }
+
     private func resolveAccessToken(for credentials: GeminiCredentials) async -> AccessTokenResolution {
         if let accessToken = credentials.accessToken,
            !accessToken.isEmpty,
@@ -202,6 +208,15 @@ public final class GeminiUsageProvider: UsageProvider {
                 )
 
                 let (data, response) = try await session.data(for: request)
+                switch externalCredentialUpdate(since: credentials) {
+                case .valid(let externalAccessToken):
+                    return .success(externalAccessToken)
+                case .unusable:
+                    return .transient
+                case .unchanged:
+                    break
+                }
+
                 guard let httpResponse = response as? HTTPURLResponse else {
                     return .transient
                 }
@@ -243,16 +258,13 @@ public final class GeminiUsageProvider: UsageProvider {
                 )
 
                 do {
-                    guard let latestCredentials = GeminiAuthFileStore.readCredentials(at: oauthFilePath) else {
+                    switch externalCredentialUpdate(since: credentials) {
+                    case .valid(let externalAccessToken):
+                        return .success(externalAccessToken)
+                    case .unusable:
                         return .transient
-                    }
-                    if latestCredentials != credentials {
-                        guard let latestAccessToken = latestCredentials.accessToken,
-                              !latestAccessToken.isEmpty,
-                              !latestCredentials.shouldRefresh(at: now()) else {
-                            return .transient
-                        }
-                        return .success(latestAccessToken)
+                    case .unchanged:
+                        break
                     }
                     try GeminiAuthFileStore.writeCredentials(updated, at: oauthFilePath)
                 } catch {
@@ -273,6 +285,21 @@ public final class GeminiUsageProvider: UsageProvider {
         case .transient:
             return .transient
         }
+    }
+
+    private func externalCredentialUpdate(since original: GeminiCredentials) -> ExternalCredentialUpdate {
+        guard let latest = GeminiAuthFileStore.readCredentials(at: oauthFilePath) else {
+            return .unusable
+        }
+        guard latest != original else {
+            return .unchanged
+        }
+        guard let accessToken = latest.accessToken,
+              !accessToken.isEmpty,
+              !latest.shouldRefresh(at: now()) else {
+            return .unusable
+        }
+        return .valid(accessToken)
     }
 
     private func fetchTierIfNeeded(accessToken: String, fingerprint: String) async {
