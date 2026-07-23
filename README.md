@@ -59,7 +59,7 @@ Maintainers: see **Signing keychain** and **Release, updates & notarization** in
 | **GitHub Copilot** | GitHub CLI (`gh auth status`) preferred; browser OAuth fallback stored in Keychain | Premium + chat quotas per account, with optional organization AI-credit billing |
 | **OpenRouter** | Management API key stored in Keychain | Credit balance |
 | **Cursor** | Local Cursor app auth file or browser sign-in stored in Keychain | Plan usage and on-demand spend |
-| **OpenCode ZEN** | Workspace ID + dashboard auth value stored in Keychain; optional Windows settings import | Credit balance |
+| **OpenCode ZEN** | Workspace ID saved in app settings + dashboard auth value stored in Keychain; optional Windows settings import | Credit balance |
 | **Moonshot (Kimi)** | `platform.kimi.ai` API key stored in Keychain | Credit balance |
 | **Gemini** | Gemini CLI OAuth credentials (`~/.gemini/oauth_creds.json`) | Pro + Flash quotas |
 
