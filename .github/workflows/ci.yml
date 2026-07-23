@@ -43,6 +43,9 @@ jobs:
       - name: Smoke-test changelog cutter
         run: ./scripts/test-cut-changelog.sh
 
+      - name: Smoke-test release artifacts
+        run: ./scripts/test-release-artifacts.sh
+
       - name: Build and test
         run: |
           set -o pipefail

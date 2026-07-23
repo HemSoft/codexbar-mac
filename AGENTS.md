@@ -97,11 +97,12 @@ in the dedicated keychain before notarized releases. Generate a CSR with
 Developer portal, import the `.cer` into `codexbar-dev.keychain-db`, then verify
 with `find-identity`.
 
-## Release & notarization
+## Release, updates & notarization
 
-V1 ships as a notarized `.zip` of `CodexBarMac.app` via GitHub Releases.
-Automatic in-app updates (Sparkle) and Homebrew cask packaging are **post-V1**;
-users update by downloading the latest GitHub Release until then.
+Releases ship as a notarized `.zip` of `CodexBarMac.app` via GitHub Releases.
+Direct-download builds use Sparkle 2 for in-app updates. The signed appcast is
+published to `https://hemsoft.github.io/codexbar-mac/appcast.xml`; the same
+immutable release ZIP and SHA-256 generate the optional Homebrew cask.
 
 Prerequisites on the release machine:
 
@@ -113,6 +114,38 @@ Prerequisites on the release machine:
    xcrun notarytool store-credentials codexbar-notary --apple-id <id> --team-id W2A23PX5BP
    ```
 
+3. One Sparkle EdDSA key in `codexbar-dev.keychain-db`, using the Keychain
+   account `codexbar-mac`. Resolve the Sparkle package once, locate its
+   `bin/generate_keys` executable in Xcode DerivedData, then run:
+
+   ```sh
+   CODEXBAR_KEYCHAIN_AS_DEFAULT=1 \
+     ./scripts/with-codexbar-keychain.sh <path-to-Sparkle/bin/generate_keys> \
+     --account codexbar-mac
+   ```
+
+   The wrapper temporarily makes the dedicated keychain the default so the
+   private key is stored there, then restores the normal search list and
+   default keychain. Keep an encrypted exported recovery copy outside the
+   repository. Never print, log, or commit the private key.
+
+4. Export the matching public key printed by `generate_keys` before every
+   release. The public key is not secret:
+
+   ```sh
+   export CODEXBAR_SPARKLE_PUBLIC_ED_KEY='<base64-public-key>'
+   ```
+
+   `release.sh` refuses to build without it and passes it into the Release
+   app's `SUPublicEDKey`. Publishing also asks Sparkle for that Keychain
+   account's public key and refuses a mismatch before changing GitHub state.
+
+5. `gh` authentication with permission to publish GitHub Releases, create or
+   update the `gh-pages` branch, and configure GitHub Pages. The publish step
+   creates the branch and Pages site when absent. `HemSoft/homebrew-tap` is a
+   separate repository; until it exists, the generated cask remains in
+   `dist/codexbar-mac.rb` for a later reviewed PR.
+
 Release flow (from a clean `main` after cutting product work):
 
 ```sh
@@ -122,18 +155,30 @@ Release flow (from a clean `main` after cutting product work):
 # Build, Developer ID–sign, notarize, staple, and zip → dist/CodexBarMac-1.0.zip
 ./scripts/release.sh --version 1.0
 
-# Same, then publish GitHub Release v1.0 with changelog-derived notes
+# Same, then publish the immutable GitHub Release, signed appcast, and cask
 ./scripts/release.sh --version 1.0 --publish
 ```
+
+`--publish` uploads the notarized ZIP first, generates and EdDSA-signs the
+archive, appcast, and release-notes link with Sparkle's official
+`generate_appcast`, then publishes the verified feed through GitHub Pages.
+Existing versioned release assets are never overwritten: the script accepts an
+existing ZIP as the immutable source when resuming an interrupted publication,
+and requires regenerated signed notes to match an existing notes asset exactly.
+It also refuses to reset feed history when an existing `gh-pages` appcast cannot
+be read. The cask is generated only after the release asset exists and includes
+the matching version, immutable URL, checksum, `CodexBarMac.app`, and
+`auto_updates true`.
 
 `scripts/cut-changelog.sh` extracts notes from `CHANGELOG.md`. Pass `--write` only
 when intentionally cutting `Unreleased` into a dated `## 1.0 - YYYY-MM-DD`
 section after a successful release (then commit the changelog cut).
 
-Smoke-test the changelog cutter without signing:
+Smoke-test release support without signing:
 
 ```sh
 ./scripts/test-cut-changelog.sh
+./scripts/test-release-artifacts.sh
 ```
 
 ## Cursor Cloud specific instructions
@@ -153,6 +198,6 @@ app** and **cannot be built, run, or tested on the Cloud Agent VM**:
 On the Linux Cloud VM, only **static code review** of the Swift sources is
 possible. To actually build/run/test (`./run.sh`, `xcodebuild ... build`,
 `xcodebuild ... test`), use a **macOS 14+ host with Xcode 16+** as documented in
-`README.md` and the Build & Run section above. There are no package-manager
-dependencies to install (only Apple system frameworks), so no dependency setup
-step is needed.
+`README.md` and the Build & Run section above. There are no dependencies to
+install separately: Xcode resolves the pinned Sparkle Swift package
+automatically.

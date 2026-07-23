@@ -23,6 +23,9 @@ cd "$(dirname "$0")"
 
 export DEVELOPER_DIR
 
+"./scripts/test-cut-changelog.sh"
+"./scripts/test-release-artifacts.sh"
+
 echo "Testing $SCHEME (DEVELOPER_DIR=$DEVELOPER_DIR)"
 xcodebuild \
   -project "$PROJECT" \

@@ -20,7 +20,6 @@ xcuserdata/
 # Swift Package Manager
 .build/
 .swiftpm/
-Package.resolved
 
 # Signing / secrets — never commit credentials
 *.p12

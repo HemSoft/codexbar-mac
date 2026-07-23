@@ -1,7 +1,9 @@
+import Sparkle
 import SwiftUI
 
 struct PopoverView: View {
     @ObservedObject var model: AppModel
+    let updater: SPUUpdater
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -32,6 +34,15 @@ struct PopoverView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
             }
+
+            Divider()
+
+            HStack {
+                CheckForUpdatesButton(updater: updater)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
         .frame(minWidth: 340, idealWidth: 360, maxWidth: 390, minHeight: 300, maxHeight: 600)
         .background(Color(nsColor: .windowBackgroundColor))

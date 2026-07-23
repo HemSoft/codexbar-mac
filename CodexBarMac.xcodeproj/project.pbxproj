@@ -75,6 +75,8 @@
 		100000000000000000000045 /* DashboardUsageSorter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000047 /* DashboardUsageSorter.swift */; };
 		100000000000000000000046 /* CopilotWebAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000048 /* CopilotWebAuthService.swift */; };
 		100000000000000000000025 /* CodexBarMacTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000028 /* CodexBarMacTests.swift */; };
+		100000000000000000000047 /* CheckForUpdatesButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000049 /* CheckForUpdatesButton.swift */; };
+		100000000000000000000048 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E00000000000000000000001 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -147,6 +149,7 @@
 		200000000000000000000046 /* DashboardOrderingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardOrderingMode.swift; sourceTree = "<group>"; };
 		200000000000000000000047 /* DashboardUsageSorter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardUsageSorter.swift; sourceTree = "<group>"; };
 		200000000000000000000048 /* CopilotWebAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotWebAuthService.swift; sourceTree = "<group>"; };
+		200000000000000000000049 /* CheckForUpdatesButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckForUpdatesButton.swift; sourceTree = "<group>"; };
 		200000000000000000000027 /* CodexBarMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000028 /* CodexBarMacTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarMacTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -166,6 +169,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				100000000000000000000048 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -308,6 +312,7 @@
 				200000000000000000000015 /* ProviderUsageCard.swift */,
 				200000000000000000000019 /* SettingsView.swift */,
 				20000000000000000000001A /* ProviderSettingsView.swift */,
+				200000000000000000000049 /* CheckForUpdatesButton.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -336,6 +341,9 @@
 			dependencies = (
 			);
 			name = CodexBarMac;
+			packageProductDependencies = (
+				E00000000000000000000001 /* Sparkle */,
+			);
 			productName = CodexBarMac;
 			productReference = 200000000000000000000005 /* CodexBarMac.app */;
 			productType = "com.apple.product-type.application";
@@ -385,6 +393,9 @@
 				Base,
 			);
 			mainGroup = 700000000000000000000001;
+			packageReferences = (
+				F00000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			productRefGroup = 700000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -496,6 +507,7 @@
 				100000000000000000000042 /* CodexWebAuthService.swift in Sources */,
 				100000000000000000000043 /* ClaudeWebAuthService.swift in Sources */,
 				100000000000000000000046 /* CopilotWebAuthService.swift in Sources */,
+				100000000000000000000047 /* CheckForUpdatesButton.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -641,6 +653,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hemsoft.CodexBarMac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SPARKLE_PUBLIC_ED_KEY = "pfIShU4dEXqPd5ObYNfDBiQWcXozk7estwzTnF9BamQ=";
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
@@ -665,6 +678,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hemsoft.CodexBarMac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SPARKLE_PUBLIC_ED_KEY = "";
 				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
@@ -734,6 +748,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F00000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E00000000000000000000001 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F00000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 400000000000000000000001 /* Project object */;
 }

@@ -4,6 +4,7 @@ set -euo pipefail
 LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 SIGNING_KEYCHAIN="${CODEXBAR_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/codexbar-dev.keychain-db}"
 SYSTEM_KEYCHAIN="/Library/Keychains/System.keychain"
+USE_AS_DEFAULT="${CODEXBAR_KEYCHAIN_AS_DEFAULT:-0}"
 
 normalize_keychain_path() {
   printf '%s' "$1" | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//'
@@ -11,6 +12,10 @@ normalize_keychain_path() {
 
 if [[ "$#" -eq 0 ]]; then
   echo "Usage: $0 <command> [arguments...]" >&2
+  exit 64
+fi
+if [[ "$USE_AS_DEFAULT" != "0" && "$USE_AS_DEFAULT" != "1" ]]; then
+  echo "CODEXBAR_KEYCHAIN_AS_DEFAULT must be 0 or 1." >&2
   exit 64
 fi
 
@@ -59,5 +64,8 @@ fi
 security list-keychains -d user -s \
   "$SIGNING_KEYCHAIN" \
   "${PRIOR_WITHOUT_SIGNING[@]}"
+if [[ "$USE_AS_DEFAULT" == "1" ]]; then
+  security default-keychain -d user -s "$SIGNING_KEYCHAIN"
+fi
 
 "$@"

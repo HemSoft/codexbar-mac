@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build, Developer ID–sign, notarize, staple, and package CodexBar for Mac.
+# Build, sign, notarize, package, and optionally publish CodexBar for Mac.
 #
 # Prerequisites (local machine only — never commit these):
 #   - Dedicated signing keychain at ~/Library/Keychains/codexbar-dev.keychain-db
@@ -7,7 +7,8 @@
 #   - notarytool credentials profile (default name: codexbar-notary)
 #
 # Usage:
-#   ./scripts/release.sh [--version 1.0] [--skip-notarize] [--publish] [--dry-run]
+#   CODEXBAR_SPARKLE_PUBLIC_ED_KEY=<public-key> \
+#     ./scripts/release.sh [--version 1.0] [--skip-notarize] [--publish] [--dry-run]
 #
 # Default output: dist/CodexBarMac-<version>.zip containing CodexBarMac.app
 
@@ -25,6 +26,8 @@ TEAM_ID="${CODEXBAR_TEAM_ID:-W2A23PX5BP}"
 NOTARY_PROFILE="${CODEXBAR_NOTARY_PROFILE:-codexbar-notary}"
 SIGNING_IDENTITY_QUERY="${CODEXBAR_SIGNING_IDENTITY:-Developer ID Application}"
 SIGNING_KEYCHAIN="${CODEXBAR_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/codexbar-dev.keychain-db}"
+SPARKLE_ACCOUNT="${CODEXBAR_SPARKLE_ACCOUNT:-codexbar-mac}"
+SPARKLE_PUBLIC_ED_KEY="${CODEXBAR_SPARKLE_PUBLIC_ED_KEY:-}"
 export CODEXBAR_SIGNING_KEYCHAIN="$SIGNING_KEYCHAIN"
 DIST_DIR="$ROOT/dist"
 DERIVED_DATA="$DIST_DIR/DerivedData"
@@ -40,7 +43,7 @@ Usage: ./scripts/release.sh [options]
 Options:
   --version <ver>     Marketing version (default: MARKETING_VERSION from the project)
   --skip-notarize     Sign and zip without notarytool (not Gatekeeper-clean; incompatible with --publish)
-  --publish           After packaging, create/update GitHub Release v<ver> (requires notarization)
+  --publish           Publish immutable Release assets, signed appcast, and generated cask
   --dry-run           Print the plan and verify prerequisites; do not build
   -h, --help          Show this help
 
@@ -97,12 +100,18 @@ fi
   echo "Could not determine marketing version." >&2
   exit 1
 }
+[[ "$VERSION" =~ ^[0-9]+([.][0-9A-Za-z-]+)*$ ]] || {
+  echo "Invalid release version: $VERSION" >&2
+  exit 1
+}
 
 ARCHIVE_PATH="$DIST_DIR/CodexBarMac-$VERSION.xcarchive"
 APP_NAME="CodexBarMac.app"
 EXPORT_DIR="$DIST_DIR/export-$VERSION"
 ZIP_PATH="$DIST_DIR/CodexBarMac-$VERSION.zip"
-NOTES_PATH="$DIST_DIR/CodexBarMac-$VERSION-notes.md"
+NOTES_PATH="$DIST_DIR/CodexBarMac-$VERSION.md"
+APPCAST_PATH="$DIST_DIR/appcast.xml"
+CASK_PATH="$DIST_DIR/codexbar-mac.rb"
 
 echo "CodexBar Mac release"
 echo "  version:         $VERSION"
@@ -127,7 +136,18 @@ require_cmd python3
 
 if [[ "$PUBLISH" -eq 1 ]]; then
   require_cmd gh
+  require_cmd jq
+  require_cmd rg
 fi
+
+[[ "$SPARKLE_PUBLIC_ED_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]] || {
+  cat >&2 <<'EOF'
+CODEXBAR_SPARKLE_PUBLIC_ED_KEY must contain the base64 EdDSA public key that
+matches the CodexBar Sparkle private key. Public keys are safe to place in the
+environment; never place the private key there.
+EOF
+  exit 1
+}
 
 if [[ "$PUBLISH" -eq 1 && "$SKIP_NOTARIZE" -eq 1 ]]; then
   echo "Refusing to publish with --skip-notarize. Notarize first, or omit --publish." >&2
@@ -180,7 +200,28 @@ IDENTITY_HASH="$(awk '{print $2}' <<<"$IDENTITY")"
 IDENTITY_NAME="$(sed -E 's/.*"([^"]+)".*/\1/' <<<"$IDENTITY")"
 echo "Using signing identity: $IDENTITY_NAME ($IDENTITY_HASH)"
 
+if [[ "$PUBLISH" -eq 1 ]]; then
+  if ! "$ROOT/scripts/with-codexbar-keychain.sh" security find-generic-password \
+    -s "https://sparkle-project.org" \
+    -a "$SPARKLE_ACCOUNT" \
+    "$SIGNING_KEYCHAIN" >/dev/null 2>&1
+  then
+    cat >&2 <<EOF
+Sparkle EdDSA private key account "$SPARKLE_ACCOUNT" was not found in:
+  $SIGNING_KEYCHAIN
+
+Generate or import it with Sparkle's generate_keys tool through:
+  CODEXBAR_KEYCHAIN_AS_DEFAULT=1 \\
+    ./scripts/with-codexbar-keychain.sh <path-to-generate_keys> --account "$SPARKLE_ACCOUNT"
+
+Never commit or print the private key.
+EOF
+    exit 1
+  fi
+fi
+
 if [[ "$SKIP_NOTARIZE" -eq 0 ]]; then
+  require_cmd xcrun
   if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
     cat >&2 <<EOF
 notarytool profile "$NOTARY_PROFILE" is missing or invalid.
@@ -198,13 +239,121 @@ EOF
   fi
 fi
 
+find_sparkle_tools() {
+  local search_root
+
+  if [[ -z "${CODEXBAR_GENERATE_APPCAST:-}" ]]; then
+    for search_root in \
+      "$DERIVED_DATA/SourcePackages/artifacts" \
+      "$HOME/Library/Developer/Xcode/DerivedData"
+    do
+      [[ -d "$search_root" ]] || continue
+      CODEXBAR_GENERATE_APPCAST="$(
+        rg --files "$search_root" \
+          | rg '/generate_appcast$' \
+          | head -1 \
+          || true
+      )"
+      [[ -n "$CODEXBAR_GENERATE_APPCAST" ]] && break
+    done
+    export CODEXBAR_GENERATE_APPCAST
+  fi
+  [[ -x "${CODEXBAR_GENERATE_APPCAST:-}" ]] || {
+    echo "Sparkle generate_appcast was not found. Resolve the Sparkle package or set CODEXBAR_GENERATE_APPCAST." >&2
+    exit 1
+  }
+
+  if [[ -z "${CODEXBAR_GENERATE_KEYS:-}" ]]; then
+    CODEXBAR_GENERATE_KEYS="$(dirname "$CODEXBAR_GENERATE_APPCAST")/generate_keys"
+    export CODEXBAR_GENERATE_KEYS
+  fi
+  [[ -x "$CODEXBAR_GENERATE_KEYS" ]] || {
+    echo "Sparkle generate_keys was not found next to generate_appcast." >&2
+    exit 1
+  }
+}
+
+verify_sparkle_key_pair() {
+  local key_summary
+
+  key_summary="$(
+    "$ROOT/scripts/with-codexbar-keychain.sh" \
+      "$CODEXBAR_GENERATE_KEYS" \
+      --account "$SPARKLE_ACCOUNT" \
+      -p
+  )"
+  grep -Fq "$SPARKLE_PUBLIC_ED_KEY" <<<"$key_summary" || {
+    echo "CODEXBAR_SPARKLE_PUBLIC_ED_KEY does not match Keychain account \"$SPARKLE_ACCOUNT\"." >&2
+    exit 1
+  }
+}
+
+PREFLIGHT_DIR="$(mktemp -d)"
+trap 'rm -rf "$PREFLIGHT_DIR"' EXIT
+EXISTING_APPCAST_ARGS=()
+
+preflight_publication_state() {
+  local pages_json
+  local pages_branch
+  local pages_path
+  local encoded_appcast
+  local gh_pages_ref_count
+  local existing_appcast_path="$PREFLIGHT_DIR/existing-appcast.xml"
+
+  [[ "$(gh api repos/HemSoft/codexbar-mac --jq '.permissions.admin')" == "true" ]] || {
+    echo "GitHub authentication needs repository admin permission to publish Releases and Pages." >&2
+    exit 1
+  }
+
+  if pages_json="$(gh api repos/HemSoft/codexbar-mac/pages 2>/dev/null)"; then
+    pages_branch="$(jq -r '.source.branch // empty' <<<"$pages_json")"
+    pages_path="$(jq -r '.source.path // empty' <<<"$pages_json")"
+    [[ "$pages_branch" == "gh-pages" && "$pages_path" == "/" ]] || {
+      echo "GitHub Pages must publish the root of the gh-pages branch; refusing to change existing settings." >&2
+      exit 1
+    }
+  fi
+
+  gh_pages_ref_count="$(
+    gh api repos/HemSoft/codexbar-mac/git/matching-refs/heads/gh-pages --jq length
+  )" || {
+    echo "Could not determine whether the gh-pages branch exists; refusing to publish." >&2
+    exit 1
+  }
+
+  if [[ "$gh_pages_ref_count" -gt 0 ]]; then
+    encoded_appcast="$(
+      gh api "repos/HemSoft/codexbar-mac/contents/appcast.xml?ref=gh-pages" --jq .content
+    )" || {
+      echo "The gh-pages branch exists, but its appcast could not be read; refusing to reset update history." >&2
+      exit 1
+    }
+    python3 -c \
+      'import base64,sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))' \
+      <<<"$encoded_appcast" >"$existing_appcast_path"
+    grep -Fq '<!-- sparkle-signatures:' "$existing_appcast_path" || {
+      echo "Existing gh-pages appcast is not a signed feed; refusing to discard or replace its history." >&2
+      exit 1
+    }
+    EXISTING_APPCAST_ARGS=(--existing-appcast "$existing_appcast_path")
+  fi
+}
+
+if [[ "$PUBLISH" -eq 1 ]]; then
+  preflight_publication_state
+fi
+
 if [[ "$DRY_RUN" -eq 1 ]]; then
+  if [[ "$PUBLISH" -eq 1 ]]; then
+    find_sparkle_tools
+    verify_sparkle_key_pair
+  fi
   echo "Dry run OK — prerequisites satisfied."
   exit 0
 fi
 
 mkdir -p "$DIST_DIR"
-rm -rf "$DERIVED_DATA" "$ARCHIVE_PATH" "$EXPORT_DIR" "$ZIP_PATH" "$NOTES_PATH"
+rm -rf "$DERIVED_DATA" "$ARCHIVE_PATH" "$EXPORT_DIR" "$ZIP_PATH" "$NOTES_PATH" "$APPCAST_PATH" "$CASK_PATH"
 
 echo "Cutting release notes from CHANGELOG.md..."
 "$ROOT/scripts/cut-changelog.sh" --notes-out "$NOTES_PATH" "$VERSION"
@@ -223,6 +372,7 @@ echo "Building Release archive..."
   OTHER_CODE_SIGN_FLAGS="--timestamp" \
   MARKETING_VERSION="$VERSION" \
   CURRENT_PROJECT_VERSION="$VERSION" \
+  SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
   archive
 
 APP_PATH="$ARCHIVE_PATH/Products/Applications/$APP_NAME"
@@ -281,6 +431,9 @@ if [[ "$PUBLISH" -eq 1 ]]; then
   TARGET_SHA="$(git -C "$ROOT" rev-parse HEAD)"
   echo "Publishing GitHub Release $TAG at $TARGET_SHA..."
 
+  find_sparkle_tools
+  verify_sparkle_key_pair
+
   # Prefer the peeled commit SHA for annotated tags (refs/tags/vX^{}).
   TAG_SHA="$(
     git ls-remote --tags origin "refs/tags/${TAG}^{}" 2>/dev/null | awk '{print $1; exit}'
@@ -297,18 +450,95 @@ if [[ "$PUBLISH" -eq 1 ]]; then
     exit 1
   fi
 
+  release_asset_json() {
+    local tag="$1"
+    local asset_name="$2"
+
+    gh api "repos/HemSoft/codexbar-mac/releases/tags/$tag" \
+      | jq -c --arg name "$asset_name" \
+        '[.assets[]? | select(.name == $name)][0] // empty'
+  }
+
+  REMOTE_ASSET_DIR="$DIST_DIR/remote-$VERSION"
+  rm -rf "$REMOTE_ASSET_DIR"
+  mkdir -p "$REMOTE_ASSET_DIR"
+
   if gh release view "$TAG" >/dev/null 2>&1; then
-    gh release upload "$TAG" "$ZIP_PATH" --clobber
-    gh release edit "$TAG" \
-      --notes-file "$NOTES_PATH" \
-      --target "$TARGET_SHA"
+    ZIP_ASSET_JSON="$(release_asset_json "$TAG" "$(basename "$ZIP_PATH")")"
+    if [[ -n "$ZIP_ASSET_JSON" ]]; then
+      echo "Using the existing immutable release ZIP for resumed publication."
+      gh release download "$TAG" \
+        --pattern "$(basename "$ZIP_PATH")" \
+        --dir "$REMOTE_ASSET_DIR"
+      PUBLISHED_ZIP_PATH="$REMOTE_ASSET_DIR/$(basename "$ZIP_PATH")"
+      REMOTE_ZIP_DIGEST="$(jq -r '.digest // empty' <<<"$ZIP_ASSET_JSON" | sed -E 's/^sha256://')"
+      DOWNLOADED_ZIP_DIGEST="$(shasum -a 256 "$PUBLISHED_ZIP_PATH" | awk '{print $1}')"
+      if [[ -n "$REMOTE_ZIP_DIGEST" && "$REMOTE_ZIP_DIGEST" != "$DOWNLOADED_ZIP_DIGEST" ]]; then
+        echo "Downloaded release ZIP does not match GitHub's recorded digest." >&2
+        exit 1
+      fi
+    else
+      gh release upload "$TAG" "$ZIP_PATH"
+      PUBLISHED_ZIP_PATH="$ZIP_PATH"
+    fi
   else
     gh release create "$TAG" "$ZIP_PATH" \
       --title "CodexBar for Mac $VERSION" \
       --notes-file "$NOTES_PATH" \
       --target "$TARGET_SHA"
+    PUBLISHED_ZIP_PATH="$ZIP_PATH"
   fi
-  echo "Published: $(gh release view "$TAG" --json url --jq .url)"
+
+  REMOTE_NOTES_PRESENT=0
+  NOTES_ASSET_JSON="$(release_asset_json "$TAG" "$(basename "$NOTES_PATH")")"
+  if [[ -n "$NOTES_ASSET_JSON" ]]; then
+    REMOTE_NOTES_PRESENT=1
+    gh release download "$TAG" \
+      --pattern "$(basename "$NOTES_PATH")" \
+      --dir "$REMOTE_ASSET_DIR"
+    NOTES_FOR_APPCAST="$REMOTE_ASSET_DIR/$(basename "$NOTES_PATH")"
+    REMOTE_NOTES_DIGEST="$(shasum -a 256 "$NOTES_FOR_APPCAST" | awk '{print $1}')"
+    echo "Using the existing immutable signed release notes for resumed publication."
+  else
+    NOTES_FOR_APPCAST="$NOTES_PATH"
+    REMOTE_NOTES_DIGEST=""
+  fi
+
+  gh release edit "$TAG" \
+    --notes-file "$NOTES_FOR_APPCAST" \
+    --target "$TARGET_SHA"
+
+  RELEASE_URL="$(gh release view "$TAG" --json url --jq .url)"
+  DOWNLOAD_PREFIX="https://github.com/HemSoft/codexbar-mac/releases/download/$TAG/"
+
+  "$ROOT/scripts/generate-update-artifacts.sh" \
+    --version "$VERSION" \
+    --archive "$PUBLISHED_ZIP_PATH" \
+    --notes "$NOTES_FOR_APPCAST" \
+    --download-prefix "$DOWNLOAD_PREFIX" \
+    --release-page-url "$RELEASE_URL" \
+    --appcast-output "$APPCAST_PATH" \
+    --cask-output "$CASK_PATH" \
+    "${EXISTING_APPCAST_ARGS[@]}"
+
+  if [[ "$REMOTE_NOTES_PRESENT" -eq 1 ]]; then
+    GENERATED_NOTES_DIGEST="$(shasum -a 256 "$NOTES_FOR_APPCAST" | awk '{print $1}')"
+    if [[ "$GENERATED_NOTES_DIGEST" != "$REMOTE_NOTES_DIGEST" ]]; then
+      echo "Refusing to replace immutable signed release notes after appcast generation." >&2
+      exit 1
+    fi
+  else
+    gh release upload "$TAG" "$NOTES_FOR_APPCAST"
+  fi
+
+  "$ROOT/scripts/publish-github-pages-appcast.sh" \
+    --appcast "$APPCAST_PATH" \
+    --version "$VERSION"
+
+  echo "Published release: $RELEASE_URL"
+  echo "Published appcast: https://hemsoft.github.io/codexbar-mac/appcast.xml"
+  echo "Generated cask:    $CASK_PATH"
+  echo "Open a reviewed PR adding it to HemSoft/homebrew-tap after that repository exists."
 fi
 
 echo "Done."

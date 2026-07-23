@@ -32,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Account groups in Settings, including create, rename, delete, and per-account group assignment.
 - Manual or smart dashboard ordering, with smart mode prioritizing urgent usage, low balances, and projected limit exhaustion.
 - Per-account **Show History** settings hide compact sparklines without deleting saved usage samples.
+- Secure Sparkle 2 in-app updates for direct-download builds, with a visible **Check for Updates…** action, second-launch consent for automatic checks, and EdDSA verification of archives, feeds, and release notes.
 
 ### Changed
 
@@ -61,6 +62,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `./test.sh` runs the same local `xcodebuild test` flow used by CI.
 - Additional Mac-specific coverage for `UsageRefreshService` success/disabled-account handling and GitHub CLI credential discovery parsing.
 - Developer ID release tooling: dedicated `codexbar-dev` keychain helpers, `scripts/release.sh` (sign / notarize / staple / zip / optional GitHub Release), `scripts/cut-changelog.sh`, and release docs in `AGENTS.md`.
+- Release publication now preserves immutable GitHub Release assets, generates and publishes the signed Sparkle appcast through GitHub Pages, and emits a deterministic Homebrew cask for a reviewed `HemSoft/homebrew-tap` update.
+- Release artifact smoke tests cover signed-appcast validation, exact versioned URLs, deterministic cask output, missing prerequisites, and publication dry runs.
 - App Release signing team set to `W2A23PX5BP` with hardened-runtime entitlements for network client access (Debug remains team-agnostic for local builds).
 - `run.sh` script to build and launch the app from the command line.
 - `AGENTS.md` and `README.md` document build and run instructions.
