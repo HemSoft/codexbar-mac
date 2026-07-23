@@ -3878,7 +3878,13 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
-    func testOpenCodeZenBootstrapImporterRetainsFileForInvalidPayload() throws {
+    func testOpenCodeZenBootstrapImporterDeletesFileForInvalidPayload() throws {
+        let suiteName = "OpenCodeZenBootstrapImporter-invalid-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
@@ -3890,7 +3896,7 @@ final class CodexBarMacTests: XCTestCase {
         try Data().write(to: importURL)
 
         let configurationStore = ProviderConfigurationStore(
-            defaults: UserDefaults(suiteName: "OpenCodeZenBootstrapImporter-invalid-\(UUID().uuidString)")!,
+            defaults: defaults,
             secretStore: InMemorySecretStore()
         )
 
@@ -3899,7 +3905,91 @@ final class CodexBarMacTests: XCTestCase {
             importDirectory: tempDirectory
         )
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: importURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: importURL.path))
+    }
+
+    @MainActor
+    func testOpenCodeZenBootstrapImporterRestrictsFileBeforeReading() throws {
+        let suiteName = "OpenCodeZenBootstrapImporter-permissions-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let fileManager = FileManager.default
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: tempDirectory)
+        }
+
+        let importURL = tempDirectory.appendingPathComponent(OpenCodeZenBootstrapImporter.importFileName)
+        try Data().write(to: importURL)
+        try fileManager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: importURL.path)
+
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        var permissionsAtRead: Int?
+
+        OpenCodeZenBootstrapImporter.importIfNeeded(
+            configurationStore: configurationStore,
+            fileManager: fileManager,
+            importDirectory: tempDirectory,
+            readData: { url in
+                let attributes = try fileManager.attributesOfItem(atPath: url.path)
+                permissionsAtRead = (attributes[.posixPermissions] as? NSNumber)?.intValue
+                return try Data(contentsOf: url)
+            }
+        )
+
+        XCTAssertEqual(permissionsAtRead, 0o600)
+        XCTAssertFalse(fileManager.fileExists(atPath: importURL.path))
+    }
+
+    @MainActor
+    func testOpenCodeZenBootstrapImporterDeletesFileWithoutReadingWhenProtectionFails() throws {
+        let suiteName = "OpenCodeZenBootstrapImporter-protection-failure-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let fileManager = FailingPermissionsFileManager()
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: tempDirectory)
+        }
+
+        let importURL = tempDirectory.appendingPathComponent(OpenCodeZenBootstrapImporter.importFileName)
+        try Data("sensitive bootstrap payload".utf8).write(to: importURL)
+
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        var readAttempted = false
+
+        OpenCodeZenBootstrapImporter.importIfNeeded(
+            configurationStore: configurationStore,
+            fileManager: fileManager,
+            importDirectory: tempDirectory,
+            readData: { url in
+                readAttempted = true
+                return try Data(contentsOf: url)
+            }
+        )
+
+        XCTAssertEqual(
+            (fileManager.recordedAttributes?[.posixPermissions] as? NSNumber)?.intValue,
+            0o600
+        )
+        XCTAssertFalse(readAttempted)
+        XCTAssertFalse(fileManager.fileExists(atPath: importURL.path))
     }
 
     @MainActor
@@ -3938,10 +4028,24 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
-    func testOpenCodeZenBootstrapImporterReturnsFalseWhenSecretSaveFails() throws {
+    func testOpenCodeZenBootstrapImporterDeletesFileWhenSecretSaveFails() throws {
+        let suiteName = "OpenCodeZenBootstrapImporter-persistence-failure-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let fileManager = FileManager.default
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: tempDirectory)
+        }
+
         let secretStore = FailingSecretStore()
         let configurationStore = ProviderConfigurationStore(
-            defaults: UserDefaults(suiteName: "OpenCodeZenBootstrapImporter-failure-\(UUID().uuidString)")!,
+            defaults: defaults,
             secretStore: secretStore
         )
         let payload = """
@@ -3955,8 +4059,18 @@ final class CodexBarMacTests: XCTestCase {
         }
         """
 
-        XCTAssertFalse(OpenCodeZenBootstrapImporter.importPayload(payload, configurationStore: configurationStore))
+        let importURL = tempDirectory.appendingPathComponent(OpenCodeZenBootstrapImporter.importFileName)
+        try Data(payload.utf8).write(to: importURL)
+
+        OpenCodeZenBootstrapImporter.importIfNeeded(
+            configurationStore: configurationStore,
+            fileManager: fileManager,
+            importDirectory: tempDirectory
+        )
+
+        XCTAssertNotNil(configurationStore.lastError)
         XCTAssertNil(configurationStore.readSavedSecret(for: .defaultConfiguration(for: .openCodeZen)))
+        XCTAssertFalse(fileManager.fileExists(atPath: importURL.path))
     }
 
     func testOpenCodeZenNormalizesPastedBalanceCredential() {
@@ -6347,6 +6461,15 @@ private final class FailingSecretStore: SecretStore, @unchecked Sendable {
     }
 
     func deleteSecret(account: String) throws {}
+}
+
+private final class FailingPermissionsFileManager: FileManager, @unchecked Sendable {
+    private(set) var recordedAttributes: [FileAttributeKey: Any]?
+
+    override func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+        recordedAttributes = attributes
+        throw CocoaError(.fileWriteNoPermission)
+    }
 }
 
 private final class CopilotResolvedUsernameBox: @unchecked Sendable {
