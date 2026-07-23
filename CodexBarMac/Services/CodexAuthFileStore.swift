@@ -11,6 +11,16 @@ public enum CodexAuthFileStore: Sendable {
     }
 
     public static func writeCredentials(_ credentials: CodexCredentials, at path: String = defaultPath()) throws {
+        try writeCredentials(credentials, at: path) { path, mode in
+            chmod(path, mode)
+        }
+    }
+
+    static func writeCredentials(
+        _ credentials: CodexCredentials,
+        at path: String,
+        settingPermissionsWith permissionSetter: (_ path: String, _ mode: mode_t) -> Int32
+    ) throws {
         let fileURL = URL(fileURLWithPath: path)
         var root: [String: Any] = [:]
 
@@ -38,7 +48,9 @@ public enum CodexAuthFileStore: Sendable {
 
         let fileMode = existingFileMode(at: fileURL.path) ?? 0o600
         try encoded.write(to: fileURL, options: .atomic)
-        _ = chmod(fileURL.path, fileMode)
+        guard permissionSetter(fileURL.path, fileMode) == 0 else {
+            throw CodexAuthFileStoreError.unableToSecureFile
+        }
     }
 
     private static func existingFileMode(at path: String) -> mode_t? {
@@ -57,4 +69,5 @@ public enum CodexAuthFileStore: Sendable {
 
 public enum CodexAuthFileStoreError: Error {
     case invalidCredentialPayload
+    case unableToSecureFile
 }

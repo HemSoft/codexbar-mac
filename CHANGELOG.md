@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Codex and Claude credential refreshes now report a persistence failure when owner-only file permissions cannot be restored.
 - Reset Accounts now preserves the first Keychain deletion error across a partial reset, keeps failed accounts available for retry, and refreshes usage only when an account was removed.
 - Gemini token refresh now preserves newer access, refresh, and ID tokens when
   the Gemini CLI updates its credential file during an in-flight refresh.

@@ -183,6 +183,36 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertNotNil(root?["last_refresh"] as? String)
     }
 
+    func testCodexAuthFileStoreSurfacesPermissionRestorationFailure() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let authFilePath = directory.appendingPathComponent("auth.json").path
+        var requestedPath: String?
+        var requestedMode: mode_t?
+
+        XCTAssertThrowsError(
+            try CodexAuthFileStore.writeCredentials(
+                CodexCredentials(accessToken: "redacted-access", refreshToken: "redacted-refresh"),
+                at: authFilePath,
+                settingPermissionsWith: { path, mode in
+                    requestedPath = path
+                    requestedMode = mode
+                    return -1
+                }
+            )
+        ) { error in
+            guard case CodexAuthFileStoreError.unableToSecureFile = error else {
+                return XCTFail("Expected unableToSecureFile, got \(error)")
+            }
+        }
+
+        XCTAssertEqual(requestedPath, authFilePath)
+        XCTAssertEqual(requestedMode, 0o600)
+    }
+
     func testCodexUsageProviderExplainsCLIAndBrowserFallback() async throws {
         let configuration = ProviderAccountConfiguration(
             providerID: .codex,
@@ -1171,6 +1201,40 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(oauth?["accessToken"] as? String, "new-access")
         XCTAssertEqual(oauth?["refreshToken"] as? String, "refresh-token")
         XCTAssertEqual(oauth?["scopes"] as? [String], ["user:inference", "user:profile"])
+    }
+
+    func testClaudeCredentialStoreSurfacesPermissionRestorationFailure() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        var requestedPath: String?
+        var requestedMode: mode_t?
+
+        XCTAssertThrowsError(
+            try ClaudeCredentialStore.saveCredentials(
+                ClaudeCredentials(
+                    expiresAt: 4_000_000_000_000,
+                    accessToken: "redacted-access",
+                    refreshToken: "redacted-refresh"
+                ),
+                to: .file(credentialsPath),
+                settingPermissionsWith: { path, mode in
+                    requestedPath = path
+                    requestedMode = mode
+                    return -1
+                }
+            )
+        ) { error in
+            guard case ClaudeCredentialStoreError.unableToSecureFile = error else {
+                return XCTFail("Expected unableToSecureFile, got \(error)")
+            }
+        }
+
+        XCTAssertEqual(requestedPath, credentialsPath)
+        XCTAssertEqual(requestedMode, 0o600)
     }
 
     func testClaudeAuthURLUsesPKCELoopbackFlow() throws {

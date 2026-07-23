@@ -49,6 +49,16 @@ public enum ClaudeCredentialStore: Sendable {
         _ credentials: ClaudeCredentials,
         to storage: Storage
     ) throws {
+        try saveCredentials(credentials, to: storage) { path, mode in
+            chmod(path, mode)
+        }
+    }
+
+    static func saveCredentials(
+        _ credentials: ClaudeCredentials,
+        to storage: Storage,
+        settingPermissionsWith permissionSetter: (_ path: String, _ mode: mode_t) -> Int32
+    ) throws {
         switch storage {
         case .keychain(let service, let account):
             let existing = try? readGenericPassword(service: service, account: account)
@@ -59,14 +69,20 @@ public enum ClaudeCredentialStore: Sendable {
             )
         case .file(let path):
             let existing = try? String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8)
-            try writeCredentialsFile(credentials, at: path, mergingExisting: existing)
+            try writeCredentialsFile(
+                credentials,
+                at: path,
+                mergingExisting: existing,
+                settingPermissionsWith: permissionSetter
+            )
         }
     }
 
     private static func writeCredentialsFile(
         _ credentials: ClaudeCredentials,
         at path: String,
-        mergingExisting existing: String? = nil
+        mergingExisting existing: String? = nil,
+        settingPermissionsWith permissionSetter: (_ path: String, _ mode: mode_t) -> Int32
     ) throws {
         let fileURL = URL(fileURLWithPath: path)
         let stored = ClaudeCredentialsParser.storedCredential(
@@ -86,7 +102,9 @@ public enum ClaudeCredentialStore: Sendable {
 
         let fileMode = existingFileMode(at: fileURL.path) ?? 0o600
         try encoded.write(to: fileURL, options: .atomic)
-        _ = chmod(fileURL.path, fileMode)
+        guard permissionSetter(fileURL.path, fileMode) == 0 else {
+            throw ClaudeCredentialStoreError.unableToSecureFile
+        }
     }
 
     static func keychainCredentialServices() -> [String] {
@@ -240,4 +258,5 @@ public enum ClaudeCredentialStore: Sendable {
 
 public enum ClaudeCredentialStoreError: Error {
     case invalidCredentialPayload
+    case unableToSecureFile
 }
