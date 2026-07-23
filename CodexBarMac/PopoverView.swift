@@ -42,7 +42,7 @@ struct PopoverView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("CodexBar")
                     .font(.headline)
@@ -59,33 +59,39 @@ struct PopoverView: View {
                     await model.refresh()
                 }
             } label: {
-                if model.isRefreshing {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(width: 24, height: 24)
-                } else {
-                    Image(systemName: "arrow.clockwise")
-                        .frame(width: 24, height: 24)
+                Group {
+                    if model.isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
                 }
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .help("Refresh usage")
+            .accessibilityLabel("Refresh usage")
             .disabled(model.isRefreshing)
 
             Button {
                 openSettings()
             } label: {
                 Image(systemName: "gearshape")
-                    .frame(width: 24, height: 24)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .help("Settings")
+            .accessibilityLabel("Settings")
 
             Button {
                 model.quit()
             } label: {
                 Image(systemName: "power")
-                    .frame(width: 24, height: 24)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .help("Quit CodexBar")
