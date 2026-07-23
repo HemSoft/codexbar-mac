@@ -33,6 +33,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Manual or smart dashboard ordering, with smart mode prioritizing urgent usage, low balances, and projected limit exhaustion.
 - Per-account **Show History** settings hide compact sparklines without deleting saved usage samples.
 
+### Changed
+
+- The menu bar popover uses a narrower, content-friendlier frame, tighter card spacing, and a single compact header for refresh, settings, and quit actions.
+
 ### Fixed
 
 - Gemini Code Assist project IDs are accepted when returned as objects (`id` / `projectId`) as well as strings, and Cloud Resource Manager is queried when no project is otherwise available so menu-bar launches without shell env can still fetch quota.
