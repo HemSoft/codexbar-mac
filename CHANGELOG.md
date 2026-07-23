@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Claude usage refreshes no longer send inference requests when OAuth usage is unavailable or incomplete, while preserving cached rate-limit bars alongside partial usage data.
 - Gemini Code Assist project IDs are accepted when returned as objects (`id` / `projectId`) as well as strings, and Cloud Resource Manager is queried when no project is otherwise available so menu-bar launches without shell env can still fetch quota.
 - Gemini CLI auth gating treats ADC, Cloud Shell, gateway, and other non-OAuth modes as unsupported, and prefers Resource Manager projects labeled for generative language when choosing a fallback quota project.
 - Gemini credential and settings paths honor `GEMINI_CLI_HOME` the same way Gemini CLI does (`$GEMINI_CLI_HOME/.gemini/...`).
