@@ -3,6 +3,25 @@ import Darwin
 @testable import CodexBarMac
 
 final class CodexBarMacTests: XCTestCase {
+    func testSparkleConfigurationUsesSignedFeedAndDefaultConsentFlow() throws {
+        let info = Bundle.main.infoDictionary ?? [:]
+
+        XCTAssertEqual(
+            info["SUFeedURL"] as? String,
+            "https://hemsoft.github.io/codexbar-mac/appcast.xml"
+        )
+        XCTAssertEqual(
+            info["SUPublicEDKey"] as? String,
+            "pfIShU4dEXqPd5ObYNfDBiQWcXozk7estwzTnF9BamQ="
+        )
+        XCTAssertEqual(info["SURequireSignedFeed"] as? Bool, true)
+        XCTAssertEqual(info["SUVerifyUpdateBeforeExtraction"] as? Bool, true)
+        XCTAssertNil(
+            info["SUEnableAutomaticChecks"],
+            "Sparkle must ask for automatic-check consent on its standard second-launch flow."
+        )
+    }
+
     func testCodexUsageParserReadsUsageWindows() throws {
         let fetchedAt = Date(timeIntervalSince1970: 1_893_369_600)
         let formatter = UserFacingDateTimeFormatter(

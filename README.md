@@ -38,9 +38,17 @@ GitHub Actions runs the same `xcodebuild test` flow on `macos-26` (Xcode 26.6) f
 
 ## Download / Release
 
-Notarized macOS builds are published as GitHub Releases (zipped `CodexBarMac.app`). V1 updates are manual downloads from Releases; Sparkle and Homebrew are deferred.
+Notarized macOS builds are published as immutable GitHub Release ZIPs. Direct-download
+builds use Sparkle for EdDSA-verified in-app updates from
+`https://hemsoft.github.io/codexbar-mac/appcast.xml`. Use **Check for Updates…** in the
+menu bar popover at any time; Sparkle asks on the second launch before enabling
+automatic background checks.
 
-Maintainers: see **Signing keychain** and **Release & notarization** in [`AGENTS.md`](AGENTS.md).
+The same versioned ZIP and SHA-256 generate the optional `codexbar-mac` Homebrew
+cask. It is published through `HemSoft/homebrew-tap` by reviewed PR after that
+tap repository is available.
+
+Maintainers: see **Signing keychain** and **Release, updates & notarization** in [`AGENTS.md`](AGENTS.md).
 
 ## Planned Providers (V1)
 
