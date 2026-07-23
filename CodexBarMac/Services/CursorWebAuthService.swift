@@ -70,7 +70,6 @@ public final class CursorWebAuthService: Sendable {
         let authID: String?
         let userID: String?
         let error: String?
-        let errorDescription: String?
 
         enum CodingKeys: String, CodingKey {
             case accessToken
@@ -78,7 +77,6 @@ public final class CursorWebAuthService: Sendable {
             case authID = "authId"
             case userID = "userId"
             case error
-            case errorDescription = "error_description"
         }
     }
 
@@ -161,7 +159,10 @@ public final class CursorWebAuthService: Sendable {
             case 404:
                 break
             default:
-                let message = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
+                let message = TokenEndpointErrorFormatter.message(
+                    statusCode: httpResponse.statusCode,
+                    body: data
+                )
                 throw AuthError.tokenPollFailed(message)
             }
 
@@ -179,7 +180,7 @@ public final class CursorWebAuthService: Sendable {
         }
 
         if let error = tokenResponse.error {
-            throw AuthError.tokenPollFailed(tokenResponse.errorDescription ?? error)
+            throw AuthError.tokenPollFailed(TokenEndpointErrorFormatter.message(errorCode: error))
         }
 
         guard let accessToken = tokenResponse.accessToken, !accessToken.isEmpty else {
