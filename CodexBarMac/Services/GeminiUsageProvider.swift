@@ -208,7 +208,10 @@ public final class GeminiUsageProvider: UsageProvider {
                 )
 
                 let (data, response) = try await session.data(for: request)
-                switch externalCredentialUpdate(since: credentials) {
+                switch externalCredentialUpdate(
+                    since: credentials,
+                    requiresDifferentAccessToken: force
+                ) {
                 case .valid(let externalAccessToken):
                     return .success(externalAccessToken)
                 case .unusable:
@@ -258,7 +261,10 @@ public final class GeminiUsageProvider: UsageProvider {
                 )
 
                 do {
-                    switch externalCredentialUpdate(since: credentials) {
+                    switch externalCredentialUpdate(
+                        since: credentials,
+                        requiresDifferentAccessToken: force
+                    ) {
                     case .valid(let externalAccessToken):
                         return .success(externalAccessToken)
                     case .unusable:
@@ -287,7 +293,10 @@ public final class GeminiUsageProvider: UsageProvider {
         }
     }
 
-    private func externalCredentialUpdate(since original: GeminiCredentials) -> ExternalCredentialUpdate {
+    private func externalCredentialUpdate(
+        since original: GeminiCredentials,
+        requiresDifferentAccessToken: Bool
+    ) -> ExternalCredentialUpdate {
         guard let latest = GeminiAuthFileStore.readCredentials(at: oauthFilePath) else {
             return .unusable
         }
@@ -296,7 +305,8 @@ public final class GeminiUsageProvider: UsageProvider {
         }
         guard let accessToken = latest.accessToken,
               !accessToken.isEmpty,
-              !latest.shouldRefresh(at: now()) else {
+              !latest.shouldRefresh(at: now()),
+              !requiresDifferentAccessToken || accessToken != original.accessToken else {
             return .unusable
         }
         return .valid(accessToken)
