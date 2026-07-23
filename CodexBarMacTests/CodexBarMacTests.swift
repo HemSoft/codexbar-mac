@@ -5286,6 +5286,202 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testUsageRefreshServicePreservesLastKnownUsageAcrossFailureAndRecovery() async throws {
+        let cachedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let recoveredAt = Date(timeIntervalSince1970: 2_000_000_000)
+        let metric = ProviderMonetaryMetric(
+            kind: .spent,
+            label: "Spent",
+            minorUnits: 1_250,
+            currencyCode: "USD",
+            decimalPlaces: 2
+        )
+        let recoveredMetric = ProviderMonetaryMetric(
+            kind: .spent,
+            label: "Spent",
+            minorUnits: 2_500,
+            currencyCode: "USD",
+            decimalPlaces: 2
+        )
+        let scenarios: [(cached: ProviderUsageResult, recovered: ProviderUsageResult)] = [
+            (
+                ProviderUsageResult(
+                    accountID: "codex.bars",
+                    providerID: .codex,
+                    title: "Codex Bars",
+                    subtitle: "Live usage",
+                    bars: [UsageBar(label: "Weekly", used: 40, limit: 100)],
+                    fetchedAt: cachedAt
+                ),
+                ProviderUsageResult(
+                    accountID: "codex.bars",
+                    providerID: .codex,
+                    title: "Codex Bars",
+                    subtitle: "Live usage",
+                    bars: [UsageBar(label: "Weekly", used: 55, limit: 100)],
+                    fetchedAt: recoveredAt
+                )
+            ),
+            (
+                ProviderUsageResult(
+                    accountID: "openrouter.balance",
+                    providerID: .openRouter,
+                    title: "OpenRouter Balance",
+                    subtitle: "Credit balance",
+                    bars: [],
+                    creditsRemaining: 12.50,
+                    fetchedAt: cachedAt
+                ),
+                ProviderUsageResult(
+                    accountID: "openrouter.balance",
+                    providerID: .openRouter,
+                    title: "OpenRouter Balance",
+                    subtitle: "Credit balance",
+                    bars: [],
+                    creditsRemaining: 10,
+                    fetchedAt: recoveredAt
+                )
+            ),
+            (
+                ProviderUsageResult(
+                    accountID: "claude.metrics",
+                    providerID: .claude,
+                    title: "Claude Metrics",
+                    subtitle: "Live usage",
+                    bars: [],
+                    monetaryMetrics: [metric],
+                    fetchedAt: cachedAt
+                ),
+                ProviderUsageResult(
+                    accountID: "claude.metrics",
+                    providerID: .claude,
+                    title: "Claude Metrics",
+                    subtitle: "Live usage",
+                    bars: [],
+                    monetaryMetrics: [recoveredMetric],
+                    fetchedAt: recoveredAt
+                )
+            ),
+        ]
+
+        for scenario in scenarios {
+            let configuration = ProviderAccountConfiguration(
+                id: scenario.cached.accountID,
+                providerID: scenario.cached.providerID,
+                accountLabel: scenario.cached.title,
+                authMethod: .browserSession
+            )
+            let provider = SequencedUsageProvider(
+                providerID: scenario.cached.providerID,
+                steps: [
+                    .failure("Temporary outage"),
+                    .result(scenario.recovered),
+                ]
+            )
+            let service = UsageRefreshService(
+                providers: [provider],
+                initialResults: [scenario.cached]
+            )
+
+            let failedRefreshCompleted = await service.refresh(configurations: [configuration])
+
+            XCTAssertTrue(failedRefreshCompleted)
+            let preserved = try XCTUnwrap(service.results.first)
+            XCTAssertEqual(preserved.bars, scenario.cached.bars)
+            XCTAssertEqual(preserved.creditsRemaining, scenario.cached.creditsRemaining)
+            XCTAssertEqual(preserved.monetaryMetrics, scenario.cached.monetaryMetrics)
+            XCTAssertEqual(preserved.fetchedAt, scenario.cached.fetchedAt)
+            XCTAssertEqual(
+                preserved.subtitle,
+                "Refresh failed: Temporary outage. Showing last known data."
+            )
+            XCTAssertTrue(preserved.isIncompleteRefresh)
+            XCTAssertEqual(service.incompleteRefreshAccountIDs, [configuration.id])
+            XCTAssertTrue(
+                service.successfulRefreshResults.isEmpty,
+                "Incomplete preserved snapshots must not reach history or alert evaluation."
+            )
+
+            let recoveryRefreshCompleted = await service.refresh(configurations: [configuration])
+
+            XCTAssertTrue(recoveryRefreshCompleted)
+            XCTAssertEqual(service.results, [scenario.recovered])
+            XCTAssertEqual(service.successfulRefreshResults, [scenario.recovered])
+            XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty)
+        }
+    }
+
+    @MainActor
+    func testSingleAccountFailurePreservesLastKnownUsageAndIncompleteState() async throws {
+        let configuration = ProviderAccountConfiguration(
+            id: "codex.single",
+            providerID: .codex,
+            accountLabel: "Codex Single",
+            authMethod: .browserSession
+        )
+        let cached = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .codex,
+            title: configuration.displayName,
+            subtitle: "Live usage",
+            bars: [UsageBar(label: "Weekly", used: 40, limit: 100)],
+            fetchedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let provider = SequencedUsageProvider(
+            providerID: .codex,
+            steps: [.failure("Temporary outage")]
+        )
+        let service = UsageRefreshService(providers: [provider], initialResults: [cached])
+
+        let returnedResult = await service.refresh(configuration: configuration)
+        let failure = try XCTUnwrap(returnedResult)
+
+        XCTAssertTrue(failure.isIncompleteRefresh)
+        XCTAssertTrue(failure.bars.isEmpty)
+        XCTAssertEqual(service.results.first?.bars, cached.bars)
+        XCTAssertEqual(
+            service.results.first?.subtitle,
+            "Refresh failed: Temporary outage. Showing last known data."
+        )
+        XCTAssertEqual(service.incompleteRefreshAccountIDs, [configuration.id])
+        XCTAssertTrue(service.successfulRefreshResults.isEmpty)
+    }
+
+    @MainActor
+    func testStaleSingleAccountFailureDoesNotInvalidateNewerSuccessfulResult() async throws {
+        let configuration = ProviderAccountConfiguration(
+            id: "codex.single",
+            providerID: .codex,
+            accountLabel: "Codex Single",
+            authMethod: .browserSession
+        )
+        let newerSuccess = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .codex,
+            title: configuration.displayName,
+            subtitle: "Live usage",
+            bars: [UsageBar(label: "Weekly", used: 40, limit: 100)],
+            fetchedAt: .distantFuture
+        )
+        let provider = SequencedUsageProvider(
+            providerID: .codex,
+            steps: [.failure("Older overlapping failure")]
+        )
+        let service = UsageRefreshService(
+            providers: [provider],
+            initialResults: [newerSuccess]
+        )
+
+        let returnedResult = await service.refresh(configuration: configuration)
+        let staleFailure = try XCTUnwrap(returnedResult)
+
+        XCTAssertTrue(staleFailure.isIncompleteRefresh)
+        XCTAssertEqual(service.results, [newerSuccess])
+        XCTAssertEqual(service.successfulRefreshResults, [newerSuccess])
+        XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty)
+    }
+
+    @MainActor
     func testUsageRefreshServiceTracksSuccessfulResultsAndSkipsDisabledAccounts() async {
         let enabled = ProviderAccountConfiguration(
             providerID: .codex,
@@ -7119,6 +7315,42 @@ private struct StubUsageProvider: UsageProvider {
 
     func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
         result
+    }
+}
+
+private actor SequencedUsageProvider: UsageProvider {
+    enum Step: Sendable {
+        case failure(String)
+        case result(ProviderUsageResult)
+    }
+
+    nonisolated let providerID: ProviderID
+    private var steps: [Step]
+
+    init(providerID: ProviderID, steps: [Step]) {
+        self.providerID = providerID
+        self.steps = steps
+    }
+
+    func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
+        guard !steps.isEmpty else {
+            throw SequencedUsageProviderError(message: "No response configured")
+        }
+
+        switch steps.removeFirst() {
+        case .failure(let message):
+            throw SequencedUsageProviderError(message: message)
+        case .result(let result):
+            return result
+        }
+    }
+}
+
+private struct SequencedUsageProviderError: LocalizedError {
+    let message: String
+
+    var errorDescription: String? {
+        message
     }
 }
 

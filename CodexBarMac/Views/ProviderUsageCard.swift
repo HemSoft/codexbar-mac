@@ -160,7 +160,7 @@ struct ProviderUsageCard: View {
     }
 
     private var statusColor: Color {
-        result.subtitle.hasPrefix("Refresh failed:") ? .red : .secondary
+        result.isIncompleteRefresh ? .red : .secondary
     }
 
     private func monetaryAccessibilityLabel(_ metric: ProviderMonetaryMetric) -> String {
