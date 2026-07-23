@@ -40,14 +40,13 @@ public final class UsageRefreshService: ObservableObject {
         let enabledConfigurations = configurations.filter(\.isEnabled)
         let enabledAccountIDs = Set(enabledConfigurations.map(\.id))
         var nextResults: [ProviderUsageResult] = []
-        var incompleteAccountIDs = Set<String>()
+        var unavailableAccountIDs = Set<String>()
 
         await withTaskGroup(of: (String, ProviderUsageResult?).self) { group in
             for configuration in enabledConfigurations {
                 guard let provider = providers.first(where: { $0.providerID == configuration.providerID }) else {
                     let errorResult = Self.errorResult(for: configuration, error: MissingUsageProviderError())
                     nextResults.append(errorResult)
-                    incompleteAccountIDs.insert(configuration.id)
                     continue
                 }
 
@@ -59,20 +58,20 @@ public final class UsageRefreshService: ObservableObject {
 
             for await (accountID, result) in group {
                 guard let result else {
-                    incompleteAccountIDs.insert(accountID)
+                    unavailableAccountIDs.insert(accountID)
                     continue
-                }
-
-                if result.isIncompleteRefresh {
-                    incompleteAccountIDs.insert(accountID)
                 }
 
                 nextResults.append(result)
             }
         }
 
-        incompleteRefreshAccountIDs = incompleteAccountIDs
         applyBulkResults(nextResults, enabledAccountIDs: enabledAccountIDs)
+        incompleteRefreshAccountIDs = unavailableAccountIDs.union(
+            results.lazy
+                .filter(\.isIncompleteRefresh)
+                .map(\.accountID)
+        )
         return true
     }
 
@@ -84,8 +83,9 @@ public final class UsageRefreshService: ObservableObject {
 
         guard let provider = providers.first(where: { $0.providerID == configuration.providerID }) else {
             let errorResult = Self.errorResult(for: configuration, error: MissingUsageProviderError())
-            incompleteRefreshAccountIDs.insert(configuration.id)
-            replaceResult(errorResult)
+            if replaceResult(errorResult) {
+                incompleteRefreshAccountIDs.insert(configuration.id)
+            }
             return errorResult
         }
 
@@ -94,12 +94,13 @@ public final class UsageRefreshService: ObservableObject {
             return nil
         }
 
-        if result.isIncompleteRefresh {
-            incompleteRefreshAccountIDs.insert(configuration.id)
-        } else {
-            incompleteRefreshAccountIDs.remove(configuration.id)
+        if replaceResult(result) {
+            if result.isIncompleteRefresh {
+                incompleteRefreshAccountIDs.insert(configuration.id)
+            } else {
+                incompleteRefreshAccountIDs.remove(configuration.id)
+            }
         }
-        replaceResult(result)
         return result
     }
 
@@ -169,17 +170,19 @@ public final class UsageRefreshService: ObservableObject {
         results = merged.values.sorted { $0.title < $1.title }
     }
 
-    private func replaceResult(_ result: ProviderUsageResult) {
+    @discardableResult
+    private func replaceResult(_ result: ProviderUsageResult) -> Bool {
         let existing = results.first(where: { $0.accountID == result.accountID })
         if let existing {
             guard existing.fetchedAt <= result.fetchedAt else {
-                return
+                return false
             }
         }
 
         var nextResults = results.filter { $0.accountID != result.accountID }
         nextResults.append(Self.preservingUsageData(from: result, cachedResult: existing))
         results = nextResults.sorted { $0.title < $1.title }
+        return true
     }
 
     private static func preservingUsageData(

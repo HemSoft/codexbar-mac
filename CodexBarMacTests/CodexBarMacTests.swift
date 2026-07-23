@@ -5448,6 +5448,40 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleSingleAccountFailureDoesNotInvalidateNewerSuccessfulResult() async throws {
+        let configuration = ProviderAccountConfiguration(
+            id: "codex.single",
+            providerID: .codex,
+            accountLabel: "Codex Single",
+            authMethod: .browserSession
+        )
+        let newerSuccess = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .codex,
+            title: configuration.displayName,
+            subtitle: "Live usage",
+            bars: [UsageBar(label: "Weekly", used: 40, limit: 100)],
+            fetchedAt: .distantFuture
+        )
+        let provider = SequencedUsageProvider(
+            providerID: .codex,
+            steps: [.failure("Older overlapping failure")]
+        )
+        let service = UsageRefreshService(
+            providers: [provider],
+            initialResults: [newerSuccess]
+        )
+
+        let returnedResult = await service.refresh(configuration: configuration)
+        let staleFailure = try XCTUnwrap(returnedResult)
+
+        XCTAssertTrue(staleFailure.isIncompleteRefresh)
+        XCTAssertEqual(service.results, [newerSuccess])
+        XCTAssertEqual(service.successfulRefreshResults, [newerSuccess])
+        XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty)
+    }
+
+    @MainActor
     func testUsageRefreshServiceTracksSuccessfulResultsAndSkipsDisabledAccounts() async {
         let enabled = ProviderAccountConfiguration(
             providerID: .codex,
