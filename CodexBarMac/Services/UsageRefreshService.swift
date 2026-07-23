@@ -84,6 +84,7 @@ public final class UsageRefreshService: ObservableObject {
 
         guard let provider = providers.first(where: { $0.providerID == configuration.providerID }) else {
             let errorResult = Self.errorResult(for: configuration, error: MissingUsageProviderError())
+            incompleteRefreshAccountIDs.insert(configuration.id)
             replaceResult(errorResult)
             return errorResult
         }
@@ -93,6 +94,11 @@ public final class UsageRefreshService: ObservableObject {
             return nil
         }
 
+        if result.isIncompleteRefresh {
+            incompleteRefreshAccountIDs.insert(configuration.id)
+        } else {
+            incompleteRefreshAccountIDs.remove(configuration.id)
+        }
         replaceResult(result)
         return result
     }
@@ -150,7 +156,10 @@ public final class UsageRefreshService: ObservableObject {
         for result in incoming {
             if let existing = merged[result.accountID] {
                 if result.fetchedAt >= existing.fetchedAt {
-                    merged[result.accountID] = result
+                    merged[result.accountID] = Self.preservingUsageData(
+                        from: result,
+                        cachedResult: existing
+                    )
                 }
             } else {
                 merged[result.accountID] = result
@@ -161,14 +170,57 @@ public final class UsageRefreshService: ObservableObject {
     }
 
     private func replaceResult(_ result: ProviderUsageResult) {
-        if let existing = results.first(where: { $0.accountID == result.accountID }),
-           existing.fetchedAt > result.fetchedAt {
-            return
+        let existing = results.first(where: { $0.accountID == result.accountID })
+        if let existing {
+            guard existing.fetchedAt <= result.fetchedAt else {
+                return
+            }
         }
 
         var nextResults = results.filter { $0.accountID != result.accountID }
-        nextResults.append(result)
+        nextResults.append(Self.preservingUsageData(from: result, cachedResult: existing))
         results = nextResults.sorted { $0.title < $1.title }
+    }
+
+    private static func preservingUsageData(
+        from result: ProviderUsageResult,
+        cachedResult: ProviderUsageResult?
+    ) -> ProviderUsageResult {
+        let resultHasUsageData = result.creditsRemaining != nil
+            || !result.bars.isEmpty
+            || !result.monetaryMetrics.isEmpty
+        guard
+            result.isIncompleteRefresh,
+            !resultHasUsageData,
+            let cachedResult,
+            cachedResult.creditsRemaining != nil
+                || !cachedResult.bars.isEmpty
+                || !cachedResult.monetaryMetrics.isEmpty
+        else {
+            return result
+        }
+
+        let subtitle: String
+        if result.subtitle.localizedCaseInsensitiveContains("last known data") {
+            subtitle = result.subtitle
+        } else {
+            let separator = result.subtitle.last.map { ".!?".contains($0) } == true ? " " : ". "
+            subtitle = "\(result.subtitle)\(separator)Showing last known data."
+        }
+
+        return ProviderUsageResult(
+            accountID: result.accountID,
+            providerID: result.providerID,
+            title: result.title,
+            subtitle: subtitle,
+            bars: cachedResult.bars,
+            creditsRemaining: cachedResult.creditsRemaining,
+            monetaryMetrics: cachedResult.monetaryMetrics,
+            usageMessages: cachedResult.usageMessages,
+            hasReachedSpendLimit: cachedResult.hasReachedSpendLimit,
+            isIncompleteRefresh: true,
+            fetchedAt: cachedResult.fetchedAt
+        )
     }
 
     nonisolated private static func fetchUsageWithTimeout(
