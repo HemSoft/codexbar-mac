@@ -10,7 +10,7 @@ Built with Swift / SwiftUI using `MenuBarExtra` — native macOS, no Electron ov
 
 ## Status
 
-🚧 **Early development.** The menu bar app shell builds and runs; provider logic is being ported from `codexbar-ios`. V1 work is sequenced in [GitHub Issues](https://github.com/HemSoft/codexbar-mac/issues). Because the app runs on the same machine as your CLI tools, it can read local credentials (Codex CLI, GitHub CLI) directly instead of requiring browser sign-in.
+🚧 **Pre-release development.** CodexBar Mac has an implemented menu bar dashboard for eight live V1 providers, with per-provider account settings, manual and automatic refresh, usage history, alerts, launch at login, and signed Sparkle updates. Because the app runs alongside your CLI tools, it prefers local credentials when available and offers browser sign-in or API-key configuration where appropriate.
 
 ## Build & Run
 
@@ -20,7 +20,7 @@ Requires Xcode 16 or later on macOS 14+.
 ./run.sh
 ```
 
-This builds `CodexBarMac` and launches it. The app lives in the menu bar only (no Dock icon). Click the chart.bar.fill icon to open the empty popover shell.
+This builds `CodexBarMac` and launches it. The app lives in the menu bar only (no Dock icon). Click the chart.bar.fill icon to open the provider usage dashboard.
 
 Build without launching:
 
@@ -50,18 +50,22 @@ tap repository is available.
 
 Maintainers: see **Signing keychain** and **Release, updates & notarization** in [`AGENTS.md`](AGENTS.md).
 
-## Planned Providers (V1)
+## Live Providers (V1)
 
 | Provider | Auth Method | What's Tracked |
 |----------|-------------|----------------|
-| **ChatGPT / Codex** | Codex CLI login (`~/.codex/auth.json`) | 5-hour + weekly usage limits |
-| **Claude** | Claude Code OAuth credentials | Session + weekly limits, model-scoped limits |
-| **GitHub Copilot** | GitHub CLI (`gh auth`) | Usage limits per account |
-| **OpenRouter** | API key | Credits, usage across models |
-| **Moonshot (Kimi)** | API key (`platform.kimi.ai`) | Credit balance |
-| **Cursor** | Browser session | Usage limits |
-| **OpenCode ZEN** | API key | Credits |
-| **Gemini** | Gemini CLI OAuth | Pro / Flash quotas |
+| **ChatGPT / Codex** | Codex CLI (`~/.codex/auth.json`) preferred; browser OAuth fallback stored in Keychain | 5-hour + weekly usage limits |
+| **Claude** | Claude Code OAuth credentials from Keychain or `~/.claude/.credentials.json` preferred; browser OAuth fallback stored in Keychain | Session + weekly limits, model-scoped limits, and available spend data |
+| **GitHub Copilot** | GitHub CLI (`gh auth status`) preferred; browser OAuth fallback stored in Keychain | Premium + chat quotas per account, with optional organization AI-credit billing |
+| **OpenRouter** | Management API key stored in Keychain | Credit balance |
+| **Cursor** | Local Cursor app auth file or browser sign-in stored in Keychain | Plan usage and on-demand spend |
+| **OpenCode ZEN** | Workspace ID saved in app settings + dashboard auth value stored in Keychain; optional Windows settings import | Credit balance |
+| **Moonshot (Kimi)** | `platform.kimi.ai` API key stored in Keychain | Credit balance |
+| **Gemini** | Gemini CLI OAuth credentials (`~/.gemini/oauth_creds.json`) | Pro + Flash quotas |
+
+## Planned Work
+
+Remaining pre-release polish and release work is tracked in [GitHub Issues](https://github.com/HemSoft/codexbar-mac/issues).
 
 ## Requirements
 
