@@ -4347,6 +4347,78 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(store.configurations(for: .gemini).isEmpty)
     }
 
+    @MainActor
+    func testRemoveAccountsPreservesFailureBeforeSuccess() {
+        let suiteName = "CodexBarMacTests.ResetAccounts.FailureThenSuccess.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let secretStore = SelectiveDeletionSecretStore()
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        let codex = store.addAccount(for: .codex)
+        let claude = store.addAccount(for: .claude)
+        secretStore.failingAccounts = [ProviderConfigurationStore.keychainAccount(for: codex)]
+
+        XCTAssertTrue(store.removeAccounts([codex, claude]))
+
+        XCTAssertNotNil(store.configuration(accountID: codex.id))
+        XCTAssertNil(store.configuration(accountID: claude.id))
+        XCTAssertEqual(
+            store.lastError,
+            "Could not delete \(ProviderConfigurationStore.keychainAccount(for: codex))."
+        )
+    }
+
+    @MainActor
+    func testRemoveAccountsPreservesFailureAfterSuccess() {
+        let suiteName = "CodexBarMacTests.ResetAccounts.SuccessThenFailure.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let secretStore = SelectiveDeletionSecretStore()
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        let codex = store.addAccount(for: .codex)
+        let claude = store.addAccount(for: .claude)
+        secretStore.failingAccounts = [ProviderConfigurationStore.keychainAccount(for: claude)]
+
+        XCTAssertTrue(store.removeAccounts([codex, claude]))
+
+        XCTAssertNil(store.configuration(accountID: codex.id))
+        XCTAssertNotNil(store.configuration(accountID: claude.id))
+        XCTAssertEqual(
+            store.lastError,
+            "Could not delete \(ProviderConfigurationStore.keychainAccount(for: claude))."
+        )
+    }
+
+    @MainActor
+    func testRemoveAccountsRetriesAfterPartialReset() {
+        let suiteName = "CodexBarMacTests.ResetAccounts.Retry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let secretStore = SelectiveDeletionSecretStore()
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        let codex = store.addAccount(for: .codex)
+        let claude = store.addAccount(for: .claude)
+        secretStore.failingAccounts = [ProviderConfigurationStore.keychainAccount(for: codex)]
+
+        XCTAssertTrue(store.removeAccounts([codex, claude]))
+        XCTAssertEqual(store.configurations.map(\.id), [codex.id])
+
+        secretStore.failingAccounts = []
+
+        XCTAssertTrue(store.removeAccounts(store.configurations))
+        XCTAssertTrue(store.configurations.isEmpty)
+        XCTAssertNil(store.lastError)
+    }
+
     func testProviderAccountConfigurationDefaultsLegacyHistoryVisibilityOn() throws {
         let json = """
         {
@@ -7007,6 +7079,30 @@ private final class FailingSecretStore: SecretStore, @unchecked Sendable {
     }
 
     func deleteSecret(account: String) throws {}
+}
+
+private final class SelectiveDeletionSecretStore: SecretStore, @unchecked Sendable {
+    struct DeletionError: LocalizedError {
+        let account: String
+
+        var errorDescription: String? {
+            "Could not delete \(account)."
+        }
+    }
+
+    var failingAccounts = Set<String>()
+
+    func readSecret(account: String) throws -> String? {
+        nil
+    }
+
+    func saveSecret(_ secret: String, account: String) throws {}
+
+    func deleteSecret(account: String) throws {
+        if failingAccounts.contains(account) {
+            throw DeletionError(account: account)
+        }
+    }
 }
 
 private final class FailingPermissionsFileManager: FileManager, @unchecked Sendable {

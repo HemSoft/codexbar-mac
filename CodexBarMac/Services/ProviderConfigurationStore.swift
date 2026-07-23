@@ -204,23 +204,43 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     public func removeAccount(_ configuration: ProviderAccountConfiguration) {
-        rememberSuppressedCopilotDiscovery(for: configuration)
-        rememberSuppressedGeminiDiscovery(for: configuration)
+        removeAccounts([configuration])
+    }
 
-        do {
-            try secretStore.deleteSecret(account: Self.keychainAccount(for: configuration))
-        } catch {
-            lastError = error.localizedDescription
-            return
+    @discardableResult
+    public func removeAccounts(_ configurations: [ProviderAccountConfiguration]) -> Bool {
+        var firstDeletionError: String?
+        var removedAccountIDs = Set<String>()
+
+        for configuration in configurations {
+            rememberSuppressedCopilotDiscovery(for: configuration)
+            rememberSuppressedGeminiDiscovery(for: configuration)
+
+            do {
+                try secretStore.deleteSecret(account: Self.keychainAccount(for: configuration))
+                removedAccountIDs.insert(configuration.id)
+            } catch {
+                if firstDeletionError == nil {
+                    firstDeletionError = error.localizedDescription
+                }
+            }
         }
 
-        configurations.removeAll { $0.id == configuration.id }
-        secretAvailability.removeValue(forKey: configuration.id)
-        localCredentialHints.removeValue(forKey: configuration.id)
-        lastError = nil
+        guard !removedAccountIDs.isEmpty else {
+            lastError = firstDeletionError
+            return false
+        }
+
+        self.configurations.removeAll { removedAccountIDs.contains($0.id) }
+        secretAvailability = secretAvailability.filter { !removedAccountIDs.contains($0.key) }
+        localCredentialHints = localCredentialHints.filter { !removedAccountIDs.contains($0.key) }
         sortConfigurations()
         saveConfigurations()
+        if let firstDeletionError {
+            lastError = firstDeletionError
+        }
         refreshSecretAvailability()
+        return true
     }
 
     public func updateAppAppearance(_ appearance: AppAppearance) {

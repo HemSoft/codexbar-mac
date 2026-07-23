@@ -350,12 +350,10 @@ struct SettingsView: View {
     }
 
     private func resetAccounts() {
-        for configuration in configurationStore.configurations {
-            configurationStore.removeAccount(configuration)
-        }
-
-        Task {
-            await model.handleAccountsChanged()
+        if configurationStore.removeAccounts(configurationStore.configurations) {
+            Task {
+                await model.handleAccountsChanged()
+            }
         }
     }
 
