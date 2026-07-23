@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Gemini token refresh now preserves newer access, refresh, and ID tokens when
+  the Gemini CLI updates its credential file during an in-flight refresh.
 - Cursor browser sign-in failures now omit raw token-endpoint responses and
   untrusted error descriptions while retaining the HTTP status and safe OAuth
   error codes needed to understand failures.

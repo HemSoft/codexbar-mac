@@ -5740,6 +5740,381 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars[0].label, "Pro (Code Assist)")
     }
 
+    func testGeminiUsageProviderPreservesCredentialsRefreshedExternallyDuringRequest() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oauthFilePath = directory.appendingPathComponent("oauth_creds.json").path
+        try """
+        {
+          "access_token": "expired-access-token",
+          "refresh_token": "original-refresh-token",
+          "expiry_date": 1000,
+          "id_token": "original-id-token",
+          "account": "preserved-metadata"
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = GeminiUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            oauthFilePath: oauthFilePath,
+            quotaEndpoint: URL(string: "https://example.test/gemini-quota")!,
+            tierEndpoint: URL(string: "https://example.test/gemini-tier")!,
+            tokenEndpoint: URL(string: "https://example.test/gemini-token")!,
+            now: { now }
+        )
+
+        MockURLProtocol.handler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path == "/gemini-token" {
+                try """
+                {
+                  "access_token": "external-access-token",
+                  "refresh_token": "external-refresh-token",
+                  "expiry_date": 4102444800000,
+                  "id_token": "external-id-token",
+                  "account": "preserved-metadata"
+                }
+                """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+                _ = chmod(oauthFilePath, 0o600)
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"access_token":"response-access-token","expires_in":3600}"#.utf8)
+                )
+            }
+
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer external-access-token")
+            if url.path == "/gemini-tier" {
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(
+                        #"{"currentTier":{"id":"standard-tier"},"cloudaicompanionProject":"gen-lang-client-123"}"#.utf8
+                    )
+                )
+            }
+
+            return (
+                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(
+                    #"{"buckets":[{"tokenType":"REQUESTS","modelId":"gemini-2.5-pro","remainingFraction":0.8,"resetTime":"2026-07-17T12:00:00Z"}]}"#.utf8
+                )
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .gemini))
+
+        XCTAssertEqual(result.bars.count, 1)
+        let persisted = try XCTUnwrap(GeminiAuthFileStore.readCredentials(at: oauthFilePath))
+        XCTAssertEqual(persisted.accessToken, "external-access-token")
+        XCTAssertEqual(persisted.refreshToken, "external-refresh-token")
+        XCTAssertEqual(persisted.idToken, "external-id-token")
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: oauthFilePath)))
+                as? [String: Any]
+        )
+        XCTAssertEqual(root["account"] as? String, "preserved-metadata")
+        let attributes = try FileManager.default.attributesOfItem(atPath: oauthFilePath)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
+
+    func testGeminiUsageProviderAdoptsExternalRefreshBeforeRejectingOldRefreshToken() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oauthFilePath = directory.appendingPathComponent("oauth_creds.json").path
+        try """
+        {
+          "access_token": "expired-access-token",
+          "refresh_token": "original-refresh-token",
+          "expiry_date": 1000
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = GeminiUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            oauthFilePath: oauthFilePath,
+            quotaEndpoint: URL(string: "https://example.test/gemini-quota")!,
+            tierEndpoint: URL(string: "https://example.test/gemini-tier")!,
+            tokenEndpoint: URL(string: "https://example.test/gemini-token")!,
+            now: { now }
+        )
+
+        MockURLProtocol.handler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path == "/gemini-token" {
+                try """
+                {
+                  "access_token": "external-access-token",
+                  "refresh_token": "external-refresh-token",
+                  "expiry_date": 4102444800000,
+                  "id_token": "external-id-token"
+                }
+                """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+                _ = chmod(oauthFilePath, 0o600)
+                return (
+                    HTTPURLResponse(url: url, statusCode: 400, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"error":"invalid_grant"}"#.utf8)
+                )
+            }
+
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer external-access-token")
+            if url.path == "/gemini-tier" {
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(
+                        #"{"currentTier":{"id":"standard-tier"},"cloudaicompanionProject":"gen-lang-client-123"}"#.utf8
+                    )
+                )
+            }
+
+            return (
+                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(
+                    #"{"buckets":[{"tokenType":"REQUESTS","modelId":"gemini-2.5-pro","remainingFraction":0.8,"resetTime":"2026-07-17T12:00:00Z"}]}"#.utf8
+                )
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .gemini))
+
+        XCTAssertEqual(result.bars.count, 1)
+        let persisted = try XCTUnwrap(GeminiAuthFileStore.readCredentials(at: oauthFilePath))
+        XCTAssertEqual(persisted.accessToken, "external-access-token")
+        XCTAssertEqual(persisted.refreshToken, "external-refresh-token")
+        XCTAssertEqual(persisted.idToken, "external-id-token")
+    }
+
+    func testGeminiUsageProviderPreservesMissingFieldsWhenAdoptingExternalAccessToken() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oauthFilePath = directory.appendingPathComponent("oauth_creds.json").path
+        try """
+        {
+          "access_token": "expired-access-token",
+          "refresh_token": "original-refresh-token",
+          "expiry_date": 1000,
+          "id_token": "original-id-token",
+          "account": "preserved-metadata"
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = GeminiUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            oauthFilePath: oauthFilePath,
+            quotaEndpoint: URL(string: "https://example.test/gemini-quota")!,
+            tierEndpoint: URL(string: "https://example.test/gemini-tier")!,
+            tokenEndpoint: URL(string: "https://example.test/gemini-token")!,
+            now: { now }
+        )
+
+        MockURLProtocol.handler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path == "/gemini-token" {
+                try """
+                {
+                  "access_token": "external-access-token",
+                  "expiry_date": 4102444800000,
+                  "account": "preserved-metadata"
+                }
+                """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+                _ = chmod(oauthFilePath, 0o600)
+                return (
+                    HTTPURLResponse(url: url, statusCode: 400, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"error":"invalid_grant"}"#.utf8)
+                )
+            }
+
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer external-access-token")
+            if url.path == "/gemini-tier" {
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(
+                        #"{"currentTier":{"id":"standard-tier"},"cloudaicompanionProject":"gen-lang-client-123"}"#.utf8
+                    )
+                )
+            }
+
+            return (
+                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(
+                    #"{"buckets":[{"tokenType":"REQUESTS","modelId":"gemini-2.5-pro","remainingFraction":0.8,"resetTime":"2026-07-17T12:00:00Z"}]}"#.utf8
+                )
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .gemini))
+
+        XCTAssertEqual(result.bars.count, 1)
+        let persisted = try XCTUnwrap(GeminiAuthFileStore.readCredentials(at: oauthFilePath))
+        XCTAssertEqual(persisted.accessToken, "external-access-token")
+        XCTAssertEqual(persisted.refreshToken, "original-refresh-token")
+        XCTAssertEqual(persisted.idToken, "original-id-token")
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: oauthFilePath)))
+                as? [String: Any]
+        )
+        XCTAssertEqual(root["account"] as? String, "preserved-metadata")
+    }
+
+    func testGeminiUsageProviderDoesNotReuseRejectedAccessTokenAfterMetadataOnlyUpdate() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oauthFilePath = directory.appendingPathComponent("oauth_creds.json").path
+        try """
+        {
+          "access_token": "rejected-access-token",
+          "refresh_token": "original-refresh-token",
+          "expiry_date": 4102444800000,
+          "id_token": "original-id-token"
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = GeminiUsageProvider(
+            session: URLSession(configuration: sessionConfiguration),
+            oauthFilePath: oauthFilePath,
+            quotaEndpoint: URL(string: "https://example.test/gemini-quota")!,
+            tierEndpoint: URL(string: "https://example.test/gemini-tier")!,
+            tokenEndpoint: URL(string: "https://example.test/gemini-token")!,
+            now: { now }
+        )
+        var quotaRequestCount = 0
+
+        MockURLProtocol.handler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path == "/gemini-token" {
+                try """
+                {
+                  "access_token": "rejected-access-token",
+                  "refresh_token": "external-refresh-token",
+                  "expiry_date": 4102444800000,
+                  "id_token": "external-id-token"
+                }
+                """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+                _ = chmod(oauthFilePath, 0o600)
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"access_token":"response-access-token","expires_in":3600}"#.utf8)
+                )
+            }
+
+            if url.path == "/gemini-tier" {
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"currentTier":{"id":"standard-tier"}}"#.utf8)
+                )
+            }
+
+            if url.path == "/gemini-quota" {
+                quotaRequestCount += 1
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer rejected-access-token")
+                return (
+                    HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: nil)!,
+                    Data()
+                )
+            }
+
+            return (
+                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"projects":[]}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: .defaultConfiguration(for: .gemini))
+
+        XCTAssertEqual(quotaRequestCount, 1)
+        XCTAssertTrue(result.isIncompleteRefresh)
+        XCTAssertEqual(result.subtitle, "Gemini token refresh failed temporarily. Try again later.")
+        let persisted = try XCTUnwrap(GeminiAuthFileStore.readCredentials(at: oauthFilePath))
+        XCTAssertEqual(persisted.accessToken, "rejected-access-token")
+        XCTAssertEqual(persisted.refreshToken, "external-refresh-token")
+        XCTAssertEqual(persisted.idToken, "external-id-token")
+    }
+
+    func testGeminiAuthFileStoreConditionalWritePreservesPostCheckExternalUpdate() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oauthFilePath = directory.appendingPathComponent("oauth_creds.json").path
+        try """
+        {
+          "access_token": "original-access-token",
+          "refresh_token": "original-refresh-token",
+          "expiry_date": 4102444800000,
+          "id_token": "original-id-token",
+          "account": "preserved-metadata"
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+        let original = try XCTUnwrap(GeminiAuthFileStore.readCredentials(at: oauthFilePath))
+
+        try """
+        {
+          "access_token": "external-access-token",
+          "refresh_token": "external-refresh-token",
+          "expiry_date": 4102444800000,
+          "id_token": "external-id-token",
+          "account": "preserved-metadata"
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+
+        let result = try GeminiAuthFileStore.writeCredentials(
+            GeminiCredentials(
+                accessToken: "response-access-token",
+                refreshToken: "original-refresh-token",
+                expiryDateMs: 4_102_444_800_000,
+                idToken: "original-id-token"
+            ),
+            ifUnchangedFrom: original,
+            at: oauthFilePath
+        )
+
+        let external = try XCTUnwrap(GeminiAuthFileStore.readCredentials(at: oauthFilePath))
+        XCTAssertEqual(result, .changed(external))
+        XCTAssertEqual(external.accessToken, "external-access-token")
+        XCTAssertEqual(external.refreshToken, "external-refresh-token")
+        XCTAssertEqual(external.idToken, "external-id-token")
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: oauthFilePath)))
+                as? [String: Any]
+        )
+        XCTAssertEqual(root["account"] as? String, "preserved-metadata")
+        let attributes = try FileManager.default.attributesOfItem(atPath: oauthFilePath)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
+
     func testGeminiUsageProviderMarksTransientTokenRefreshFailuresIncomplete() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let directory = FileManager.default.temporaryDirectory
