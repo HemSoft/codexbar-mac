@@ -1636,7 +1636,7 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(components.path, "/login/oauth/authorize")
         XCTAssertEqual(components.queryItemValue(named: "client_id"), "client-id")
         XCTAssertEqual(components.queryItemValue(named: "redirect_uri"), "http://127.0.0.1:1456/callback")
-        XCTAssertEqual(components.queryItemValue(named: "scope"), "repo read:org gist")
+        XCTAssertEqual(components.queryItemValue(named: "scope"), "read:org")
         XCTAssertEqual(components.queryItemValue(named: "state"), "state-value")
         XCTAssertEqual(components.queryItemValue(named: "code_challenge"), "challenge-value")
         XCTAssertEqual(components.queryItemValue(named: "code_challenge_method"), "S256")
@@ -2162,6 +2162,48 @@ final class CodexBarMacTests: XCTestCase {
         let result = try await provider.fetchUsage(for: configuration)
 
         XCTAssertEqual(result.bars.first?.used, 500)
+    }
+
+    func testCopilotBrowserAccountPrefersBoundCLITokenOverKeychainCredential() async throws {
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            providerID: .copilot,
+            accountLabel: "octocat",
+            authMethod: .browserSession,
+            githubCLIUsername: "octocat"
+        )
+        try secretStore.saveSecret(
+            "browser-token",
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let provider = CopilotUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            gitHubTokenResolver: { username in
+                XCTAssertEqual(username, "octocat")
+                return "github-cli-token"
+            }
+        )
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "token github-cli-token")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"login":"octocat","quota_snapshots":{"premium_interactions":{"entitlement":100,"remaining":40,"unlimited":false}}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.bars.first?.used, 60)
     }
 
     func testCopilotUsageProviderFallsBackToKeychainSecretWhenCLIResolverFails() async throws {

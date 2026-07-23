@@ -53,6 +53,8 @@ public struct CopilotOAuthConfiguration: Equatable, Sendable {
 }
 
 public final class CopilotWebAuthService: Sendable {
+    deinit {}
+
     public enum AuthError: LocalizedError, Equatable, Sendable {
         case couldNotStartCallbackServer
         case couldNotStartBrowserSession
@@ -109,7 +111,7 @@ public final class CopilotWebAuthService: Sendable {
     private static let githubBaseURL = URL(string: "https://github.com")!
     public static let tokenEndpoint = githubBaseURL.appending(path: "/login/oauth/access_token")
     private static let callbackPath = "/callback"
-    private static let requestedScope = "repo read:org gist"
+    private static let requestedScope = "read:org"
     private let session: URLSession
     private let callbackTimeoutNanoseconds: UInt64
 

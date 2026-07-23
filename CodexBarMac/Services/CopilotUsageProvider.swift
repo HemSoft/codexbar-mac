@@ -239,6 +239,11 @@ public final class CopilotUsageProvider: UsageProvider {
             return nil
         }
 
+        let cliUsername = configuration.githubCLIUsername
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cliUsername.isEmpty, let cliToken = await resolveCLIToken(for: configuration) {
+            return cliToken
+        }
         return await resolveKeychainToken(for: configuration)
     }
 

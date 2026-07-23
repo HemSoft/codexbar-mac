@@ -641,6 +641,7 @@ struct ProviderSettingsView: View {
 
             var updated = configuration
             updated.authMethod = .browserSession
+            updated.githubCLIUsername = username
             if updated.copilotAccountScope == .personal {
                 updated.accountLabel = username
             } else if updated.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
