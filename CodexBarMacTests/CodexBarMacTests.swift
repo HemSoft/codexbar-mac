@@ -3338,6 +3338,177 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(result.storedCredential.contains(#""accessToken": "cursor-access""#))
     }
 
+    @MainActor
+    func testCursorBrowserSignInSanitizesTokenPollFailure() async throws {
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let service = CursorWebAuthService(
+            session: session,
+            pollIntervalNanoseconds: 1,
+            maxPollAttempts: 1
+        )
+        let secret = "cursor-token-\(String(repeating: "x", count: 4_096))"
+
+        MockURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 400,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(
+                    """
+                    {"error":"invalid_grant","error_description":"authorization: Bearer \(secret)\\nnext-line\\u0007"}
+                    """.utf8
+                )
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        do {
+            _ = try await service.signIn { _ in true }
+            XCTFail("Expected Cursor sign-in to fail.")
+        } catch {
+            XCTAssertEqual(
+                error as? CursorWebAuthService.AuthError,
+                .tokenPollFailed("HTTP 400 (invalid_grant)")
+            )
+            XCTAssertFalse(error.localizedDescription.contains(secret))
+            XCTAssertFalse(error.localizedDescription.contains("next-line"))
+            XCTAssertFalse(error.localizedDescription.contains("\u{0007}"))
+        }
+    }
+
+    @MainActor
+    func testCursorBrowserSignInRejectsOversizedOrControlledOAuthErrorCodes() async throws {
+        let unsafeErrorCodes = [
+            String(repeating: "x", count: 65),
+            "authorization_\u{0007}pending",
+            "expired\ntoken",
+        ]
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        for unsafeErrorCode in unsafeErrorCodes {
+            let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+            urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+            let session = URLSession(configuration: urlSessionConfiguration)
+            let service = CursorWebAuthService(
+                session: session,
+                pollIntervalNanoseconds: 1,
+                maxPollAttempts: 1
+            )
+
+            MockURLProtocol.handler = { request in
+                let body = try JSONSerialization.data(withJSONObject: [
+                    "error": unsafeErrorCode,
+                    "error_description": "authorization: Bearer cursor-secret",
+                ])
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!,
+                    body
+                )
+            }
+
+            do {
+                _ = try await service.signIn { _ in true }
+                XCTFail("Expected Cursor sign-in to fail.")
+            } catch {
+                XCTAssertEqual(
+                    error as? CursorWebAuthService.AuthError,
+                    .tokenPollFailed("Token endpoint rejected the request.")
+                )
+                XCTAssertFalse(error.localizedDescription.contains("cursor-secret"))
+            }
+        }
+    }
+
+    @MainActor
+    func testCursorBrowserSignInKeepsPendingAuthorizationActionable() async throws {
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let service = CursorWebAuthService(
+            session: session,
+            pollIntervalNanoseconds: 1,
+            maxPollAttempts: 2
+        )
+        var requestCount = 0
+
+        MockURLProtocol.handler = { request in
+            requestCount += 1
+            let statusCode = requestCount == 1 ? 404 : 200
+            let body = requestCount == 1
+                ? Data(#"{"error":"authorization_pending","error_description":"keep waiting"}"#.utf8)
+                : Data(#"{"accessToken":"cursor-access"}"#.utf8)
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: statusCode,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                body
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        let result = try await service.signIn { _ in true }
+
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertEqual(result.accessToken, "cursor-access")
+    }
+
+    @MainActor
+    func testCursorBrowserSignInPreservesSafeExpiredCode() async throws {
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let service = CursorWebAuthService(
+            session: session,
+            pollIntervalNanoseconds: 1,
+            maxPollAttempts: 1
+        )
+
+        MockURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"error":"expired_token","error_description":"authorization: Bearer cursor-secret"}"#.utf8)
+            )
+        }
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        do {
+            _ = try await service.signIn { _ in true }
+            XCTFail("Expected Cursor sign-in to fail.")
+        } catch {
+            XCTAssertEqual(
+                error as? CursorWebAuthService.AuthError,
+                .tokenPollFailed("expired_token")
+            )
+            XCTAssertFalse(error.localizedDescription.contains("cursor-secret"))
+        }
+    }
+
 #if canImport(AuthenticationServices) && canImport(AppKit)
     @MainActor
     func testCursorBrowserSessionUsesEphemeralStorage() {
