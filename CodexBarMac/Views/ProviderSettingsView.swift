@@ -16,6 +16,9 @@ struct ProviderSettingsView: View {
     @State private var claudeAuthError: String?
     @State private var claudeAuthDiagnostic: String?
     @State private var claudeSignInTask: Task<Void, Never>?
+    @State private var isSigningInWithCopilot = false
+    @State private var copilotAuthError: String?
+    @State private var copilotSignInTask: Task<Void, Never>?
     @State private var isSigningInWithCursor = false
     @State private var cursorAuthError: String?
     @State private var cursorSignInTask: Task<Void, Never>?
@@ -27,6 +30,8 @@ struct ProviderSettingsView: View {
 #endif
     private let codexAuthService = CodexWebAuthService()
     private let claudeAuthService = ClaudeWebAuthService()
+    private let copilotAuthService = CopilotWebAuthService()
+    private let copilotUsageProvider = CopilotUsageProvider()
     private let cursorAuthService = CursorWebAuthService()
 
     init(
@@ -104,6 +109,8 @@ struct ProviderSettingsView: View {
                     codexCredentialControls
                 } else if providerID == .claude {
                     claudeCredentialControls
+                } else if providerID == .copilot {
+                    copilotCredentialControls
                 } else if providerID == .cursor {
                     cursorCredentialControls
                 } else if providerID == .openCodeZen {
@@ -119,7 +126,7 @@ struct ProviderSettingsView: View {
                 }
 
                 if configurationStore.hasSecret(for: configuration),
-                   ![.codex, .claude, .cursor, .openCodeZen].contains(providerID) {
+                   ![.codex, .claude, .copilot, .cursor, .openCodeZen].contains(providerID) {
                     Button("Remove Saved Key", role: .destructive) {
                         removeSecret()
                     }
@@ -142,6 +149,7 @@ struct ProviderSettingsView: View {
         .onDisappear {
             codexSignInTask?.cancel()
             claudeSignInTask?.cancel()
+            copilotSignInTask?.cancel()
             cursorSignInTask?.cancel()
 #if canImport(AuthenticationServices) && canImport(AppKit)
             webAuthPresenter.finish()
@@ -229,6 +237,44 @@ struct ProviderSettingsView: View {
 
         if let claudeAuthError {
             Text(claudeAuthError)
+                .foregroundStyle(.red)
+        }
+    }
+
+    @ViewBuilder
+    private var copilotCredentialControls: some View {
+        Button {
+            startCopilotSignIn()
+        } label: {
+            if isSigningInWithCopilot {
+                ProgressView()
+            } else {
+                Text(configurationStore.hasSecret(for: configuration) ? "Sign in Again" : "Sign in with GitHub")
+            }
+        }
+        .disabled(isSigningInWithCopilot)
+
+        if configuration.authMethod == .cliToken {
+            SecureField(secretPlaceholder, text: $secret)
+                .textFieldStyle(.roundedBorder)
+
+            Button(configurationStore.hasSecret(for: configuration) ? "Update Token" : "Save Token") {
+                saveSecret()
+            }
+            .disabled(
+                isSigningInWithCopilot
+                    || secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            )
+        }
+
+        if configurationStore.hasSecret(for: configuration) {
+            Button("Remove Saved Credential", role: .destructive) {
+                removeCopilotCredential()
+            }
+        }
+
+        if let copilotAuthError {
+            Text(copilotAuthError)
                 .foregroundStyle(.red)
         }
     }
@@ -356,9 +402,9 @@ struct ProviderSettingsView: View {
             "CodexBar prefers Codex CLI credentials from ~/.codex/auth.json. If they are unavailable, sign in with ChatGPT in the browser; CodexBar stores those tokens in Keychain."
         case .copilot:
             if configuration.copilotAccountScope == .organization {
-                "Enter the GitHub organization (and optional enterprise) for Copilot AI-credit billing. Prefer GitHub CLI credentials with org billing access, or save a token with the required org permissions."
+                "Enter the GitHub organization (and optional enterprise) for Copilot AI-credit billing. CodexBar prefers GitHub CLI credentials with org billing access; browser sign-in is available as a fallback."
             } else {
-                "GitHub Copilot can use GitHub CLI credentials discovered from `gh auth status`, or a token saved in the Keychain."
+                "CodexBar prefers GitHub CLI credentials discovered from `gh auth status`. You can also sign in with GitHub in the browser; CodexBar stores those tokens in Keychain."
             }
         case .claude:
             "CodexBar prefers Claude Code OAuth credentials from the macOS Keychain or ~/.claude/.credentials.json. If they are unavailable, sign in with Claude in the browser; CodexBar stores those tokens in its Keychain entry."
@@ -419,6 +465,16 @@ struct ProviderSettingsView: View {
         codexAuthError = configurationStore.lastError
         claudeAuthError = configurationStore.lastError
         claudeAuthDiagnostic = nil
+
+        Task {
+            await onCredentialsChanged()
+        }
+    }
+
+    private func removeCopilotCredential() {
+        configurationStore.saveSecret("", for: configuration)
+        copilotAuthError = configurationStore.lastError
+        secret = ""
 
         Task {
             await onCredentialsChanged()
@@ -541,6 +597,72 @@ struct ProviderSettingsView: View {
             if claudeAuthDiagnostic == nil {
                 claudeAuthDiagnostic = "Claude sign-in failed."
             }
+        }
+    }
+
+    @MainActor
+    private func startCopilotSignIn() {
+        guard copilotSignInTask == nil else {
+            return
+        }
+        copilotSignInTask = Task { @MainActor in
+            await signInWithCopilot()
+        }
+    }
+
+    @MainActor
+    private func signInWithCopilot() async {
+        isSigningInWithCopilot = true
+        copilotAuthError = nil
+        defer {
+#if canImport(AuthenticationServices) && canImport(AppKit)
+            webAuthPresenter.finish()
+#endif
+            copilotSignInTask = nil
+            isSigningInWithCopilot = false
+        }
+
+        do {
+            let result = try await copilotAuthService.signIn { url in
+#if canImport(AuthenticationServices) && canImport(AppKit)
+                return webAuthPresenter.present(url: url) {
+                    copilotSignInTask?.cancel()
+                }
+#else
+                _ = url
+                return false
+#endif
+            }
+            let username = try await copilotUsageProvider.fetchUsername(accessToken: result.accessToken)
+            guard let username, !username.isEmpty else {
+                copilotAuthError = "GitHub sign-in completed, but the token could not be verified for Copilot access."
+                return
+            }
+
+            var updated = configuration
+            updated.authMethod = .browserSession
+            updated.githubCLIUsername = username
+            if updated.copilotAccountScope == .personal {
+                updated.accountLabel = username
+            } else if updated.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                updated.accountLabel = updated.githubOrganization.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard configurationStore.update(updated) else {
+                copilotAuthError = configurationStore.lastError
+                return
+            }
+            configuration = updated
+            configurationStore.saveSecret(result.storedCredential(username: username), for: updated)
+            guard configurationStore.lastError == nil else {
+                copilotAuthError = configurationStore.lastError
+                return
+            }
+            secret = ""
+            await onCredentialsChanged()
+        } catch {
+            copilotAuthError = Task.isCancelled
+                ? "GitHub sign-in canceled. The existing account was not changed."
+                : error.localizedDescription
         }
     }
 

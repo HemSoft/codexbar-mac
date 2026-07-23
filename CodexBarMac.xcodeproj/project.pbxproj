@@ -73,6 +73,7 @@
 		100000000000000000000043 /* ClaudeWebAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000045 /* ClaudeWebAuthService.swift */; };
 		100000000000000000000044 /* DashboardOrderingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000046 /* DashboardOrderingMode.swift */; };
 		100000000000000000000045 /* DashboardUsageSorter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000047 /* DashboardUsageSorter.swift */; };
+		100000000000000000000046 /* CopilotWebAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000048 /* CopilotWebAuthService.swift */; };
 		100000000000000000000025 /* CodexBarMacTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000028 /* CodexBarMacTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -145,6 +146,7 @@
 		200000000000000000000045 /* ClaudeWebAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWebAuthService.swift; sourceTree = "<group>"; };
 		200000000000000000000046 /* DashboardOrderingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardOrderingMode.swift; sourceTree = "<group>"; };
 		200000000000000000000047 /* DashboardUsageSorter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardUsageSorter.swift; sourceTree = "<group>"; };
+		200000000000000000000048 /* CopilotWebAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotWebAuthService.swift; sourceTree = "<group>"; };
 		200000000000000000000027 /* CodexBarMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000028 /* CodexBarMacTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarMacTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -275,6 +277,7 @@
 				20000000000000000000002D /* CopilotCredentialsParser.swift */,
 				20000000000000000000002E /* CopilotUsageParser.swift */,
 				20000000000000000000002F /* CopilotUsageProvider.swift */,
+				200000000000000000000048 /* CopilotWebAuthService.swift */,
 				200000000000000000000030 /* OpenRouterUsageProvider.swift */,
 				200000000000000000000031 /* CursorUsageProvider.swift */,
 				200000000000000000000032 /* CursorWebAuthService.swift */,
@@ -492,6 +495,7 @@
 				100000000000000000000041 /* ProviderWebAuthSupport.swift in Sources */,
 				100000000000000000000042 /* CodexWebAuthService.swift in Sources */,
 				100000000000000000000043 /* ClaudeWebAuthService.swift in Sources */,
+				100000000000000000000046 /* CopilotWebAuthService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
