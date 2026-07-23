@@ -22,7 +22,7 @@ struct ProviderUsageCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .center, spacing: 8) {
@@ -59,7 +59,7 @@ struct ProviderUsageCard: View {
             }
 
             ForEach(result.bars) { bar in
-                VStack(alignment: .leading, spacing: 7) {
+                VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(bar.label)
                         Spacer()
@@ -91,7 +91,7 @@ struct ProviderUsageCard: View {
                 Divider()
 
                 ForEach(result.monetaryMetrics) { metric in
-                    VStack(alignment: .leading, spacing: 7) {
+                    VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(metric.label)
                             Spacer()
@@ -131,7 +131,7 @@ struct ProviderUsageCard: View {
                 .help("Open detailed history")
             }
         }
-        .padding(16)
+        .padding(12)
         .background(
             Color(nsColor: .controlBackgroundColor),
             in: RoundedRectangle(cornerRadius: 8)

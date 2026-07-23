@@ -13,7 +13,7 @@ struct PopoverView: View {
             Divider()
 
             ScrollView {
-                LazyVStack(spacing: 12) {
+                LazyVStack(spacing: 10) {
                     if model.displayedResults.isEmpty {
                         emptyState
                     } else {
@@ -29,14 +29,11 @@ struct PopoverView: View {
                         }
                     }
                 }
-                .padding(16)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
             }
-
-            Divider()
-
-            footer
         }
-        .frame(minWidth: 360, idealWidth: 380, maxWidth: 420, minHeight: 420, maxHeight: 640)
+        .frame(minWidth: 340, idealWidth: 360, maxWidth: 390, minHeight: 300, maxHeight: 600)
         .background(Color(nsColor: .windowBackgroundColor))
         .preferredColorScheme(model.configurationStore.appAppearance.colorScheme)
         .onChange(of: model.configurationStore.autoRefreshInterval) { _, _ in
@@ -65,8 +62,10 @@ struct PopoverView: View {
                 if model.isRefreshing {
                     ProgressView()
                         .controlSize(.small)
+                        .frame(width: 24, height: 24)
                 } else {
                     Image(systemName: "arrow.clockwise")
+                        .frame(width: 24, height: 24)
                 }
             }
             .buttonStyle(.borderless)
@@ -77,37 +76,23 @@ struct PopoverView: View {
                 openSettings()
             } label: {
                 Image(systemName: "gearshape")
+                    .frame(width: 24, height: 24)
             }
             .buttonStyle(.borderless)
             .help("Settings")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
 
-    private var footer: some View {
-        HStack(spacing: 16) {
-            Button("Refresh") {
-                Task {
-                    await model.refresh()
-                }
-            }
-            .disabled(model.isRefreshing)
-
-            Button("Settings") {
-                openSettings()
-            }
-
-            Spacer()
-
-            Button("Quit") {
+            Button {
                 model.quit()
+            } label: {
+                Image(systemName: "power")
+                    .frame(width: 24, height: 24)
             }
+            .buttonStyle(.borderless)
+            .help("Quit CodexBar")
+            .accessibilityLabel("Quit CodexBar")
         }
-        .buttonStyle(.link)
-        .font(.footnote)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     private var emptyState: some View {
@@ -125,6 +110,6 @@ struct PopoverView: View {
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
+        .padding(.vertical, 24)
     }
 }
