@@ -243,6 +243,17 @@ public final class GeminiUsageProvider: UsageProvider {
                 )
 
                 do {
+                    guard let latestCredentials = GeminiAuthFileStore.readCredentials(at: oauthFilePath) else {
+                        return .transient
+                    }
+                    if latestCredentials != credentials {
+                        guard let latestAccessToken = latestCredentials.accessToken,
+                              !latestAccessToken.isEmpty,
+                              !latestCredentials.shouldRefresh(at: now()) else {
+                            return .transient
+                        }
+                        return .success(latestAccessToken)
+                    }
                     try GeminiAuthFileStore.writeCredentials(updated, at: oauthFilePath)
                 } catch {
                     return .transient
