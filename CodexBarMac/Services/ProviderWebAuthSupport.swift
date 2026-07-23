@@ -117,6 +117,7 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var callbackContinuation: CheckedContinuation<URL, Error>?
     private var pendingCallbackResult: Result<URL, Error>?
+    private var callbackFinished = false
 
     private init(
         port: UInt16,
@@ -266,6 +267,11 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
 
     private func finishCallback(_ result: Result<URL, Error>) {
         lock.lock()
+        guard !callbackFinished else {
+            lock.unlock()
+            return
+        }
+        callbackFinished = true
         if let continuation = callbackContinuation {
             callbackContinuation = nil
             lock.unlock()
@@ -278,20 +284,66 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
 
     private func handle(_ connection: NWConnection) {
         connection.start(queue: queue)
-        connection.receive(minimumIncompleteLength: 1, maximumLength: maximumRequestLength) { [weak self] data, _, _, _ in
+        receiveRequest(from: connection, accumulatedData: Data())
+    }
+
+    private func receiveRequest(from connection: NWConnection, accumulatedData: Data) {
+        let remainingLength = maximumRequestLength - accumulatedData.count
+        guard remainingLength > 0 else {
+            completeRequest(
+                on: connection,
+                result: .failure(missingCodeError),
+                failureStatusLine: "HTTP/1.1 413 Payload Too Large"
+            )
+            return
+        }
+
+        connection.receive(minimumIncompleteLength: 1, maximumLength: remainingLength) { [weak self] data, _, isComplete, error in
             guard let self else {
                 connection.cancel()
                 return
             }
 
-            let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            let result = parseCallbackURL(from: request)
-            let response = httpResponse(for: result)
-            connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
-                connection.cancel()
-            })
-            finishCallback(result)
+            var requestData = accumulatedData
+            if let data, !data.isEmpty {
+                requestData.append(data)
+            }
+
+            if let headerRange = requestData.range(of: Data("\r\n\r\n".utf8)) {
+                let headerData = requestData[..<headerRange.upperBound]
+                let request = String(data: headerData, encoding: .utf8) ?? ""
+                completeRequest(on: connection, result: parseCallbackURL(from: request))
+                return
+            }
+
+            if requestData.count >= maximumRequestLength {
+                completeRequest(
+                    on: connection,
+                    result: .failure(missingCodeError),
+                    failureStatusLine: "HTTP/1.1 413 Payload Too Large"
+                )
+                return
+            }
+
+            if error != nil || isComplete {
+                completeRequest(on: connection, result: .failure(missingCodeError))
+                return
+            }
+
+            receiveRequest(from: connection, accumulatedData: requestData)
         }
+    }
+
+    private func completeRequest(
+        on connection: NWConnection,
+        result: Result<URL, Error>,
+        failureStatusLine: String = "HTTP/1.1 400 Bad Request"
+    ) {
+        let response = httpResponse(for: result, failureStatusLine: failureStatusLine)
+        connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
+            connection.cancel()
+        })
+        finishCallback(result)
     }
 
     private func parseCallbackURL(from request: String) -> Result<URL, Error> {
@@ -323,7 +375,10 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
         return .success(url)
     }
 
-    private func httpResponse(for result: Result<URL, Error>) -> String {
+    private func httpResponse(
+        for result: Result<URL, Error>,
+        failureStatusLine: String = "HTTP/1.1 400 Bad Request"
+    ) -> String {
         let statusLine: String
         let heading: String
         let message: String
@@ -333,7 +388,7 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
             heading = successHeading
             message = "You can return to CodexBar."
         case .failure(let error):
-            statusLine = "HTTP/1.1 400 Bad Request"
+            statusLine = failureStatusLine
             heading = failureHeading
             message = error.localizedDescription
         }
