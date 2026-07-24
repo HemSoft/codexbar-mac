@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Usage history save failures now restore the last persisted snapshots, show a non-sensitive error in the popover, and clear the error after a successful save.
 - Usage history now preserves dense recent samples while retaining deterministic coverage across the configured 30-day window at every supported refresh interval.
 - Corrupted Keychain credentials now appear as actionable Settings errors instead of being reported as missing credentials.
 - Transient provider failures now keep the last successful usage bars, balances, and monetary metrics visible while clearly marking the snapshot as stale.
