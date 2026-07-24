@@ -16,6 +16,13 @@ struct PopoverView: View {
 
             ScrollView {
                 LazyVStack(spacing: 10) {
+                    if let historyError = model.historyStore.lastError {
+                        Label(historyError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("usage-history-persistence-error")
+                    }
+
                     if model.displayedResults.isEmpty {
                         emptyState
                     } else {
