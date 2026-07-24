@@ -6984,6 +6984,87 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testUsageHistoryStorePreservesRecentDetailAndLongRangeCoverage() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let retention: TimeInterval = 30 * 24 * 60 * 60
+        let cutoff = now.addingTimeInterval(-retention)
+        let intervals = AutoRefreshInterval.allCases.compactMap(\.seconds)
+
+        for interval in intervals {
+            let suiteName = "CodexBarMacTests.HistoryRange.\(Int(interval)).\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            let sampleCount = Int(retention / interval)
+            let results = (0...sampleCount).map { index in
+                ProviderUsageResult(
+                    accountID: "codex.personal",
+                    providerID: .codex,
+                    title: "Codex",
+                    subtitle: "Live Codex usage",
+                    bars: [UsageBar(label: "5h limit", used: Double(index % 100), limit: 100)],
+                    fetchedAt: cutoff.addingTimeInterval(Double(index) * interval)
+                )
+            }
+            let store = UsageHistoryStore(defaults: defaults)
+
+            store.record(results: results, now: now)
+
+            let retained = store.snapshots(for: "codex.personal")
+            XCTAssertEqual(retained.count, 240, "Interval: \(interval)")
+            XCTAssertEqual(retained.last?.capturedAt, now, "Interval: \(interval)")
+            XCTAssertEqual(retained.first?.capturedAt, cutoff, "Interval: \(interval)")
+            XCTAssertEqual(
+                retained.suffix(120).map(\.capturedAt),
+                results.suffix(120).map(\.fetchedAt),
+                "Interval: \(interval)"
+            )
+            XCTAssertEqual(Set(retained.map(\.id)).count, retained.count, "Interval: \(interval)")
+
+            let originalIDs = retained.map(\.id)
+            store.removeSnapshotsForMissingAccounts(validAccountIDs: ["codex.personal"], now: now)
+            XCTAssertEqual(store.snapshots(for: "codex.personal").map(\.id), originalIDs)
+            XCTAssertTrue(store.snapshots.allSatisfy { $0.capturedAt >= cutoff })
+        }
+    }
+
+    @MainActor
+    func testUsageHistoryStoreDownsamplesAccountsIndependently() {
+        let suiteName = "CodexBarMacTests.HistoryAccounts.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let interval: TimeInterval = 60 * 60
+        let sampleCount = 30 * 24
+        let results = ["codex.personal", "claude.work"].flatMap { accountID in
+            (0...sampleCount).map { index in
+                ProviderUsageResult(
+                    accountID: accountID,
+                    providerID: accountID == "codex.personal" ? .codex : .claude,
+                    title: accountID,
+                    subtitle: "Live usage",
+                    bars: [UsageBar(label: "Usage", used: Double(index % 100), limit: 100)],
+                    fetchedAt: now.addingTimeInterval(Double(index - sampleCount) * interval)
+                )
+            }
+        }
+        let store = UsageHistoryStore(defaults: defaults)
+
+        store.record(results: results, now: now)
+
+        for accountID in ["codex.personal", "claude.work"] {
+            let retained = store.snapshots(for: accountID)
+            XCTAssertEqual(retained.count, 240)
+            XCTAssertEqual(retained.first?.capturedAt, now.addingTimeInterval(-30 * 24 * 60 * 60))
+            XCTAssertEqual(retained.last?.capturedAt, now)
+            XCTAssertEqual(
+                retained.suffix(120).map(\.capturedAt),
+                results.filter { $0.accountID == accountID }.suffix(120).map(\.fetchedAt)
+            )
+        }
+    }
+
+    @MainActor
     func testUsageHistoryStoreRemovesDeletedAccounts() {
         let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
