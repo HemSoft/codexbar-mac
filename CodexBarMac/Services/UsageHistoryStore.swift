@@ -322,6 +322,8 @@ public final class UsageHistoryStore: ObservableObject {
 
     deinit {}
 
+    private static let detailedRecentSnapshotCount = 120
+
     private let defaults: UserDefaults
     private let retention: TimeInterval
     private let maxSnapshotsPerAccount: Int
@@ -519,31 +521,97 @@ public final class UsageHistoryStore: ObservableObject {
         removeMissingAccounts: Bool
     ) {
         let cutoff = now.addingTimeInterval(-retention)
-        let sorted = snapshots
+        let groupedSnapshots = Dictionary(grouping: snapshots
             .filter { snapshot in
                 snapshot.capturedAt >= cutoff
                     && (!removeMissingAccounts || validAccountIDs.contains(snapshot.accountID))
-            }
-            .sorted { lhs, rhs in
-                if lhs.accountID != rhs.accountID {
-                    return lhs.accountID < rhs.accountID
+            }, by: \.accountID)
+
+        snapshots = groupedSnapshots.values
+            .flatMap { accountSnapshots in
+                let ordered = accountSnapshots.sorted(by: Self.snapshotOrder)
+                guard ordered.count > maxSnapshotsPerAccount else {
+                    return ordered
                 }
 
-                return lhs.capturedAt > rhs.capturedAt
-            }
-
-        var counts: [String: Int] = [:]
-        snapshots = sorted
-            .filter { snapshot in
-                let count = counts[snapshot.accountID, default: 0]
-                guard count < maxSnapshotsPerAccount else {
-                    return false
+                let recentCount = min(Self.detailedRecentSnapshotCount, maxSnapshotsPerAccount)
+                let recentSnapshots = Array(ordered.suffix(recentCount))
+                let olderCapacity = maxSnapshotsPerAccount - recentCount
+                guard olderCapacity > 0 else {
+                    return recentSnapshots
                 }
 
-                counts[snapshot.accountID] = count + 1
-                return true
+                let olderSnapshots = Array(ordered.dropLast(recentCount))
+                return Self.timeDistributedSnapshots(
+                    from: olderSnapshots,
+                    capacity: olderCapacity
+                ) + recentSnapshots
             }
-            .sorted { $0.capturedAt < $1.capturedAt }
+            .sorted(by: Self.snapshotOrder)
+    }
+
+    private static func timeDistributedSnapshots(
+        from snapshots: [UsageHistorySnapshot],
+        capacity: Int
+    ) -> [UsageHistorySnapshot] {
+        guard capacity < snapshots.count else {
+            return snapshots
+        }
+        guard capacity > 1 else {
+            return Array(snapshots.prefix(capacity))
+        }
+
+        let firstTime = snapshots[0].capturedAt.timeIntervalSinceReferenceDate
+        let timeSpan = snapshots[snapshots.count - 1].capturedAt.timeIntervalSinceReferenceDate - firstTime
+        var selectedIndices: [Int] = []
+        selectedIndices.reserveCapacity(capacity)
+
+        for slot in 0..<capacity {
+            let targetTime = firstTime + timeSpan * Double(slot) / Double(capacity - 1)
+            let minimumIndex = (selectedIndices.last ?? -1) + 1
+            let maximumIndex = snapshots.count - (capacity - slot)
+            var lowerBound = minimumIndex
+            var upperBound = maximumIndex + 1
+
+            while lowerBound < upperBound {
+                let middle = lowerBound + (upperBound - lowerBound) / 2
+                if snapshots[middle].capturedAt.timeIntervalSinceReferenceDate < targetTime {
+                    lowerBound = middle + 1
+                } else {
+                    upperBound = middle
+                }
+            }
+
+            var selectedIndex = min(lowerBound, maximumIndex)
+            if selectedIndex > minimumIndex {
+                let earlierIndex = selectedIndex - 1
+                let earlierDistance = abs(
+                    snapshots[earlierIndex].capturedAt.timeIntervalSinceReferenceDate - targetTime
+                )
+                let selectedDistance = abs(
+                    snapshots[selectedIndex].capturedAt.timeIntervalSinceReferenceDate - targetTime
+                )
+                if earlierDistance <= selectedDistance {
+                    selectedIndex = earlierIndex
+                }
+            }
+            selectedIndices.append(selectedIndex)
+        }
+
+        return selectedIndices.map { snapshots[$0] }
+    }
+
+    private static func snapshotOrder(
+        _ lhs: UsageHistorySnapshot,
+        _ rhs: UsageHistorySnapshot
+    ) -> Bool {
+        if lhs.capturedAt != rhs.capturedAt {
+            return lhs.capturedAt < rhs.capturedAt
+        }
+        if lhs.accountID != rhs.accountID {
+            return lhs.accountID < rhs.accountID
+        }
+        return lhs.id < rhs.id
     }
 
     private func save() {
