@@ -416,16 +416,16 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     public func credentialReadiness(for configuration: ProviderAccountConfiguration) -> CredentialReadiness {
-        if let error = secretReadErrors[configuration.id] {
-            return .error(description: error)
-        }
-
         if hasSecret(for: configuration) {
             return .keychainSaved
         }
 
         if let hint = localCredentialHints[configuration.id] {
             return .localCLIReady(description: hint)
+        }
+
+        if let error = secretReadErrors[configuration.id] {
+            return .error(description: error)
         }
 
         return .missing

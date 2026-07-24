@@ -77,6 +77,36 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(store.credentialReadiness(for: configuration), .missing)
     }
 
+    @MainActor
+    func testCredentialReadinessPrefersLocalCredentialsOverFallbackSecretReadError() async throws {
+        let suiteName = "CodexBarMacTests.LocalCredentialReadiness.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        defaults.set(try JSONEncoder().encode([configuration]), forKey: "providerConfigurations")
+        let secretStore = MutableReadSecretStore(result: .failure(.invalidSecretData))
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+        store.applyLocalCredentialDiscoveries(
+            LocalCredentialDiscovery.Result(
+                codexAuthAvailable: true,
+                githubUsernames: [],
+                claudeOAuthAvailable: false
+            )
+        )
+
+        let expectedReadiness = CredentialReadiness.localCLIReady(description: "~/.codex/auth.json")
+        for _ in 0..<200 where store.secretReadErrors[configuration.id] == nil {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(store.secretReadErrors[configuration.id], KeychainError.invalidSecretData.localizedDescription)
+        XCTAssertEqual(store.credentialReadiness(for: configuration), expectedReadiness)
+    }
+
     func testSparkleConfigurationUsesSignedFeedAndDefaultConsentFlow() throws {
         let info = Bundle.main.infoDictionary ?? [:]
 
