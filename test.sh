@@ -25,6 +25,7 @@ export DEVELOPER_DIR
 
 "./scripts/test-cut-changelog.sh"
 "./scripts/test-release-artifacts.sh"
+"./scripts/test-run.sh"
 
 echo "Testing $SCHEME (DEVELOPER_DIR=$DEVELOPER_DIR)"
 xcodebuild \

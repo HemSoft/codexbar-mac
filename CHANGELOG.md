@@ -77,5 +77,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Release artifact smoke tests cover signed-appcast validation, exact versioned URLs, deterministic cask output, missing prerequisites, and publication dry runs.
 - App Release signing team set to `W2A23PX5BP` with hardened-runtime entitlements for network client access (Debug remains team-agnostic for local builds).
 - `run.sh` script to build and launch the app from the command line.
+- `run.sh` now falls back from Command Line Tools to an installed Xcode, with script-level regression coverage that does not launch the app.
 - `AGENTS.md` and `README.md` document build and run instructions.
 - `AGENTS.md` documents that Cursor Cloud (Linux) agents can only perform static review; build, run, and test require macOS with Xcode.

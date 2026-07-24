@@ -46,6 +46,9 @@ jobs:
       - name: Smoke-test release artifacts
         run: ./scripts/test-release-artifacts.sh
 
+      - name: Smoke-test app runner
+        run: ./scripts/test-run.sh
+
       - name: Build and test
         run: |
           set -o pipefail

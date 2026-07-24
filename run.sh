@@ -11,6 +11,15 @@ if [[ -z "$DEVELOPER_DIR" || ! -d "$DEVELOPER_DIR" ]]; then
   exit 1
 fi
 
+if [[ "$DEVELOPER_DIR" == "/Library/Developer/CommandLineTools" ]]; then
+  if [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
+    DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+  else
+    echo "Active developer directory is Command Line Tools only. Install Xcode or set DEVELOPER_DIR." >&2
+    exit 1
+  fi
+fi
+
 cd "$(dirname "$0")"
 
 export DEVELOPER_DIR
