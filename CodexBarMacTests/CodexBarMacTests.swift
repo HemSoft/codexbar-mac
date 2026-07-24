@@ -1,8 +1,82 @@
 import XCTest
 import Darwin
+import Security
 @testable import CodexBarMac
 
 final class CodexBarMacTests: XCTestCase {
+    func testKeychainServiceDistinguishesMissingValidAndInvalidSecrets() throws {
+        let service = "com.hemsoft.CodexBarMacTests.\(UUID().uuidString)"
+        let account = "credential.\(UUID().uuidString)"
+        let keychain = KeychainService(service: service)
+        defer {
+            try? keychain.deleteSecret(account: account)
+        }
+
+        XCTAssertNil(try keychain.readSecret(account: account))
+
+        try keychain.saveSecret("valid-test-secret", account: account)
+        XCTAssertEqual(try keychain.readSecret(account: account), "valid-test-secret")
+
+        try keychain.deleteSecret(account: account)
+        XCTAssertNil(try keychain.readSecret(account: account))
+
+        let invalidData = Data([0xFF])
+        let addStatus = SecItemAdd(
+            [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+                kSecValueData as String: invalidData,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            ] as CFDictionary,
+            nil
+        )
+        XCTAssertEqual(addStatus, errSecSuccess)
+
+        XCTAssertThrowsError(try keychain.readSecret(account: account)) { error in
+            XCTAssertEqual(error as? KeychainError, .invalidSecretData)
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The saved credential contains invalid data. Replace it in Settings."
+            )
+            XCTAssertFalse(error.localizedDescription.contains(invalidData.base64EncodedString()))
+        }
+    }
+
+    @MainActor
+    func testCredentialReadinessSurfacesAndClearsSecretReadErrors() async throws {
+        let suiteName = "CodexBarMacTests.CredentialReadiness.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openRouter)
+        defaults.set(try JSONEncoder().encode([configuration]), forKey: "providerConfigurations")
+        let secretStore = MutableReadSecretStore(result: .failure(.invalidSecretData))
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        let errorDescription = "The saved credential contains invalid data. Replace it in Settings."
+
+        for _ in 0..<200 where store.credentialReadiness(for: configuration) != .error(description: errorDescription) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(store.credentialReadiness(for: configuration), .error(description: errorDescription))
+
+        secretStore.setResult(.success("valid-test-secret"))
+        store.refreshSecretAvailability()
+        for _ in 0..<200 where store.credentialReadiness(for: configuration) != .keychainSaved {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(store.credentialReadiness(for: configuration), .keychainSaved)
+
+        secretStore.setResult(.success(nil))
+        store.refreshSecretAvailability()
+        for _ in 0..<200 where store.credentialReadiness(for: configuration) != .missing {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(store.credentialReadiness(for: configuration), .missing)
+    }
+
     func testSparkleConfigurationUsesSignedFeedAndDefaultConsentFlow() throws {
         let info = Bundle.main.infoDictionary ?? [:]
 
@@ -7375,6 +7449,33 @@ private final class FailingSecretStore: SecretStore, @unchecked Sendable {
     }
 
     func deleteSecret(account: String) throws {}
+}
+
+private final class MutableReadSecretStore: SecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Result<String?, KeychainError>
+
+    init(result: Result<String?, KeychainError>) {
+        self.result = result
+    }
+
+    func setResult(_ result: Result<String?, KeychainError>) {
+        lock.withLock {
+            self.result = result
+        }
+    }
+
+    func readSecret(account: String) throws -> String? {
+        try lock.withLock { result }.get()
+    }
+
+    func saveSecret(_ secret: String, account: String) throws {
+        setResult(.success(secret))
+    }
+
+    func deleteSecret(account: String) throws {
+        setResult(.success(nil))
+    }
 }
 
 private final class SelectiveDeletionSecretStore: SecretStore, @unchecked Sendable {

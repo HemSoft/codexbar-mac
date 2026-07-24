@@ -459,6 +459,8 @@ private struct ProviderSettingsRow: View {
         switch readiness {
         case .keychainSaved, .localCLIReady:
             return "checkmark.circle.fill"
+        case .error:
+            return "exclamationmark.triangle.fill"
         case .missing:
             return "exclamationmark.circle"
         }
@@ -472,6 +474,8 @@ private struct ProviderSettingsRow: View {
         switch readiness {
         case .keychainSaved, .localCLIReady:
             return .green
+        case .error:
+            return .red
         case .missing:
             return .orange
         }
@@ -487,6 +491,8 @@ private struct ProviderSettingsRow: View {
             return "Keychain credential saved"
         case .localCLIReady(let description):
             return "Local credentials ready (\(description))"
+        case .error(let description):
+            return description
         case .missing:
             return "Needs credentials"
         }
