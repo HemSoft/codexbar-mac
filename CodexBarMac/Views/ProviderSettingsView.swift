@@ -359,6 +359,9 @@ struct ProviderSettingsView: View {
         case .localCLIReady(let description):
             Label("Local credentials ready (\(description))", systemImage: "terminal.fill")
                 .foregroundStyle(.green)
+        case .error(let description):
+            Label(description, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
         case .missing:
             Label("No credentials configured yet", systemImage: "exclamationmark.circle")
                 .foregroundStyle(.secondary)

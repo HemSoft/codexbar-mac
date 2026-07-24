@@ -25,10 +25,10 @@ public struct KeychainService: SecretStore {
         }
 
         guard let data = result as? Data else {
-            return nil
+            throw KeychainError.invalidSecretData
         }
 
-        return String(data: data, encoding: .utf8)
+        return try Self.decodeSecret(data)
     }
 
     public func saveSecret(_ secret: String, account: String) throws {
@@ -72,8 +72,26 @@ public struct KeychainService: SecretStore {
             kSecAttrAccount as String: account,
         ]
     }
+
+    static func decodeSecret(_ data: Data) throws -> String {
+        guard let secret = String(data: data, encoding: .utf8) else {
+            throw KeychainError.invalidSecretData
+        }
+
+        return secret
+    }
 }
 
-public enum KeychainError: Error, Equatable {
+public enum KeychainError: Error, Equatable, LocalizedError {
     case unhandledStatus(OSStatus)
+    case invalidSecretData
+
+    public var errorDescription: String? {
+        switch self {
+        case .unhandledStatus(let status):
+            "Keychain operation failed with status \(status)."
+        case .invalidSecretData:
+            "The saved credential contains invalid data. Replace it in Settings."
+        }
+    }
 }

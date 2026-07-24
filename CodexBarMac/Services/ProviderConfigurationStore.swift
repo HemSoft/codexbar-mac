@@ -6,6 +6,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var configurations: [ProviderAccountConfiguration]
     @Published public private(set) var groups: [ProviderAccountGroup]
     @Published public private(set) var secretAvailability: [String: Bool]
+    @Published public private(set) var secretReadErrors: [String: String]
     @Published public private(set) var localCredentialHints: [String: String]
     @Published public private(set) var appAppearance: AppAppearance
     @Published public private(set) var autoRefreshInterval: AutoRefreshInterval
@@ -42,6 +43,7 @@ public final class ProviderConfigurationStore: ObservableObject {
             validGroupIDs: Set(loadedGroups.map(\.id))
         )
         self.secretAvailability = [:]
+        self.secretReadErrors = [:]
         self.localCredentialHints = [:]
         self.appAppearance = Self.loadAppAppearance(from: defaults)
         self.autoRefreshInterval = Self.loadAutoRefreshInterval(from: defaults)
@@ -233,6 +235,7 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         self.configurations.removeAll { removedAccountIDs.contains($0.id) }
         secretAvailability = secretAvailability.filter { !removedAccountIDs.contains($0.key) }
+        secretReadErrors = secretReadErrors.filter { !removedAccountIDs.contains($0.key) }
         localCredentialHints = localCredentialHints.filter { !removedAccountIDs.contains($0.key) }
         sortConfigurations()
         saveConfigurations()
@@ -396,6 +399,7 @@ public final class ProviderConfigurationStore: ObservableObject {
                 secretAvailability[configuration.id] = true
             }
 
+            secretReadErrors.removeValue(forKey: configuration.id)
             lastError = nil
             refreshSecretAvailability(including: [configuration])
         } catch {
@@ -418,6 +422,10 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         if let hint = localCredentialHints[configuration.id] {
             return .localCLIReady(description: hint)
+        }
+
+        if let error = secretReadErrors[configuration.id] {
+            return .error(description: error)
         }
 
         return .missing
@@ -567,9 +575,15 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         Task.detached(priority: .utility) {
             var availability: [String: Bool] = [:]
+            var readErrors: [String: String] = [:]
             for configuration in snapshot {
                 let account = ProviderConfigurationStore.keychainAccount(for: configuration)
-                availability[configuration.id] = ((try? store.readSecret(account: account)) ?? nil) != nil
+                do {
+                    availability[configuration.id] = try store.readSecret(account: account) != nil
+                } catch {
+                    availability[configuration.id] = false
+                    readErrors[configuration.id] = error.localizedDescription
+                }
             }
 
             await MainActor.run { [weak self] in
@@ -578,17 +592,27 @@ public final class ProviderConfigurationStore: ObservableObject {
                 }
 
                 var nextAvailability = self.secretAvailability
+                var nextReadErrors = self.secretReadErrors
                 let currentPersistedIDs = Set(self.configurations.map(\.id))
                 for accountID in nextAvailability.keys
                     where persistedSnapshotIDs.contains(accountID) && !currentPersistedIDs.contains(accountID) {
                     nextAvailability.removeValue(forKey: accountID)
                 }
+                for accountID in nextReadErrors.keys
+                    where persistedSnapshotIDs.contains(accountID) && !currentPersistedIDs.contains(accountID) {
+                    nextReadErrors.removeValue(forKey: accountID)
+                }
 
                 for (accountID, isAvailable) in availability {
                     nextAvailability[accountID] = isAvailable
+                    nextReadErrors.removeValue(forKey: accountID)
+                }
+                for (accountID, readError) in readErrors {
+                    nextReadErrors[accountID] = readError
                 }
 
                 self.secretAvailability = nextAvailability
+                self.secretReadErrors = nextReadErrors
             }
         }
     }
