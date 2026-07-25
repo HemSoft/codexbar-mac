@@ -222,16 +222,7 @@ public final class ProviderConfigurationStore: ObservableObject {
             return configuration
         }
 
-        var preservedDefaultCredential = false
-        if configurations(for: providerID).isEmpty {
-            do {
-                preservedDefaultCredential =
-                    try secretStore.readSecret(account: Self.keychainAccount(for: providerID)) != nil
-            } catch {
-                preservedDefaultCredential = true
-            }
-        }
-        if preservedDefaultCredential {
+        if shouldReuseDefaultAccountID(for: providerID) {
             configuration = defaultConfiguration
             if providerID == .copilot {
                 configuration.copilotAccountScope = copilotScope
@@ -595,9 +586,10 @@ public final class ProviderConfigurationStore: ObservableObject {
                 continue
             }
 
-            var configuration = ProviderAccountConfiguration
-                .defaultConfiguration(for: .copilot)
-                .withNewAccountID()
+            let defaultConfiguration = ProviderAccountConfiguration.defaultConfiguration(for: .copilot)
+            var configuration = shouldReuseDefaultAccountID(for: .copilot)
+                ? defaultConfiguration
+                : defaultConfiguration.withNewAccountID()
             configuration.accountLabel = uniqueAccountLabel(preferred: username, for: configuration)
             configuration.authMethod = .cliToken
             configuration.githubCLIUsername = username
@@ -1098,6 +1090,18 @@ public final class ProviderConfigurationStore: ObservableObject {
                 && hasNoCredential
                 && configuration.authMethod == ProviderAccountConfiguration.defaultConfiguration(for: .copilot).authMethod
         })
+    }
+
+    private func shouldReuseDefaultAccountID(for providerID: ProviderID) -> Bool {
+        guard configurations(for: providerID).isEmpty else {
+            return false
+        }
+
+        do {
+            return try secretStore.readSecret(account: Self.keychainAccount(for: providerID)) != nil
+        } catch {
+            return true
+        }
     }
 
     private static func normalizedGroupName(_ name: String) -> String {

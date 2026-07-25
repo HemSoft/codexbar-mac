@@ -4400,6 +4400,38 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testProviderConfigurationStoreReusesPreservedDefaultCopilotCredentialDuringDiscovery() throws {
+        let suiteName = "CodexBarMacTests.ConfigurationDefaultCopilotDiscovery.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = InMemorySecretStore()
+        let defaultAccount = ProviderAccountConfiguration.defaultConfiguration(for: .copilot)
+        let keychainAccount = ProviderConfigurationStore.keychainAccount(for: defaultAccount)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(Data("not-json".utf8), forKey: "providerConfigurations")
+        try secretStore.saveSecret("preserved-copilot-secret", account: keychainAccount)
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+        XCTAssertTrue(store.replaceCorruptedConfigurations())
+        store.applyLocalCredentialDiscoveries(
+            LocalCredentialDiscovery.Result(
+                codexAuthAvailable: false,
+                githubUsernames: ["octocat"],
+                claudeOAuthAvailable: false
+            )
+        )
+
+        let recoveredAccount = try XCTUnwrap(store.configurations.first)
+        XCTAssertEqual(store.configurations.count, 1)
+        XCTAssertEqual(recoveredAccount.id, ProviderID.copilot.rawValue)
+        XCTAssertEqual(recoveredAccount.providerID, .copilot)
+        XCTAssertEqual(recoveredAccount.authMethod, .cliToken)
+        XCTAssertEqual(recoveredAccount.githubCLIUsername, "octocat")
+        XCTAssertEqual(store.readSavedSecret(for: recoveredAccount), "preserved-copilot-secret")
+    }
+
+    @MainActor
     func testProviderConfigurationStoreRollsBackConfigurationWhenEncodingFails() throws {
         let suiteName = "CodexBarMacTests.ConfigurationEncoding.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
