@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Codex cards now omit redundant usage-threshold alert summaries while
+  preserving notifications, severity indicators, and other alert types.
 - Damaged saved usage history now remains intact until the user explicitly resets
   it, with recording resuming normally after recovery.
 - Damaged saved account lists now remain intact with their Keychain credentials

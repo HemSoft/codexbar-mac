@@ -5435,6 +5435,69 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(card.cardSeverity, .warning)
     }
 
+    @MainActor
+    func testCodexCardHidesOnlyUsageThresholdAlerts() {
+        let usageAlert = UsageAlertDetail(
+            id: "usage.codex.personal.weekly",
+            accountID: "codex.personal",
+            kind: .usage,
+            title: "Weekly at 92%",
+            message: "92 of 100 used. Alert threshold: 80%.",
+            severity: .warning
+        )
+        let balanceAlert = UsageAlertDetail(
+            id: "balance.codex.personal",
+            accountID: "codex.personal",
+            kind: .balance,
+            title: "Balance below $5.00",
+            message: "$4.50 remaining for Codex.",
+            severity: .warning
+        )
+        let severityAlert = UsageAlertDetail(
+            id: "severity.codex.personal",
+            accountID: "codex.personal",
+            kind: .severity,
+            title: "Critical status",
+            message: "Weekly is projected to reach 100%.",
+            severity: .critical
+        )
+        let codexResult = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [UsageBar(label: "Weekly", used: 92, limit: 100)],
+            fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+        )
+        let codexCard = ProviderUsageCard(
+            result: codexResult,
+            historyOptions: [],
+            alerts: [usageAlert, balanceAlert, severityAlert],
+            isHistoryEnabled: false
+        )
+
+        XCTAssertEqual(codexCard.displayedAlerts, [balanceAlert, severityAlert])
+        XCTAssertEqual(codexCard.alerts, [usageAlert, balanceAlert, severityAlert])
+        XCTAssertEqual(codexCard.cardSeverity, .critical)
+
+        let cursorResult = ProviderUsageResult(
+            accountID: "cursor.personal",
+            providerID: .cursor,
+            title: "Cursor",
+            subtitle: "Live usage",
+            bars: [UsageBar(label: "Total", used: 92, limit: 100)],
+            fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+        )
+        let cursorCard = ProviderUsageCard(
+            result: cursorResult,
+            historyOptions: [],
+            alerts: [usageAlert, balanceAlert, severityAlert],
+            isHistoryEnabled: false
+        )
+
+        XCTAssertEqual(cursorCard.displayedAlerts, [usageAlert, balanceAlert, severityAlert])
+    }
+
     func testUsageAlertEvaluatorPreservesSuppressionForExactAccountsThatDidNotRefresh() {
         let activeAlertIDs: Set<String> = [
             "usage.codex.weekly",

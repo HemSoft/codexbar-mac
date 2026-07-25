@@ -45,8 +45,8 @@ struct ProviderUsageCard: View {
                     .accessibilityHidden(true)
             }
 
-            if !alerts.isEmpty {
-                UsageAlertSummaryView(alerts: alerts)
+            if !displayedAlerts.isEmpty {
+                UsageAlertSummaryView(alerts: displayedAlerts)
             }
 
             if let creditsRemaining = result.creditsRemaining, result.bars.isEmpty {
@@ -157,6 +157,13 @@ struct ProviderUsageCard: View {
 
     var cardSeverity: UsageSeverity {
         max(result.highestSeverity, alerts.map(\.severity).max() ?? .normal)
+    }
+
+    var displayedAlerts: [UsageAlertDetail] {
+        guard result.providerID == .codex else {
+            return alerts
+        }
+        return alerts.filter { $0.kind != .usage }
     }
 
     private var statusColor: Color {
