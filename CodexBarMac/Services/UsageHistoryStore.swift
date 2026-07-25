@@ -322,8 +322,6 @@ public final class UsageHistoryStore: ObservableObject {
     @Published public private(set) var lastError: String?
     @Published public private(set) var requiresRecovery: Bool
 
-    deinit {}
-
     private static let detailedRecentSnapshotCount = 120
     private static let loadErrorMessage =
         "Saved usage history could not be read. Reset history to resume recording."
@@ -343,16 +341,10 @@ public final class UsageHistoryStore: ObservableObject {
         self.encodeSnapshots = { try JSONEncoder().encode($0) }
         self.retention = TimeInterval(max(retentionDays, 1) * 24 * 60 * 60)
         self.maxSnapshotsPerAccount = max(maxSnapshotsPerAccount, 1)
-        switch Self.loadSnapshots(defaults: defaults, storageKey: storageKey) {
-        case let .success(snapshots):
-            self.snapshots = snapshots
-            self.lastError = nil
-            self.requiresRecovery = false
-        case .failure:
-            self.snapshots = []
-            self.lastError = Self.loadErrorMessage
-            self.requiresRecovery = true
-        }
+        let state = Self.loadedState(defaults: defaults, storageKey: storageKey)
+        self.snapshots = state.snapshots
+        self.lastError = state.lastError
+        self.requiresRecovery = state.requiresRecovery
     }
 
     init(
@@ -365,16 +357,10 @@ public final class UsageHistoryStore: ObservableObject {
         self.encodeSnapshots = encodeSnapshots
         self.retention = TimeInterval(max(retentionDays, 1) * 24 * 60 * 60)
         self.maxSnapshotsPerAccount = max(maxSnapshotsPerAccount, 1)
-        switch Self.loadSnapshots(defaults: defaults, storageKey: storageKey) {
-        case let .success(snapshots):
-            self.snapshots = snapshots
-            self.lastError = nil
-            self.requiresRecovery = false
-        case .failure:
-            self.snapshots = []
-            self.lastError = Self.loadErrorMessage
-            self.requiresRecovery = true
-        }
+        let state = Self.loadedState(defaults: defaults, storageKey: storageKey)
+        self.snapshots = state.snapshots
+        self.lastError = state.lastError
+        self.requiresRecovery = state.requiresRecovery
     }
 
     public func record(results: [ProviderUsageResult], now: Date = Date()) {
@@ -700,6 +686,18 @@ public final class UsageHistoryStore: ObservableObject {
             return .success(snapshots.sorted { $0.capturedAt < $1.capturedAt })
         } catch {
             return .failure(error)
+        }
+    }
+
+    private static func loadedState(
+        defaults: UserDefaults,
+        storageKey: String
+    ) -> (snapshots: [UsageHistorySnapshot], lastError: String?, requiresRecovery: Bool) {
+        switch loadSnapshots(defaults: defaults, storageKey: storageKey) {
+        case let .success(snapshots):
+            return (snapshots, nil, false)
+        case .failure:
+            return ([], loadErrorMessage, true)
         }
     }
 }

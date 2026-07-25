@@ -73,6 +73,7 @@ struct PopoverView: View {
             Button("Reset History", role: .destructive) {
                 model.historyStore.discardCorruptedHistory()
             }
+            .accessibilityIdentifier("confirm-reset-corrupted-usage-history")
         } message: {
             Text("This permanently discards the unreadable history so new usage can be recorded.")
         }
