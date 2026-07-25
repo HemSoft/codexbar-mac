@@ -277,50 +277,43 @@ public final class ProviderConfigurationStore: ObservableObject {
             return false
         }
 
-        let previousConfigurations = self.configurations
-        let previousSecretAvailability = secretAvailability
-        let previousSecretReadErrors = secretReadErrors
-        let previousLocalCredentialHints = localCredentialHints
+        var removedAnyAccount = false
         var firstDeletionError: String?
-        var removedAccountIDs = Set<String>()
 
         for configuration in configurations {
-            rememberSuppressedCopilotDiscovery(for: configuration)
-            rememberSuppressedGeminiDiscovery(for: configuration)
+            let remainingConfigurations = self.configurations.filter { $0.id != configuration.id }
+            let encodedConfigurations: Data
+            do {
+                encodedConfigurations = try encodeConfigurations(remainingConfigurations)
+            } catch {
+                if firstDeletionError == nil {
+                    firstDeletionError = "Could not save account data: \(error.localizedDescription)"
+                }
+                continue
+            }
 
             do {
                 try secretStore.deleteSecret(account: Self.keychainAccount(for: configuration))
-                removedAccountIDs.insert(configuration.id)
             } catch {
                 if firstDeletionError == nil {
                     firstDeletionError = error.localizedDescription
                 }
+                continue
             }
+
+            rememberSuppressedCopilotDiscovery(for: configuration)
+            rememberSuppressedGeminiDiscovery(for: configuration)
+            defaults.set(encodedConfigurations, forKey: configurationsKey)
+            self.configurations = remainingConfigurations
+            secretAvailability.removeValue(forKey: configuration.id)
+            secretReadErrors.removeValue(forKey: configuration.id)
+            localCredentialHints.removeValue(forKey: configuration.id)
+            removedAnyAccount = true
         }
 
-        guard !removedAccountIDs.isEmpty else {
-            lastError = firstDeletionError
-            return false
-        }
-
-        self.configurations.removeAll { removedAccountIDs.contains($0.id) }
-        secretAvailability = secretAvailability.filter { !removedAccountIDs.contains($0.key) }
-        secretReadErrors = secretReadErrors.filter { !removedAccountIDs.contains($0.key) }
-        localCredentialHints = localCredentialHints.filter { !removedAccountIDs.contains($0.key) }
-        sortConfigurations()
-        guard saveConfigurations() else {
-            self.configurations = previousConfigurations
-            secretAvailability = previousSecretAvailability
-            secretReadErrors = previousSecretReadErrors
-            localCredentialHints = previousLocalCredentialHints
-            refreshSecretAvailability()
-            return false
-        }
-        if let firstDeletionError {
-            lastError = firstDeletionError
-        }
+        lastError = firstDeletionError
         refreshSecretAvailability()
-        return true
+        return removedAnyAccount
     }
 
     public func updateAppAppearance(_ appearance: AppAppearance) {

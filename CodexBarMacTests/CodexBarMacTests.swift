@@ -4350,6 +4350,8 @@ final class CodexBarMacTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suiteName)!
         let original = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
         let originalData = try JSONEncoder().encode([original])
+        let secretStore = InMemorySecretStore()
+        let keychainAccount = ProviderConfigurationStore.keychainAccount(for: original)
         var shouldFailEncoding = false
         defer {
             defaults.removePersistentDomain(forName: suiteName)
@@ -4357,7 +4359,7 @@ final class CodexBarMacTests: XCTestCase {
         defaults.set(originalData, forKey: "providerConfigurations")
         let store = ProviderConfigurationStore(
             defaults: defaults,
-            secretStore: InMemorySecretStore(),
+            secretStore: secretStore,
             encodeConfigurations: { configurations in
                 if shouldFailEncoding {
                     throw CocoaError(.fileWriteUnknown)
@@ -4374,6 +4376,13 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(store.configurations, [original])
         XCTAssertEqual(defaults.data(forKey: "providerConfigurations"), originalData)
         XCTAssertTrue(store.lastError?.hasPrefix("Could not save account data:") == true)
+
+        try secretStore.saveSecret("preserved-secret", account: keychainAccount)
+
+        XCTAssertFalse(store.removeAccounts([original]))
+        XCTAssertEqual(store.configurations, [original])
+        XCTAssertEqual(defaults.data(forKey: "providerConfigurations"), originalData)
+        XCTAssertEqual(try secretStore.readSecret(account: keychainAccount), "preserved-secret")
 
         shouldFailEncoding = false
 
