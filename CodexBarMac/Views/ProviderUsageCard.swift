@@ -42,14 +42,13 @@ struct ProviderUsageCard: View {
                 Circle()
                     .fill(cardSeverity.tint)
                     .frame(width: 10, height: 10)
-                    .accessibilityHidden(true)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(hiddenAlertAccessibilityLabel)
+                    .accessibilityHidden(hiddenAlerts.isEmpty)
             }
 
-            if !alerts.isEmpty {
-                UsageAlertSummaryView(
-                    alerts: displayedAlerts,
-                    accessibilityLabel: alertAccessibilityLabel
-                )
+            if showsAlertSummary {
+                UsageAlertSummaryView(alerts: displayedAlerts)
             }
 
             if let creditsRemaining = result.creditsRemaining, result.bars.isEmpty {
@@ -169,8 +168,19 @@ struct ProviderUsageCard: View {
         return alerts.filter { $0.kind != .usage }
     }
 
-    var alertAccessibilityLabel: String {
-        alerts
+    var hiddenAlerts: [UsageAlertDetail] {
+        guard result.providerID == .codex else {
+            return []
+        }
+        return alerts.filter { $0.kind == .usage }
+    }
+
+    var showsAlertSummary: Bool {
+        !displayedAlerts.isEmpty
+    }
+
+    var hiddenAlertAccessibilityLabel: String {
+        hiddenAlerts
             .map { "\($0.title). \($0.message)" }
             .joined(separator: " ")
     }
@@ -197,7 +207,6 @@ struct ProviderUsageCard: View {
 
 private struct UsageAlertSummaryView: View {
     let alerts: [UsageAlertDetail]
-    let accessibilityLabel: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -222,8 +231,14 @@ private struct UsageAlertSummaryView: View {
                 }
             }
         }
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        alerts
+            .map { "\($0.title). \($0.message)" }
+            .joined(separator: " ")
     }
 }
 

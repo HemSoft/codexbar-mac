@@ -5477,15 +5477,13 @@ final class CodexBarMacTests: XCTestCase {
         )
 
         XCTAssertEqual(codexCard.displayedAlerts, [balanceAlert, severityAlert])
+        XCTAssertEqual(codexCard.hiddenAlerts, [usageAlert])
+        XCTAssertTrue(codexCard.showsAlertSummary)
         XCTAssertEqual(codexCard.alerts, [usageAlert, balanceAlert, severityAlert])
         XCTAssertEqual(codexCard.cardSeverity, .critical)
         XCTAssertEqual(
-            codexCard.alertAccessibilityLabel,
-            [
-                "\(usageAlert.title). \(usageAlert.message)",
-                "\(balanceAlert.title). \(balanceAlert.message)",
-                "\(severityAlert.title). \(severityAlert.message)",
-            ].joined(separator: " ")
+            codexCard.hiddenAlertAccessibilityLabel,
+            "\(usageAlert.title). \(usageAlert.message)"
         )
 
         let usageOnlyCodexCard = ProviderUsageCard(
@@ -5496,8 +5494,10 @@ final class CodexBarMacTests: XCTestCase {
         )
 
         XCTAssertTrue(usageOnlyCodexCard.displayedAlerts.isEmpty)
+        XCTAssertFalse(usageOnlyCodexCard.showsAlertSummary)
+        XCTAssertEqual(usageOnlyCodexCard.hiddenAlerts, [usageAlert])
         XCTAssertEqual(
-            usageOnlyCodexCard.alertAccessibilityLabel,
+            usageOnlyCodexCard.hiddenAlertAccessibilityLabel,
             "\(usageAlert.title). \(usageAlert.message)"
         )
 
@@ -5517,6 +5517,9 @@ final class CodexBarMacTests: XCTestCase {
         )
 
         XCTAssertEqual(cursorCard.displayedAlerts, [usageAlert, balanceAlert, severityAlert])
+        XCTAssertTrue(cursorCard.hiddenAlerts.isEmpty)
+        XCTAssertTrue(cursorCard.hiddenAlertAccessibilityLabel.isEmpty)
+        XCTAssertTrue(cursorCard.showsAlertSummary)
     }
 
     func testUsageAlertEvaluatorPreservesSuppressionForExactAccountsThatDidNotRefresh() {
