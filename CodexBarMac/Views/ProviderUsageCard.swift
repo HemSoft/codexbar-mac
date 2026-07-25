@@ -42,11 +42,13 @@ struct ProviderUsageCard: View {
                 Circle()
                     .fill(cardSeverity.tint)
                     .frame(width: 10, height: 10)
-                    .accessibilityHidden(true)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(hiddenAlertAccessibilityLabel)
+                    .accessibilityHidden(hiddenAlerts.isEmpty)
             }
 
-            if !alerts.isEmpty {
-                UsageAlertSummaryView(alerts: alerts)
+            if showsAlertSummary {
+                UsageAlertSummaryView(alerts: displayedAlerts)
             }
 
             if let creditsRemaining = result.creditsRemaining, result.bars.isEmpty {
@@ -157,6 +159,30 @@ struct ProviderUsageCard: View {
 
     var cardSeverity: UsageSeverity {
         max(result.highestSeverity, alerts.map(\.severity).max() ?? .normal)
+    }
+
+    var displayedAlerts: [UsageAlertDetail] {
+        guard result.providerID == .codex else {
+            return alerts
+        }
+        return alerts.filter { $0.kind != .usage }
+    }
+
+    var hiddenAlerts: [UsageAlertDetail] {
+        guard result.providerID == .codex else {
+            return []
+        }
+        return alerts.filter { $0.kind == .usage }
+    }
+
+    var showsAlertSummary: Bool {
+        !displayedAlerts.isEmpty
+    }
+
+    var hiddenAlertAccessibilityLabel: String {
+        hiddenAlerts
+            .map { "\($0.title). \($0.message)" }
+            .joined(separator: " ")
     }
 
     private var statusColor: Color {
