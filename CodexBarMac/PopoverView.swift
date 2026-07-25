@@ -5,6 +5,7 @@ struct PopoverView: View {
     @ObservedObject var model: AppModel
     let updater: SPUUpdater
     @Environment(\.openSettings) private var openSettings
+    @State private var isConfirmingHistoryReset = false
 
     var body: some View {
         let usageAlertsByAccountID = model.currentUsageAlertsByAccountID
@@ -17,10 +18,20 @@ struct PopoverView: View {
             ScrollView {
                 LazyVStack(spacing: 10) {
                     if let historyError = model.historyStore.lastError {
-                        Label(historyError, systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .accessibilityIdentifier("usage-history-persistence-error")
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label(historyError, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .accessibilityIdentifier("usage-history-persistence-error")
+
+                            if model.historyStore.requiresRecovery {
+                                Button("Reset History", role: .destructive) {
+                                    isConfirmingHistoryReset = true
+                                }
+                                .buttonStyle(.bordered)
+                                .accessibilityIdentifier("reset-corrupted-usage-history")
+                            }
+                        }
                     }
 
                     if model.displayedResults.isEmpty {
@@ -54,6 +65,18 @@ struct PopoverView: View {
         .frame(minWidth: 340, idealWidth: 360, maxWidth: 390, minHeight: 300, maxHeight: 600)
         .background(Color(nsColor: .windowBackgroundColor))
         .preferredColorScheme(model.configurationStore.appAppearance.colorScheme)
+        .confirmationDialog(
+            "Reset unreadable usage history?",
+            isPresented: $isConfirmingHistoryReset,
+            titleVisibility: .visible
+        ) {
+            Button("Reset History", role: .destructive) {
+                model.historyStore.discardCorruptedHistory()
+            }
+            .accessibilityIdentifier("confirm-reset-corrupted-usage-history")
+        } message: {
+            Text("This permanently discards the unreadable history so new usage can be recorded.")
+        }
         .onChange(of: model.configurationStore.autoRefreshInterval) { _, _ in
             model.updateAutoRefresh()
         }
