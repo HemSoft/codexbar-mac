@@ -4,6 +4,24 @@ import Foundation
 enum OpenCodeZenBootstrapImporter {
     static let importFileName = "opencode-zen-import.txt"
 
+    @discardableResult
+    static func replaceCorruptedConfigurationsAndImportIfNeeded(
+        configurationStore: ProviderConfigurationStore,
+        fileManager: FileManager = .default,
+        importDirectory: URL? = nil
+    ) -> Bool {
+        guard configurationStore.replaceCorruptedConfigurations() else {
+            return false
+        }
+
+        importIfNeeded(
+            configurationStore: configurationStore,
+            fileManager: fileManager,
+            importDirectory: importDirectory
+        )
+        return true
+    }
+
     static func importIfNeeded(
         configurationStore: ProviderConfigurationStore,
         fileManager: FileManager = .default,
@@ -19,12 +37,17 @@ enum OpenCodeZenBootstrapImporter {
             return
         }
 
-        defer {
+        guard protectImportFile(at: importURL, fileManager: fileManager) else {
             try? fileManager.removeItem(at: importURL)
+            return
         }
 
-        guard protectImportFile(at: importURL, fileManager: fileManager) else {
+        guard !configurationStore.isConfigurationRecoveryRequired else {
             return
+        }
+
+        defer {
+            try? fileManager.removeItem(at: importURL)
         }
 
         guard

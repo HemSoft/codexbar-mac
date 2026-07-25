@@ -4185,6 +4185,266 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testProviderConfigurationStoreTreatsAbsentStorageAsFirstLaunch() {
+        let suiteName = "CodexBarMacTests.ConfigurationAbsent.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+
+        XCTAssertTrue(store.configurations.isEmpty)
+        XCTAssertFalse(store.isConfigurationRecoveryRequired)
+        XCTAssertNil(store.lastError)
+
+        store.seedDefaultConfigurationsIfNeeded()
+
+        XCTAssertEqual(store.configurations.count, ProviderID.allCases.count)
+        XCTAssertNotNil(defaults.data(forKey: "providerConfigurations"))
+    }
+
+    @MainActor
+    func testProviderConfigurationStoreRejectsNonDataStorageWithoutReplacingIt() {
+        let suiteName = "CodexBarMacTests.ConfigurationNonData.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let damagedValue = ["unexpected": "value"]
+        defaults.set(damagedValue, forKey: "providerConfigurations")
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+        store.seedDefaultConfigurationsIfNeeded()
+
+        XCTAssertTrue(store.configurations.isEmpty)
+        XCTAssertTrue(store.isConfigurationRecoveryRequired)
+        XCTAssertEqual(
+            defaults.dictionary(forKey: "providerConfigurations")?["unexpected"] as? String,
+            damagedValue["unexpected"]
+        )
+        XCTAssertEqual(
+            store.lastError,
+            "Saved account data couldn't be read. Replace the damaged account list in Settings to resume saving configurations."
+        )
+    }
+
+    @MainActor
+    func testProviderConfigurationStorePreservesMalformedDataCredentialsAndBlocksMutations() throws {
+        let suiteName = "CodexBarMacTests.ConfigurationRecovery.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let malformedData = Data(#"{"accounts":"not-an-array"}"#.utf8)
+        let savedAccount = ProviderAccountConfiguration(
+            id: "openrouter.saved",
+            providerID: .openRouter,
+            authMethod: .apiKey
+        )
+        let savedGroup = ProviderAccountGroup(id: "saved-group", name: "Saved Group")
+        let secretStore = InMemorySecretStore()
+        let savedKeychainAccount = ProviderConfigurationStore.keychainAccount(for: savedAccount)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(malformedData, forKey: "providerConfigurations")
+        defaults.set(try JSONEncoder().encode([savedGroup]), forKey: "providerAccountGroups")
+        try secretStore.saveSecret("preserved-secret", account: savedKeychainAccount)
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+        XCTAssertTrue(store.configurations.isEmpty)
+        XCTAssertEqual(store.groups, [savedGroup])
+        XCTAssertTrue(store.isConfigurationRecoveryRequired)
+        XCTAssertEqual(defaults.data(forKey: "providerConfigurations"), malformedData)
+
+        store.seedDefaultConfigurationsIfNeeded()
+        XCTAssertNil(store.addGroup(named: "Blocked Group"))
+        var renamedGroup = savedGroup
+        renamedGroup.name = "Blocked Rename"
+        XCTAssertFalse(store.updateGroup(renamedGroup))
+        store.removeGroup(savedGroup)
+
+        let attemptedAccount = store.addAccount(for: .codex)
+        var attemptedUpdate = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        attemptedUpdate.accountLabel = "Blocked Import"
+        XCTAssertFalse(store.update(attemptedUpdate))
+        XCTAssertFalse(store.removeAccounts([savedAccount]))
+        store.saveSecret("blocked-secret", for: attemptedAccount)
+        XCTAssertNil(
+            store.connectCursorAccount(
+                ProviderAccountConfiguration.defaultConfiguration(for: .cursor),
+                credential: "blocked-cursor-secret"
+            )
+        )
+        XCTAssertNil(
+            store.disconnectCursorAccount(
+                ProviderAccountConfiguration.defaultConfiguration(for: .cursor)
+            )
+        )
+        store.applyLocalCredentialDiscoveries(
+            LocalCredentialDiscovery.Result(
+                codexAuthAvailable: true,
+                githubUsernames: ["blocked-user"],
+                claudeOAuthAvailable: true,
+                geminiOAuthAvailable: true
+            )
+        )
+
+        XCTAssertTrue(store.configurations.isEmpty)
+        XCTAssertEqual(store.groups, [savedGroup])
+        XCTAssertTrue(store.localCredentialHints.isEmpty)
+        XCTAssertEqual(defaults.data(forKey: "providerConfigurations"), malformedData)
+        XCTAssertEqual(try secretStore.readSecret(account: savedKeychainAccount), "preserved-secret")
+        XCTAssertNil(
+            try secretStore.readSecret(
+                account: ProviderConfigurationStore.keychainAccount(for: attemptedAccount)
+            )
+        )
+        XCTAssertTrue(store.isConfigurationRecoveryRequired)
+        XCTAssertNotNil(store.lastError)
+    }
+
+    @MainActor
+    func testProviderConfigurationStoreReplacesMalformedDataThenSavesNormally() throws {
+        let suiteName = "CodexBarMacTests.ConfigurationReplacement.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = InMemorySecretStore()
+        let malformedData = Data("not-json".utf8)
+        let savedAccount = ProviderAccountConfiguration(
+            id: "openrouter.saved",
+            providerID: .openRouter,
+            authMethod: .apiKey
+        )
+        let savedKeychainAccount = ProviderConfigurationStore.keychainAccount(for: savedAccount)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(malformedData, forKey: "providerConfigurations")
+        try secretStore.saveSecret("preserved-secret", account: savedKeychainAccount)
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+        XCTAssertTrue(store.replaceCorruptedConfigurations())
+
+        XCTAssertFalse(store.isConfigurationRecoveryRequired)
+        XCTAssertNil(store.lastError)
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                [ProviderAccountConfiguration].self,
+                from: try XCTUnwrap(defaults.data(forKey: "providerConfigurations"))
+            ),
+            []
+        )
+        XCTAssertEqual(try secretStore.readSecret(account: savedKeychainAccount), "preserved-secret")
+
+        let replacement = store.addAccount(for: .claude)
+        let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+        XCTAssertEqual(reloadedStore.configurations, [replacement])
+        XCTAssertFalse(reloadedStore.isConfigurationRecoveryRequired)
+        XCTAssertNil(reloadedStore.lastError)
+        XCTAssertEqual(try secretStore.readSecret(account: savedKeychainAccount), "preserved-secret")
+    }
+
+    @MainActor
+    func testProviderConfigurationStoreRollsBackConfigurationWhenEncodingFails() throws {
+        let suiteName = "CodexBarMacTests.ConfigurationEncoding.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let original = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        let originalData = try JSONEncoder().encode([original])
+        var shouldFailEncoding = false
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(originalData, forKey: "providerConfigurations")
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore(),
+            encodeConfigurations: { configurations in
+                if shouldFailEncoding {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+                return try JSONEncoder().encode(configurations)
+            }
+        )
+        var updated = original
+        updated.accountLabel = "Changed"
+
+        shouldFailEncoding = true
+
+        XCTAssertFalse(store.update(updated))
+        XCTAssertEqual(store.configurations, [original])
+        XCTAssertEqual(defaults.data(forKey: "providerConfigurations"), originalData)
+        XCTAssertTrue(store.lastError?.hasPrefix("Could not save account data:") == true)
+
+        shouldFailEncoding = false
+
+        XCTAssertTrue(store.update(updated))
+        XCTAssertEqual(store.configurations, [updated])
+        XCTAssertNil(store.lastError)
+    }
+
+    @MainActor
+    func testOpenCodeZenBootstrapImporterWaitsForAndResumesAfterConfigurationRecovery() throws {
+        let suiteName = "OpenCodeZenBootstrapRecovery-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let malformedData = Data("not-json".utf8)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(malformedData, forKey: "providerConfigurations")
+
+        let fileManager = FileManager.default
+        let importDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("OpenCodeZenBootstrapRecovery-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: importDirectory, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: importDirectory)
+        }
+
+        let importURL = importDirectory.appendingPathComponent(OpenCodeZenBootstrapImporter.importFileName)
+        let payload = """
+        {
+          "openCodeGoWorkspaceId": "wrk_after_recovery",
+          "providers": {
+            "OpenCodeGo": {
+              "apiKey": "recovered-dashboard-token"
+            }
+          }
+        }
+        """
+        try Data(payload.utf8).write(to: importURL)
+
+        let secretStore = InMemorySecretStore()
+        let configurationStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        OpenCodeZenBootstrapImporter.importIfNeeded(
+            configurationStore: configurationStore,
+            fileManager: fileManager,
+            importDirectory: importDirectory
+        )
+
+        XCTAssertTrue(fileManager.fileExists(atPath: importURL.path))
+        XCTAssertTrue(configurationStore.configurations.isEmpty)
+        XCTAssertEqual(defaults.data(forKey: "providerConfigurations"), malformedData)
+
+        XCTAssertTrue(
+            OpenCodeZenBootstrapImporter.replaceCorruptedConfigurationsAndImportIfNeeded(
+                configurationStore: configurationStore,
+                fileManager: fileManager,
+                importDirectory: importDirectory
+            )
+        )
+
+        XCTAssertFalse(fileManager.fileExists(atPath: importURL.path))
+        let configuration = try XCTUnwrap(configurationStore.configurations(for: .openCodeZen).first)
+        XCTAssertEqual(configuration.openCodeWorkspaceId, "wrk_after_recovery")
+        XCTAssertEqual(
+            try secretStore.readSecret(
+                account: ProviderConfigurationStore.keychainAccount(for: configuration)
+            ),
+            "recovered-dashboard-token"
+        )
+    }
+
+    @MainActor
     func testOpenCodeZenBootstrapImporterStoresWindowsSettingsJSON() throws {
         let suiteName = "OpenCodeZenBootstrapImporter-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

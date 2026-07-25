@@ -13,10 +13,12 @@ public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var dashboardOrderingMode: DashboardOrderingMode
     @Published public private(set) var usageAlertSettings: UsageAlertSettings
     @Published public private(set) var usageAlertActiveIDs: Set<String>
+    @Published public private(set) var isConfigurationRecoveryRequired: Bool
     @Published public private(set) var lastError: String?
 
     private let defaults: UserDefaults
     private let secretStore: any SecretStore
+    private let encodeConfigurations: ([ProviderAccountConfiguration]) throws -> Data
     private let configurationsKey = DefaultsKey.configurations
     private let groupsKey = DefaultsKey.groups
     private let appAppearanceKey = DefaultsKey.appAppearance
@@ -30,18 +32,32 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     deinit {}
 
-    public init(
+    public convenience init(
         defaults: UserDefaults = .standard,
         secretStore: any SecretStore = KeychainService()
     ) {
+        self.init(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) }
+        )
+    }
+
+    init(
+        defaults: UserDefaults,
+        secretStore: any SecretStore,
+        encodeConfigurations: @escaping ([ProviderAccountConfiguration]) throws -> Data
+    ) {
         let loadedGroups = Self.loadGroups(from: defaults)
-        self.defaults = defaults
-        self.secretStore = secretStore
-        self.groups = loadedGroups
-        self.configurations = Self.loadConfigurations(
+        let configurationLoadResult = Self.loadConfigurations(
             from: defaults,
             validGroupIDs: Set(loadedGroups.map(\.id))
         )
+        self.defaults = defaults
+        self.secretStore = secretStore
+        self.encodeConfigurations = encodeConfigurations
+        self.groups = loadedGroups
+        self.configurations = configurationLoadResult.configurations
         self.secretAvailability = [:]
         self.secretReadErrors = [:]
         self.localCredentialHints = [:]
@@ -50,6 +66,8 @@ public final class ProviderConfigurationStore: ObservableObject {
         self.dashboardOrderingMode = Self.loadDashboardOrderingMode(from: defaults)
         self.usageAlertSettings = Self.loadUsageAlertSettings(from: defaults)
         self.usageAlertActiveIDs = Self.loadUsageAlertActiveIDs(from: defaults)
+        self.isConfigurationRecoveryRequired = configurationLoadResult.error != nil
+        self.lastError = configurationLoadResult.error
         sortConfigurations()
         refreshSecretAvailability()
     }
@@ -59,13 +77,18 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     public func seedDefaultConfigurationsIfNeeded() {
-        guard defaults.data(forKey: configurationsKey) == nil else {
+        guard defaults.object(forKey: configurationsKey) == nil,
+              allowConfigurationMutation()
+        else {
             return
         }
 
+        let previousConfigurations = configurations
         configurations = ProviderID.allCases.map(ProviderAccountConfiguration.defaultConfiguration)
         sortConfigurations()
-        saveConfigurations()
+        if !saveConfigurations() {
+            configurations = previousConfigurations
+        }
         refreshSecretAvailability()
     }
 
@@ -96,6 +119,10 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     @discardableResult
     public func addGroup(named name: String) -> ProviderAccountGroup? {
+        guard allowConfigurationMutation() else {
+            return nil
+        }
+
         let normalizedName = Self.normalizedGroupName(name)
         guard !normalizedName.isEmpty else {
             lastError = "Group names cannot be empty."
@@ -116,6 +143,12 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     @discardableResult
     public func updateGroup(_ group: ProviderAccountGroup) -> Bool {
+        guard allowConfigurationMutation() else {
+            return false
+        }
+
+        let previousGroups = groups
+        let previousConfigurations = configurations
         let normalizedName = Self.normalizedGroupName(group.name)
         guard !normalizedName.isEmpty else {
             lastError = "Group names cannot be empty."
@@ -135,12 +168,22 @@ public final class ProviderConfigurationStore: ObservableObject {
         groups[index].name = normalizedName
         sortGroups()
         sortConfigurations()
+        guard saveConfigurations() else {
+            groups = previousGroups
+            configurations = previousConfigurations
+            return false
+        }
         saveGroups()
-        saveConfigurations()
         return true
     }
 
     public func removeGroup(_ group: ProviderAccountGroup) {
+        guard allowConfigurationMutation() else {
+            return
+        }
+
+        let previousGroups = groups
+        let previousConfigurations = configurations
         groups.removeAll { $0.id == group.id }
         configurations = configurations.map { configuration in
             var updated = configuration
@@ -151,8 +194,12 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
         sortGroups()
         sortConfigurations()
+        guard saveConfigurations() else {
+            groups = previousGroups
+            configurations = previousConfigurations
+            return
+        }
         saveGroups()
-        saveConfigurations()
     }
 
     @discardableResult
@@ -165,10 +212,6 @@ public final class ProviderConfigurationStore: ObservableObject {
         for providerID: ProviderID,
         copilotScope: CopilotAccountScope
     ) -> ProviderAccountConfiguration {
-        if providerID == .gemini {
-            clearSuppressedGeminiDiscovery()
-        }
-
         var configuration = ProviderAccountConfiguration
             .defaultConfiguration(for: providerID)
             .withNewAccountID()
@@ -176,15 +219,30 @@ public final class ProviderConfigurationStore: ObservableObject {
             configuration.copilotAccountScope = copilotScope
         }
         configuration.accountLabel = suggestedAccountLabel(for: providerID)
+        guard allowConfigurationMutation() else {
+            return configuration
+        }
+
+        if providerID == .gemini {
+            clearSuppressedGeminiDiscovery()
+        }
+
+        let previousConfigurations = configurations
         configurations.append(configuration)
         sortConfigurations()
-        saveConfigurations()
+        if !saveConfigurations() {
+            configurations = previousConfigurations
+        }
         refreshSecretAvailability()
         return configuration
     }
 
     @discardableResult
     public func update(_ configuration: ProviderAccountConfiguration) -> Bool {
+        guard allowConfigurationMutation() else {
+            return false
+        }
+
         let normalized = Self.normalizedConfiguration(
             configuration,
             validGroupIDs: Set(groups.map(\.id))
@@ -194,6 +252,7 @@ public final class ProviderConfigurationStore: ObservableObject {
             return false
         }
 
+        let previousConfigurations = configurations
         if let index = configurations.firstIndex(where: { $0.id == normalized.id }) {
             configurations[index] = normalized
         } else {
@@ -201,7 +260,10 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
 
         sortConfigurations()
-        saveConfigurations()
+        guard saveConfigurations() else {
+            configurations = previousConfigurations
+            return false
+        }
         return true
     }
 
@@ -211,6 +273,14 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     @discardableResult
     public func removeAccounts(_ configurations: [ProviderAccountConfiguration]) -> Bool {
+        guard allowConfigurationMutation() else {
+            return false
+        }
+
+        let previousConfigurations = self.configurations
+        let previousSecretAvailability = secretAvailability
+        let previousSecretReadErrors = secretReadErrors
+        let previousLocalCredentialHints = localCredentialHints
         var firstDeletionError: String?
         var removedAccountIDs = Set<String>()
 
@@ -238,7 +308,14 @@ public final class ProviderConfigurationStore: ObservableObject {
         secretReadErrors = secretReadErrors.filter { !removedAccountIDs.contains($0.key) }
         localCredentialHints = localCredentialHints.filter { !removedAccountIDs.contains($0.key) }
         sortConfigurations()
-        saveConfigurations()
+        guard saveConfigurations() else {
+            self.configurations = previousConfigurations
+            secretAvailability = previousSecretAvailability
+            secretReadErrors = previousSecretReadErrors
+            localCredentialHints = previousLocalCredentialHints
+            refreshSecretAvailability()
+            return false
+        }
         if let firstDeletionError {
             lastError = firstDeletionError
         }
@@ -332,6 +409,10 @@ public final class ProviderConfigurationStore: ObservableObject {
         _ configuration: ProviderAccountConfiguration,
         credential: String
     ) -> ProviderAccountConfiguration? {
+        guard allowConfigurationMutation() else {
+            return nil
+        }
+
         guard configuration.providerID == .cursor else {
             lastError = "Only Cursor accounts can be connected here."
             return nil
@@ -365,6 +446,10 @@ public final class ProviderConfigurationStore: ObservableObject {
     public func disconnectCursorAccount(
         _ configuration: ProviderAccountConfiguration
     ) -> ProviderAccountConfiguration? {
+        guard allowConfigurationMutation() else {
+            return nil
+        }
+
         guard configuration.providerID == .cursor else {
             lastError = "Only Cursor accounts can be disconnected here."
             return nil
@@ -390,6 +475,10 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     public func saveSecret(_ secret: String, for configuration: ProviderAccountConfiguration) {
+        guard allowConfigurationMutation() else {
+            return
+        }
+
         do {
             if secret.isEmpty {
                 try secretStore.deleteSecret(account: Self.keychainAccount(for: configuration))
@@ -434,6 +523,12 @@ public final class ProviderConfigurationStore: ObservableObject {
     public func applyLocalCredentialDiscoveries(
         _ discovery: LocalCredentialDiscovery.Result = LocalCredentialDiscovery.discover()
     ) {
+        guard allowConfigurationMutation() else {
+            return
+        }
+
+        let previousConfigurations = configurations
+        let previousHints = localCredentialHints
         var nextHints: [String: String] = [:]
 
         if discovery.codexAuthAvailable {
@@ -556,7 +651,10 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         localCredentialHints = nextHints
         sortConfigurations()
-        saveConfigurations()
+        if !saveConfigurations() {
+            configurations = previousConfigurations
+            localCredentialHints = previousHints
+        }
         refreshSecretAvailability()
     }
 
@@ -629,21 +727,62 @@ public final class ProviderConfigurationStore: ObservableObject {
         return "providerAccount.\(configuration.id).credential"
     }
 
-    private func saveConfigurations() {
+    @discardableResult
+    public func replaceCorruptedConfigurations() -> Bool {
+        guard isConfigurationRecoveryRequired else {
+            return false
+        }
+
+        let replacement: [ProviderAccountConfiguration] = []
         do {
-            let data = try JSONEncoder().encode(configurations)
+            let data = try encodeConfigurations(replacement)
+            defaults.set(data, forKey: configurationsKey)
+            configurations = replacement
+            secretAvailability = [:]
+            secretReadErrors = [:]
+            localCredentialHints = [:]
+            isConfigurationRecoveryRequired = false
+            lastError = nil
+            return true
+        } catch {
+            lastError = "Could not replace damaged account data: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    private func saveConfigurations() -> Bool {
+        guard allowConfigurationMutation() else {
+            return false
+        }
+
+        do {
+            let data = try encodeConfigurations(configurations)
             defaults.set(data, forKey: configurationsKey)
             lastError = nil
+            return true
         } catch {
-            lastError = error.localizedDescription
+            lastError = "Could not save account data: \(error.localizedDescription)"
+            return false
         }
+    }
+
+    private func allowConfigurationMutation() -> Bool {
+        guard !isConfigurationRecoveryRequired else {
+            lastError = Self.configurationLoadErrorMessage
+            return false
+        }
+
+        return true
     }
 
     private func saveGroups() {
         do {
             let data = try JSONEncoder().encode(groups)
             defaults.set(data, forKey: groupsKey)
-            lastError = nil
+            if !isConfigurationRecoveryRequired {
+                lastError = nil
+            }
         } catch {
             lastError = error.localizedDescription
         }
@@ -661,20 +800,45 @@ public final class ProviderConfigurationStore: ObservableObject {
         static let suppressedGeminiDiscovery = "suppressedGeminiDiscovery"
     }
 
+    private struct ConfigurationLoadResult {
+        let configurations: [ProviderAccountConfiguration]
+        let error: String?
+    }
+
+    private static let configurationLoadErrorMessage =
+        "Saved account data couldn't be read. Replace the damaged account list in Settings to resume saving configurations."
+
     private static func loadConfigurations(
         from defaults: UserDefaults,
         validGroupIDs: Set<String>? = nil
-    ) -> [ProviderAccountConfiguration] {
-        guard
-            let data = defaults.data(forKey: DefaultsKey.configurations),
-            let decoded = try? JSONDecoder().decode([ProviderAccountConfiguration].self, from: data)
-        else {
-            return []
+    ) -> ConfigurationLoadResult {
+        guard defaults.object(forKey: DefaultsKey.configurations) != nil else {
+            return ConfigurationLoadResult(configurations: [], error: nil)
         }
 
-        return decoded
-            .map { normalizedConfiguration($0, validGroupIDs: validGroupIDs) }
-            .sorted { configurationSort($0, $1) }
+        guard let data = defaults.data(forKey: DefaultsKey.configurations) else {
+            return ConfigurationLoadResult(
+                configurations: [],
+                error: configurationLoadErrorMessage
+            )
+        }
+
+        let decoded: [ProviderAccountConfiguration]
+        do {
+            decoded = try JSONDecoder().decode([ProviderAccountConfiguration].self, from: data)
+        } catch {
+            return ConfigurationLoadResult(
+                configurations: [],
+                error: configurationLoadErrorMessage
+            )
+        }
+
+        return ConfigurationLoadResult(
+            configurations: decoded
+                .map { normalizedConfiguration($0, validGroupIDs: validGroupIDs) }
+                .sorted { configurationSort($0, $1) },
+            error: nil
+        )
     }
 
     private static func loadGroups(from defaults: UserDefaults) -> [ProviderAccountGroup] {
@@ -739,7 +903,9 @@ public final class ProviderConfigurationStore: ObservableObject {
         do {
             let data = try JSONEncoder().encode(usageAlertSettings)
             defaults.set(data, forKey: usageAlertSettingsKey)
-            lastError = nil
+            if !isConfigurationRecoveryRequired {
+                lastError = nil
+            }
         } catch {
             lastError = error.localizedDescription
         }
