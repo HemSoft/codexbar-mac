@@ -213,17 +213,23 @@ public final class ProviderConfigurationStore: ObservableObject {
         copilotScope: CopilotAccountScope
     ) -> ProviderAccountConfiguration {
         let defaultConfiguration = ProviderAccountConfiguration.defaultConfiguration(for: providerID)
-        let preservedDefaultCredential = configurations(for: providerID).isEmpty
-            && (try? secretStore.readSecret(account: Self.keychainAccount(for: providerID))) != nil
-        var configuration = preservedDefaultCredential
-            ? defaultConfiguration
-            : defaultConfiguration.withNewAccountID()
+        var configuration = defaultConfiguration.withNewAccountID()
         if providerID == .copilot {
             configuration.copilotAccountScope = copilotScope
         }
         configuration.accountLabel = suggestedAccountLabel(for: providerID)
         guard allowConfigurationMutation() else {
             return configuration
+        }
+
+        let preservedDefaultCredential = configurations(for: providerID).isEmpty
+            && (try? secretStore.readSecret(account: Self.keychainAccount(for: providerID))) != nil
+        if preservedDefaultCredential {
+            configuration = defaultConfiguration
+            if providerID == .copilot {
+                configuration.copilotAccountScope = copilotScope
+            }
+            configuration.accountLabel = suggestedAccountLabel(for: providerID)
         }
 
         if providerID == .gemini {
