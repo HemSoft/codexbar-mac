@@ -4372,6 +4372,34 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testProviderConfigurationStoreReusesDefaultAccountWhenPreservedCredentialReadFails() async throws {
+        let suiteName = "CodexBarMacTests.ConfigurationDefaultCredentialReadFailure.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = MutableReadSecretStore(result: .failure(.invalidSecretData))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(Data("not-json".utf8), forKey: "providerConfigurations")
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+        XCTAssertTrue(store.replaceCorruptedConfigurations())
+
+        let recoveredAccount = store.addAccount(for: .openRouter)
+        let expectedError = KeychainError.invalidSecretData.localizedDescription
+        for _ in 0..<200
+            where store.credentialReadiness(for: recoveredAccount) != .error(description: expectedError) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(recoveredAccount.id, ProviderID.openRouter.rawValue)
+        XCTAssertEqual(store.configurations, [recoveredAccount])
+        XCTAssertEqual(
+            store.credentialReadiness(for: recoveredAccount),
+            .error(description: expectedError)
+        )
+    }
+
+    @MainActor
     func testProviderConfigurationStoreRollsBackConfigurationWhenEncodingFails() throws {
         let suiteName = "CodexBarMacTests.ConfigurationEncoding.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

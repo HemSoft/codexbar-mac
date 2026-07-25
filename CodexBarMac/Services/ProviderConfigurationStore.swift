@@ -222,8 +222,15 @@ public final class ProviderConfigurationStore: ObservableObject {
             return configuration
         }
 
-        let preservedDefaultCredential = configurations(for: providerID).isEmpty
-            && (try? secretStore.readSecret(account: Self.keychainAccount(for: providerID))) != nil
+        var preservedDefaultCredential = false
+        if configurations(for: providerID).isEmpty {
+            do {
+                preservedDefaultCredential =
+                    try secretStore.readSecret(account: Self.keychainAccount(for: providerID)) != nil
+            } catch {
+                preservedDefaultCredential = true
+            }
+        }
         if preservedDefaultCredential {
             configuration = defaultConfiguration
             if providerID == .copilot {
