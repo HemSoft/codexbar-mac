@@ -212,9 +212,12 @@ public final class ProviderConfigurationStore: ObservableObject {
         for providerID: ProviderID,
         copilotScope: CopilotAccountScope
     ) -> ProviderAccountConfiguration {
-        var configuration = ProviderAccountConfiguration
-            .defaultConfiguration(for: providerID)
-            .withNewAccountID()
+        let defaultConfiguration = ProviderAccountConfiguration.defaultConfiguration(for: providerID)
+        let preservedDefaultCredential = configurations(for: providerID).isEmpty
+            && (try? secretStore.readSecret(account: Self.keychainAccount(for: providerID))) != nil
+        var configuration = preservedDefaultCredential
+            ? defaultConfiguration
+            : defaultConfiguration.withNewAccountID()
         if providerID == .copilot {
             configuration.copilotAccountScope = copilotScope
         }

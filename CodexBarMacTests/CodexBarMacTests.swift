@@ -4345,6 +4345,33 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testProviderConfigurationStoreReusesPreservedDefaultCredentialAfterReplacement() throws {
+        let suiteName = "CodexBarMacTests.ConfigurationDefaultCredentialRecovery.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = InMemorySecretStore()
+        let defaultAccount = ProviderAccountConfiguration.defaultConfiguration(for: .openRouter)
+        let keychainAccount = ProviderConfigurationStore.keychainAccount(for: defaultAccount)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(Data("not-json".utf8), forKey: "providerConfigurations")
+        try secretStore.saveSecret("preserved-default-secret", account: keychainAccount)
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+        XCTAssertTrue(store.replaceCorruptedConfigurations())
+        XCTAssertTrue(store.configurations.isEmpty)
+
+        let recoveredAccount = store.addAccount(for: .openRouter)
+
+        XCTAssertEqual(recoveredAccount.id, ProviderID.openRouter.rawValue)
+        XCTAssertEqual(store.readSavedSecret(for: recoveredAccount), "preserved-default-secret")
+        XCTAssertEqual(
+            ProviderConfigurationStore(defaults: defaults, secretStore: secretStore).configurations,
+            [recoveredAccount]
+        )
+    }
+
+    @MainActor
     func testProviderConfigurationStoreRollsBackConfigurationWhenEncodingFails() throws {
         let suiteName = "CodexBarMacTests.ConfigurationEncoding.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
