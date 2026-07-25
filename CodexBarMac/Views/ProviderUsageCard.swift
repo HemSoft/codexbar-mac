@@ -45,8 +45,11 @@ struct ProviderUsageCard: View {
                     .accessibilityHidden(true)
             }
 
-            if !displayedAlerts.isEmpty {
-                UsageAlertSummaryView(alerts: displayedAlerts)
+            if !alerts.isEmpty {
+                UsageAlertSummaryView(
+                    alerts: displayedAlerts,
+                    accessibilityLabel: alertAccessibilityLabel
+                )
             }
 
             if let creditsRemaining = result.creditsRemaining, result.bars.isEmpty {
@@ -166,6 +169,12 @@ struct ProviderUsageCard: View {
         return alerts.filter { $0.kind != .usage }
     }
 
+    var alertAccessibilityLabel: String {
+        alerts
+            .map { "\($0.title). \($0.message)" }
+            .joined(separator: " ")
+    }
+
     private var statusColor: Color {
         result.isIncompleteRefresh ? .red : .secondary
     }
@@ -188,6 +197,7 @@ struct ProviderUsageCard: View {
 
 private struct UsageAlertSummaryView: View {
     let alerts: [UsageAlertDetail]
+    let accessibilityLabel: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -212,14 +222,8 @@ private struct UsageAlertSummaryView: View {
                 }
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var accessibilityLabel: String {
-        alerts
-            .map { "\($0.title). \($0.message)" }
-            .joined(separator: " ")
     }
 }
 

@@ -5479,6 +5479,27 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(codexCard.displayedAlerts, [balanceAlert, severityAlert])
         XCTAssertEqual(codexCard.alerts, [usageAlert, balanceAlert, severityAlert])
         XCTAssertEqual(codexCard.cardSeverity, .critical)
+        XCTAssertEqual(
+            codexCard.alertAccessibilityLabel,
+            [
+                "\(usageAlert.title). \(usageAlert.message)",
+                "\(balanceAlert.title). \(balanceAlert.message)",
+                "\(severityAlert.title). \(severityAlert.message)",
+            ].joined(separator: " ")
+        )
+
+        let usageOnlyCodexCard = ProviderUsageCard(
+            result: codexResult,
+            historyOptions: [],
+            alerts: [usageAlert],
+            isHistoryEnabled: false
+        )
+
+        XCTAssertTrue(usageOnlyCodexCard.displayedAlerts.isEmpty)
+        XCTAssertEqual(
+            usageOnlyCodexCard.alertAccessibilityLabel,
+            "\(usageAlert.title). \(usageAlert.message)"
+        )
 
         let cursorResult = ProviderUsageResult(
             accountID: "cursor.personal",
