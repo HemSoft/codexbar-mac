@@ -7256,6 +7256,153 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testUsageHistoryStoreTreatsAbsentStorageAsEmptyHistory() {
+        let suiteName = "CodexBarMacTests.HistoryAbsent.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = UsageHistoryStore(defaults: defaults)
+
+        XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertNil(store.lastError)
+        XCTAssertFalse(store.requiresRecovery)
+        XCTAssertNil(defaults.object(forKey: "usageHistorySnapshots"))
+    }
+
+    @MainActor
+    func testUsageHistoryStorePreservesMalformedDataUntilExplicitReset() throws {
+        let suiteName = "CodexBarMacTests.HistoryRecovery.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let malformedData = Data(#"{"snapshots":"not-an-array"}"#.utf8)
+        defaults.set(malformedData, forKey: "usageHistorySnapshots")
+        defaults.set("preserve-me", forKey: "unrelatedSetting")
+        let fetchedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live Codex usage",
+            bars: [UsageBar(label: "5h limit", used: 42, limit: 100)],
+            fetchedAt: fetchedAt
+        )
+
+        let store = UsageHistoryStore(defaults: defaults)
+
+        XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertTrue(store.requiresRecovery)
+        XCTAssertEqual(
+            store.lastError,
+            "Saved usage history could not be read. Reset history to resume recording."
+        )
+
+        store.record(results: [result], now: fetchedAt)
+        store.removeSnapshotsForMissingAccounts(validAccountIDs: [result.accountID], now: fetchedAt)
+
+        XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), malformedData)
+        XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertTrue(store.requiresRecovery)
+        XCTAssertNotNil(store.lastError)
+
+        store.discardCorruptedHistory()
+
+        XCTAssertNil(defaults.object(forKey: "usageHistorySnapshots"))
+        XCTAssertEqual(defaults.string(forKey: "unrelatedSetting"), "preserve-me")
+        XCTAssertFalse(store.requiresRecovery)
+        XCTAssertNil(store.lastError)
+
+        store.record(results: [result], now: fetchedAt)
+
+        XCTAssertEqual(store.snapshots.map(\.accountID), [result.accountID])
+        XCTAssertNotNil(defaults.data(forKey: "usageHistorySnapshots"))
+        XCTAssertNil(store.lastError)
+
+        store.removeSnapshotsForMissingAccounts(validAccountIDs: [], now: fetchedAt)
+
+        XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                [UsageHistorySnapshot].self,
+                from: try XCTUnwrap(defaults.data(forKey: "usageHistorySnapshots"))
+            ),
+            []
+        )
+        XCTAssertNil(store.lastError)
+    }
+
+    @MainActor
+    func testUsageHistoryStorePreservesNonDataValueUntilExplicitReset() {
+        let suiteName = "CodexBarMacTests.HistoryNonData.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let damagedValue = ["unexpected": "value"]
+        defaults.set(damagedValue, forKey: "usageHistorySnapshots")
+
+        let store = UsageHistoryStore(defaults: defaults)
+
+        XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertTrue(store.requiresRecovery)
+        XCTAssertNotNil(store.lastError)
+        XCTAssertEqual(
+            defaults.dictionary(forKey: "usageHistorySnapshots")?["unexpected"] as? String,
+            damagedValue["unexpected"]
+        )
+
+        store.discardCorruptedHistory()
+
+        XCTAssertNil(defaults.object(forKey: "usageHistorySnapshots"))
+        XCTAssertFalse(store.requiresRecovery)
+        XCTAssertNil(store.lastError)
+    }
+
+    @MainActor
+    func testAppModelStartupPruningAndRefreshPreserveDamagedUsageHistory() async {
+        let suiteName = "CodexBarMacTests.HistoryAppModelRecovery.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let malformedData = Data("not valid usage history".utf8)
+        defaults.set(malformedData, forKey: "usageHistorySnapshots")
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        let fetchedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let result = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .codex,
+            title: configuration.displayName,
+            subtitle: "Live Codex usage",
+            bars: [UsageBar(label: "5h limit", used: 42, limit: 100)],
+            fetchedAt: fetchedAt
+        )
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        let historyStore = UsageHistoryStore(defaults: defaults)
+        let model = AppModel(
+            refreshService: UsageRefreshService(
+                providers: [StubUsageProvider(providerID: .codex, result: result)]
+            ),
+            configurationStore: configurationStore,
+            historyStore: historyStore,
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+
+        XCTAssertEqual(
+            defaults.data(forKey: "usageHistorySnapshots"),
+            malformedData,
+            "The immediate configuration subscription must not replace damaged history."
+        )
+        XCTAssertTrue(historyStore.requiresRecovery)
+
+        await model.refresh()
+
+        XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), malformedData)
+        XCTAssertTrue(historyStore.snapshots.isEmpty)
+        XCTAssertTrue(historyStore.requiresRecovery)
+        XCTAssertNotNil(historyStore.lastError)
+    }
+
+    @MainActor
     func testUsageHistoryStoreRollsBackEncodingFailureAndRecovers() throws {
         let suiteName = "CodexBarMacTests.HistoryEncoding.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
