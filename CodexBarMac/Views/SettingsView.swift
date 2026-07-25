@@ -6,6 +6,7 @@ struct SettingsView: View {
     @ObservedObject var model: AppModel
 
     @State private var isConfirmingReset = false
+    @State private var isConfirmingConfigurationReplacement = false
     @State private var alertPermissionMessage: String?
     @State private var alertAuthorizationGeneration = 0
     @State private var alertAuthorizationTask: Task<Void, Never>?
@@ -94,6 +95,7 @@ struct SettingsView: View {
                                 configurationStore.removeGroup(group)
                             }
                         )
+                        .disabled(configurationStore.isConfigurationRecoveryRequired)
                     }
 
                     HStack {
@@ -106,6 +108,7 @@ struct SettingsView: View {
                         }
                         .disabled(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
+                    .disabled(configurationStore.isConfigurationRecoveryRequired)
 
                     Text("Deleting a group moves its accounts to Ungrouped.")
                         .font(.footnote)
@@ -162,6 +165,7 @@ struct SettingsView: View {
                             .buttonStyle(.borderless)
                             .help("Remove account")
                         }
+                        .disabled(configurationStore.isConfigurationRecoveryRequired)
                     }
 
                     Menu {
@@ -178,19 +182,29 @@ struct SettingsView: View {
                     } label: {
                         Label("Add Account", systemImage: "plus.circle")
                     }
+                    .disabled(configurationStore.isConfigurationRecoveryRequired)
                 }
 
                 Section {
                     Button("Reset Accounts", role: .destructive) {
                         isConfirmingReset = true
                     }
-                    .disabled(configurationStore.configurations.isEmpty)
+                    .disabled(
+                        configurationStore.configurations.isEmpty
+                            || configurationStore.isConfigurationRecoveryRequired
+                    )
                 }
 
                 if let lastError = configurationStore.lastError {
                     Section {
                         Text(lastError)
                             .foregroundStyle(.red)
+
+                        if configurationStore.isConfigurationRecoveryRequired {
+                            Button("Replace Damaged Account List", role: .destructive) {
+                                isConfirmingConfigurationReplacement = true
+                            }
+                        }
                     }
                 }
             }
@@ -206,6 +220,28 @@ struct SettingsView: View {
                 }
             } message: {
                 Text("This removes account entries and saved provider credentials from this device.")
+            }
+            .confirmationDialog(
+                "Replace unreadable account data?",
+                isPresented: $isConfirmingConfigurationReplacement,
+                titleVisibility: .visible
+            ) {
+                Button("Replace Account Data", role: .destructive) {
+                    guard OpenCodeZenBootstrapImporter.replaceCorruptedConfigurationsAndImportIfNeeded(
+                        configurationStore: configurationStore
+                    ) else {
+                        return
+                    }
+
+                    Task {
+                        await model.discoverLocalCredentials()
+                        await model.handleAccountsChanged()
+                    }
+                }
+            } message: {
+                Text(
+                    "This replaces the damaged account list with an empty list so you can add accounts again. Saved Keychain credentials are not deleted."
+                )
             }
         }
         .frame(minWidth: 520, minHeight: 420)
