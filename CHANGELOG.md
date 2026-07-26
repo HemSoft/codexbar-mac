@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Damaged saved group data now preserves account assignments until the user
+  explicitly replaces the unreadable groups in Settings.
 - Codex cards now omit redundant usage-threshold alert summaries while
   preserving notifications, severity indicators, and other alert types.
 - Damaged saved usage history now remains intact until the user explicitly resets

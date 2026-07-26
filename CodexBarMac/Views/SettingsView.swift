@@ -7,6 +7,7 @@ struct SettingsView: View {
 
     @State private var isConfirmingReset = false
     @State private var isConfirmingConfigurationReplacement = false
+    @State private var isConfirmingGroupReplacement = false
     @State private var alertPermissionMessage: String?
     @State private var alertAuthorizationGeneration = 0
     @State private var alertAuthorizationTask: Task<Void, Never>?
@@ -95,7 +96,7 @@ struct SettingsView: View {
                                 configurationStore.removeGroup(group)
                             }
                         )
-                        .disabled(configurationStore.isConfigurationRecoveryRequired)
+                        .disabled(configurationStore.isPersistenceRecoveryRequired)
                     }
 
                     HStack {
@@ -108,7 +109,7 @@ struct SettingsView: View {
                         }
                         .disabled(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .disabled(configurationStore.isConfigurationRecoveryRequired)
+                    .disabled(configurationStore.isPersistenceRecoveryRequired)
 
                     Text("Deleting a group moves its accounts to Ungrouped.")
                         .font(.footnote)
@@ -165,7 +166,7 @@ struct SettingsView: View {
                             .buttonStyle(.borderless)
                             .help("Remove account")
                         }
-                        .disabled(configurationStore.isConfigurationRecoveryRequired)
+                        .disabled(configurationStore.isPersistenceRecoveryRequired)
                     }
 
                     Menu {
@@ -182,7 +183,7 @@ struct SettingsView: View {
                     } label: {
                         Label("Add Account", systemImage: "plus.circle")
                     }
-                    .disabled(configurationStore.isConfigurationRecoveryRequired)
+                    .disabled(configurationStore.isPersistenceRecoveryRequired)
                 }
 
                 Section {
@@ -190,8 +191,8 @@ struct SettingsView: View {
                         isConfirmingReset = true
                     }
                     .disabled(
-                        configurationStore.configurations.isEmpty
-                            || configurationStore.isConfigurationRecoveryRequired
+                        configurationStore.isPersistenceRecoveryRequired
+                            || configurationStore.configurations.isEmpty
                     )
                 }
 
@@ -199,10 +200,20 @@ struct SettingsView: View {
                     Section {
                         Text(lastError)
                             .foregroundStyle(.red)
+                    }
+                }
 
+                if configurationStore.isPersistenceRecoveryRequired {
+                    Section("Data Recovery") {
                         if configurationStore.isConfigurationRecoveryRequired {
                             Button("Replace Damaged Account List", role: .destructive) {
                                 isConfirmingConfigurationReplacement = true
+                            }
+                        }
+
+                        if configurationStore.isGroupRecoveryRequired {
+                            Button("Replace Damaged Group List", role: .destructive) {
+                                isConfirmingGroupReplacement = true
                             }
                         }
                     }
@@ -241,6 +252,28 @@ struct SettingsView: View {
             } message: {
                 Text(
                     "This replaces the damaged account list with an empty list so you can add accounts again. Saved Keychain credentials are not deleted."
+                )
+            }
+            .confirmationDialog(
+                "Replace unreadable group data?",
+                isPresented: $isConfirmingGroupReplacement,
+                titleVisibility: .visible
+            ) {
+                Button("Replace Group Data", role: .destructive) {
+                    guard OpenCodeZenBootstrapImporter.replaceCorruptedGroupsAndImportIfNeeded(
+                        configurationStore: configurationStore
+                    ) else {
+                        return
+                    }
+
+                    Task {
+                        await model.discoverLocalCredentials()
+                        await model.handleAccountsChanged()
+                    }
+                }
+            } message: {
+                Text(
+                    "This replaces the damaged group list with an empty list and deliberately ungroups every saved account. Saved accounts and Keychain credentials are not deleted."
                 )
             }
         }

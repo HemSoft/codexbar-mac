@@ -14,6 +14,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var usageAlertSettings: UsageAlertSettings
     @Published public private(set) var usageAlertActiveIDs: Set<String>
     @Published public private(set) var isConfigurationRecoveryRequired: Bool
+    @Published public private(set) var isGroupRecoveryRequired: Bool
     @Published public private(set) var lastError: String?
 
     private let defaults: UserDefaults
@@ -48,15 +49,17 @@ public final class ProviderConfigurationStore: ObservableObject {
         secretStore: any SecretStore,
         encodeConfigurations: @escaping ([ProviderAccountConfiguration]) throws -> Data
     ) {
-        let loadedGroups = Self.loadGroups(from: defaults)
+        let groupLoadResult = Self.loadGroups(from: defaults)
         let configurationLoadResult = Self.loadConfigurations(
             from: defaults,
-            validGroupIDs: Set(loadedGroups.map(\.id))
+            validGroupIDs: groupLoadResult.error == nil
+                ? Set(groupLoadResult.groups.map(\.id))
+                : nil
         )
         self.defaults = defaults
         self.secretStore = secretStore
         self.encodeConfigurations = encodeConfigurations
-        self.groups = loadedGroups
+        self.groups = groupLoadResult.groups
         self.configurations = configurationLoadResult.configurations
         self.secretAvailability = [:]
         self.secretReadErrors = [:]
@@ -67,9 +70,14 @@ public final class ProviderConfigurationStore: ObservableObject {
         self.usageAlertSettings = Self.loadUsageAlertSettings(from: defaults)
         self.usageAlertActiveIDs = Self.loadUsageAlertActiveIDs(from: defaults)
         self.isConfigurationRecoveryRequired = configurationLoadResult.error != nil
-        self.lastError = configurationLoadResult.error
+        self.isGroupRecoveryRequired = groupLoadResult.error != nil
+        self.lastError = configurationLoadResult.error ?? groupLoadResult.error
         sortConfigurations()
         refreshSecretAvailability()
+    }
+
+    public var isPersistenceRecoveryRequired: Bool {
+        isConfigurationRecoveryRequired || isGroupRecoveryRequired
     }
 
     public var enabledConfigurations: [ProviderAccountConfiguration] {
@@ -743,10 +751,44 @@ public final class ProviderConfigurationStore: ObservableObject {
             secretReadErrors = [:]
             localCredentialHints = [:]
             isConfigurationRecoveryRequired = false
-            lastError = nil
+            lastError = isGroupRecoveryRequired ? Self.groupLoadErrorMessage : nil
             return true
         } catch {
             lastError = "Could not replace damaged account data: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    public func replaceCorruptedGroups() -> Bool {
+        guard isGroupRecoveryRequired else {
+            return false
+        }
+
+        let replacementGroups: [ProviderAccountGroup] = []
+        let replacementConfigurations = configurations.map { configuration in
+            var ungrouped = configuration
+            ungrouped.groupID = nil
+            return ungrouped
+        }
+
+        do {
+            let groupData = try JSONEncoder().encode(replacementGroups)
+            let configurationData = try encodeConfigurations(replacementConfigurations)
+            defaults.set(groupData, forKey: groupsKey)
+            if !isConfigurationRecoveryRequired {
+                defaults.set(configurationData, forKey: configurationsKey)
+                configurations = replacementConfigurations
+                sortConfigurations()
+            }
+            groups = replacementGroups
+            isGroupRecoveryRequired = false
+            lastError = isConfigurationRecoveryRequired
+                ? Self.configurationLoadErrorMessage
+                : nil
+            return true
+        } catch {
+            lastError = "Could not replace damaged group data: \(error.localizedDescription)"
             return false
         }
     }
@@ -769,8 +811,13 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     private func allowConfigurationMutation() -> Bool {
-        guard !isConfigurationRecoveryRequired else {
+        if isConfigurationRecoveryRequired {
             lastError = Self.configurationLoadErrorMessage
+            return false
+        }
+
+        if isGroupRecoveryRequired {
+            lastError = Self.groupLoadErrorMessage
             return false
         }
 
@@ -778,10 +825,14 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     private func saveGroups() {
+        guard allowConfigurationMutation() else {
+            return
+        }
+
         do {
             let data = try JSONEncoder().encode(groups)
             defaults.set(data, forKey: groupsKey)
-            if !isConfigurationRecoveryRequired {
+            if !isPersistenceRecoveryRequired {
                 lastError = nil
             }
         } catch {
@@ -806,8 +857,15 @@ public final class ProviderConfigurationStore: ObservableObject {
         let error: String?
     }
 
+    private struct GroupLoadResult {
+        let groups: [ProviderAccountGroup]
+        let error: String?
+    }
+
     private static let configurationLoadErrorMessage =
         "Saved account data couldn't be read. Replace the damaged account list in Settings to resume saving configurations."
+    private static let groupLoadErrorMessage =
+        "Saved group data couldn't be read. Replace the damaged group list in Settings to resume saving accounts and groups."
 
     private static func loadConfigurations(
         from defaults: UserDefaults,
@@ -842,17 +900,25 @@ public final class ProviderConfigurationStore: ObservableObject {
         )
     }
 
-    private static func loadGroups(from defaults: UserDefaults) -> [ProviderAccountGroup] {
-        guard
-            let data = defaults.data(forKey: DefaultsKey.groups),
-            let decoded = try? JSONDecoder().decode([ProviderAccountGroup].self, from: data)
-        else {
-            return []
+    private static func loadGroups(from defaults: UserDefaults) -> GroupLoadResult {
+        guard defaults.object(forKey: DefaultsKey.groups) != nil else {
+            return GroupLoadResult(groups: [], error: nil)
+        }
+
+        guard let data = defaults.data(forKey: DefaultsKey.groups) else {
+            return GroupLoadResult(groups: [], error: groupLoadErrorMessage)
+        }
+
+        let decoded: [ProviderAccountGroup]
+        do {
+            decoded = try JSONDecoder().decode([ProviderAccountGroup].self, from: data)
+        } catch {
+            return GroupLoadResult(groups: [], error: groupLoadErrorMessage)
         }
 
         var seenIDs = Set<String>()
         var seenNames = Set<String>()
-        return decoded.compactMap { group in
+        let groups = decoded.compactMap { group in
             let name = normalizedGroupName(group.name)
             let nameKey = name.lowercased()
             guard !name.isEmpty,
@@ -865,6 +931,8 @@ public final class ProviderConfigurationStore: ObservableObject {
             return ProviderAccountGroup(id: group.id, name: name)
         }
         .sorted(by: groupSort)
+
+        return GroupLoadResult(groups: groups, error: nil)
     }
 
     private static func loadAppAppearance(from defaults: UserDefaults) -> AppAppearance {
@@ -904,7 +972,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         do {
             let data = try JSONEncoder().encode(usageAlertSettings)
             defaults.set(data, forKey: usageAlertSettingsKey)
-            if !isConfigurationRecoveryRequired {
+            if !isPersistenceRecoveryRequired {
                 lastError = nil
             }
         } catch {
