@@ -327,6 +327,11 @@ public final class ProviderConfigurationStore: ObservableObject {
         let previousCredential: String?
         do {
             previousCredential = try secretStore.readSecret(account: account)
+        } catch KeychainError.invalidSecretData {
+            // An unreadable Keychain item cannot be restored, but replacing it is
+            // the recovery path surfaced in Settings. Compensation deletes any
+            // partially written replacement so the account remains retryable.
+            previousCredential = nil
         } catch {
             lastError = error.localizedDescription
             return false

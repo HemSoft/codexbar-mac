@@ -4696,6 +4696,60 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testBrowserCredentialReplacementRecoversUnreadableSecretsForAllProviders() throws {
+        for providerID in [ProviderID.codex, .claude, .copilot] {
+            let suiteName = "CodexBarMacTests.BrowserCredential.Unreadable.\(providerID.rawValue).\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            defer {
+                defaults.removePersistentDomain(forName: suiteName)
+            }
+
+            let fixture = browserCredentialFixture(for: providerID)
+            let secretStore = TransactionalReplacementSecretStore()
+            let account = ProviderConfigurationStore.keychainAccount(for: fixture.original)
+            defaults.set(
+                try JSONEncoder().encode([fixture.original, fixture.other]),
+                forKey: "providerConfigurations"
+            )
+            secretStore.markUnreadable(account: account)
+            try secretStore.saveSecret(
+                "other-\(providerID.rawValue)-credential",
+                account: ProviderConfigurationStore.keychainAccount(for: fixture.other)
+            )
+            secretStore.markUnreadable(account: account)
+            let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+            XCTAssertTrue(
+                store.replaceCredential(
+                    "replacement-\(providerID.rawValue)-credential",
+                    for: fixture.replacement
+                )
+            )
+            XCTAssertNil(store.lastError)
+
+            let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+            XCTAssertEqual(
+                reloadedStore.configuration(accountID: fixture.replacement.id),
+                fixture.replacement
+            )
+            XCTAssertEqual(
+                try secretStore.readSecret(account: account),
+                "replacement-\(providerID.rawValue)-credential"
+            )
+            XCTAssertEqual(
+                reloadedStore.configuration(accountID: fixture.other.id),
+                fixture.other
+            )
+            XCTAssertEqual(
+                try secretStore.readSecret(
+                    account: ProviderConfigurationStore.keychainAccount(for: fixture.other)
+                ),
+                "other-\(providerID.rawValue)-credential"
+            )
+        }
+    }
+
+    @MainActor
     func testBrowserCredentialReplacementCompensatesConfigurationFailuresForAllProviders() throws {
         for providerID in [ProviderID.codex, .claude, .copilot] {
             let suiteName = "CodexBarMacTests.BrowserCredential.ConfigurationFailure.\(providerID.rawValue).\(UUID().uuidString)"
@@ -8695,19 +8749,28 @@ private enum TransactionalReplacementTestError: LocalizedError {
 
 private final class TransactionalReplacementSecretStore: SecretStore, @unchecked Sendable {
     private var secrets: [String: String] = [:]
+    private var unreadableAccounts: Set<String> = []
     private(set) var savedCredentials: [String] = []
     var failNextSaveAfterWriting = false
+
+    func markUnreadable(account: String) {
+        unreadableAccounts.insert(account)
+    }
 
     func resetSavedCredentials() {
         savedCredentials = []
     }
 
     func readSecret(account: String) throws -> String? {
-        secrets[account]
+        if unreadableAccounts.contains(account) {
+            throw KeychainError.invalidSecretData
+        }
+        return secrets[account]
     }
 
     func saveSecret(_ secret: String, account: String) throws {
         secrets[account] = secret
+        unreadableAccounts.remove(account)
         savedCredentials.append(secret)
         if failNextSaveAfterWriting {
             failNextSaveAfterWriting = false
@@ -8717,6 +8780,7 @@ private final class TransactionalReplacementSecretStore: SecretStore, @unchecked
 
     func deleteSecret(account: String) throws {
         secrets.removeValue(forKey: account)
+        unreadableAccounts.remove(account)
     }
 }
 
