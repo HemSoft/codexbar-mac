@@ -296,6 +296,11 @@ public final class ProviderConfigurationStore: ObservableObject {
             return false
         }
 
+        guard !credential.isEmpty else {
+            lastError = "A credential is required to replace this account's sign-in."
+            return false
+        }
+
         let normalized = Self.normalizedConfiguration(
             configuration,
             validGroupIDs: Set(groups.map(\.id))

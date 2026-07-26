@@ -4855,6 +4855,25 @@ final class CodexBarMacTests: XCTestCase {
             )
             let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
 
+            XCTAssertFalse(store.replaceCredential("", for: fixture.replacement))
+            XCTAssertEqual(
+                store.lastError,
+                "A credential is required to replace this account's sign-in."
+            )
+            XCTAssertEqual(store.configuration(accountID: fixture.original.id), fixture.original)
+            XCTAssertEqual(
+                try secretStore.readSecret(
+                    account: ProviderConfigurationStore.keychainAccount(for: fixture.original)
+                ),
+                "existing-\(providerID.rawValue)-credential"
+            )
+            XCTAssertEqual(
+                try secretStore.readSecret(
+                    account: ProviderConfigurationStore.keychainAccount(for: fixture.other)
+                ),
+                "other-\(providerID.rawValue)-credential"
+            )
+
             XCTAssertTrue(
                 store.replaceCredential(
                     "replacement-\(providerID.rawValue)-credential",
