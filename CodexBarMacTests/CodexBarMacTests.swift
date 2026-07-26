@@ -4205,6 +4205,157 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testProviderConfigurationStoreTreatsMissingGroupDataAsEmpty() throws {
+        let suiteName = "CodexBarMacTests.GroupAbsent.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        var savedAccount = ProviderAccountConfiguration(
+            id: "openrouter.saved",
+            providerID: .openRouter,
+            authMethod: .apiKey
+        )
+        savedAccount.groupID = "missing-group"
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(try JSONEncoder().encode([savedAccount]), forKey: "providerConfigurations")
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+
+        XCTAssertTrue(store.groups.isEmpty)
+        XCTAssertNil(store.configuration(accountID: savedAccount.id)?.groupID)
+        XCTAssertFalse(store.isGroupRecoveryRequired)
+        XCTAssertFalse(store.isPersistenceRecoveryRequired)
+        XCTAssertNil(store.lastError)
+    }
+
+    @MainActor
+    func testProviderConfigurationStoreRejectsNonDataGroupStorageWithoutReplacingIt() throws {
+        let suiteName = "CodexBarMacTests.GroupNonData.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let damagedValue = ["unexpected": "value"]
+        var savedAccount = ProviderAccountConfiguration(
+            id: "openrouter.saved",
+            providerID: .openRouter,
+            authMethod: .apiKey
+        )
+        savedAccount.groupID = "preserved-group"
+        let configurationData = try JSONEncoder().encode([savedAccount])
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(damagedValue, forKey: "providerAccountGroups")
+        defaults.set(configurationData, forKey: "providerConfigurations")
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+
+        XCTAssertTrue(store.groups.isEmpty)
+        XCTAssertEqual(store.configuration(accountID: savedAccount.id)?.groupID, "preserved-group")
+        XCTAssertTrue(store.isGroupRecoveryRequired)
+        XCTAssertTrue(store.isPersistenceRecoveryRequired)
+        XCTAssertEqual(
+            defaults.dictionary(forKey: "providerAccountGroups")?["unexpected"] as? String,
+            damagedValue["unexpected"]
+        )
+        XCTAssertEqual(defaults.data(forKey: "providerConfigurations"), configurationData)
+    }
+
+    @MainActor
+    func testProviderConfigurationStorePreservesMalformedGroupsAndBlocksAutomaticOverwrites() throws {
+        let suiteName = "CodexBarMacTests.GroupRecovery.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let malformedGroupData = Data(#"{"groups":"not-an-array"}"#.utf8)
+        var savedAccount = ProviderAccountConfiguration(
+            id: "openrouter.saved",
+            providerID: .openRouter,
+            authMethod: .apiKey
+        )
+        savedAccount.groupID = "preserved-group"
+        let configurationData = try JSONEncoder().encode([savedAccount])
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(malformedGroupData, forKey: "providerAccountGroups")
+        defaults.set(configurationData, forKey: "providerConfigurations")
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+
+        XCTAssertTrue(store.groups.isEmpty)
+        XCTAssertEqual(store.configuration(accountID: savedAccount.id)?.groupID, "preserved-group")
+        XCTAssertTrue(store.isGroupRecoveryRequired)
+        XCTAssertEqual(
+            store.lastError,
+            "Saved group data couldn't be read. Replace the damaged group list in Settings to resume saving accounts and groups."
+        )
+
+        XCTAssertNil(store.addGroup(named: "Blocked Group"))
+        var attemptedUpdate = savedAccount
+        attemptedUpdate.accountLabel = "Blocked Rename"
+        XCTAssertFalse(store.update(attemptedUpdate))
+        XCTAssertFalse(store.removeAccounts([savedAccount]))
+        store.applyLocalCredentialDiscoveries(
+            LocalCredentialDiscovery.Result(
+                codexAuthAvailable: true,
+                githubUsernames: ["blocked-user"],
+                claudeOAuthAvailable: true
+            )
+        )
+
+        XCTAssertEqual(store.configurations, [savedAccount])
+        XCTAssertEqual(defaults.data(forKey: "providerAccountGroups"), malformedGroupData)
+        XCTAssertEqual(defaults.data(forKey: "providerConfigurations"), configurationData)
+        XCTAssertTrue(store.localCredentialHints.isEmpty)
+        XCTAssertTrue(store.isGroupRecoveryRequired)
+    }
+
+    @MainActor
+    func testProviderConfigurationStoreReplacesMalformedGroupsThenSavesNormally() throws {
+        let suiteName = "CodexBarMacTests.GroupReplacement.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        var savedAccount = ProviderAccountConfiguration(
+            id: "openrouter.saved",
+            providerID: .openRouter,
+            authMethod: .apiKey
+        )
+        savedAccount.groupID = "damaged-group"
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(Data("not-json".utf8), forKey: "providerAccountGroups")
+        defaults.set(try JSONEncoder().encode([savedAccount]), forKey: "providerConfigurations")
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+
+        XCTAssertTrue(store.replaceCorruptedGroups())
+
+        XCTAssertTrue(store.groups.isEmpty)
+        XCTAssertNil(store.configuration(accountID: savedAccount.id)?.groupID)
+        XCTAssertFalse(store.isGroupRecoveryRequired)
+        XCTAssertFalse(store.isPersistenceRecoveryRequired)
+        XCTAssertNil(store.lastError)
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                [ProviderAccountGroup].self,
+                from: try XCTUnwrap(defaults.data(forKey: "providerAccountGroups"))
+            ),
+            []
+        )
+
+        let replacementGroup = try XCTUnwrap(store.addGroup(named: "Recovered Group"))
+        var regroupedAccount = try XCTUnwrap(store.configuration(accountID: savedAccount.id))
+        regroupedAccount.groupID = replacementGroup.id
+        XCTAssertTrue(store.update(regroupedAccount))
+
+        let reloadedStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+
+        XCTAssertEqual(reloadedStore.groups, [replacementGroup])
+        XCTAssertEqual(reloadedStore.configuration(accountID: savedAccount.id)?.groupID, replacementGroup.id)
+        XCTAssertFalse(reloadedStore.isPersistenceRecoveryRequired)
+        XCTAssertNil(reloadedStore.lastError)
+    }
+
+    @MainActor
     func testProviderConfigurationStoreRejectsNonDataStorageWithoutReplacingIt() {
         let suiteName = "CodexBarMacTests.ConfigurationNonData.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -4537,6 +4688,70 @@ final class CodexBarMacTests: XCTestCase {
                 account: ProviderConfigurationStore.keychainAccount(for: configuration)
             ),
             "recovered-dashboard-token"
+        )
+    }
+
+    @MainActor
+    func testOpenCodeZenBootstrapImporterWaitsForAndResumesAfterGroupRecovery() throws {
+        let suiteName = "OpenCodeZenBootstrapGroupRecovery-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let malformedGroupData = Data("bad-groups".utf8)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(try JSONEncoder().encode([ProviderAccountConfiguration]()), forKey: "providerConfigurations")
+        defaults.set(malformedGroupData, forKey: "providerAccountGroups")
+
+        let fileManager = FileManager.default
+        let importDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("OpenCodeZenBootstrapGroupRecovery-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: importDirectory, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: importDirectory)
+        }
+
+        let importURL = importDirectory.appendingPathComponent(OpenCodeZenBootstrapImporter.importFileName)
+        let payload = """
+        {
+          "openCodeGoWorkspaceId": "wrk_after_group_recovery",
+          "providers": {
+            "OpenCodeGo": {
+              "apiKey": "group-recovered-dashboard-token"
+            }
+          }
+        }
+        """
+        try Data(payload.utf8).write(to: importURL)
+
+        let secretStore = InMemorySecretStore()
+        let configurationStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        OpenCodeZenBootstrapImporter.importIfNeeded(
+            configurationStore: configurationStore,
+            fileManager: fileManager,
+            importDirectory: importDirectory
+        )
+
+        XCTAssertTrue(fileManager.fileExists(atPath: importURL.path))
+        XCTAssertTrue(configurationStore.isGroupRecoveryRequired)
+        XCTAssertEqual(defaults.data(forKey: "providerAccountGroups"), malformedGroupData)
+
+        XCTAssertTrue(
+            OpenCodeZenBootstrapImporter.replaceCorruptedGroupsAndImportIfNeeded(
+                configurationStore: configurationStore,
+                fileManager: fileManager,
+                importDirectory: importDirectory
+            )
+        )
+
+        XCTAssertFalse(fileManager.fileExists(atPath: importURL.path))
+        XCTAssertFalse(configurationStore.isPersistenceRecoveryRequired)
+        let configuration = try XCTUnwrap(configurationStore.configurations(for: .openCodeZen).first)
+        XCTAssertEqual(configuration.openCodeWorkspaceId, "wrk_after_group_recovery")
+        XCTAssertEqual(
+            try secretStore.readSecret(
+                account: ProviderConfigurationStore.keychainAccount(for: configuration)
+            ),
+            "group-recovered-dashboard-token"
         )
     }
 
