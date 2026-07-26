@@ -20,6 +20,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let defaults: UserDefaults
     private let secretStore: any SecretStore
     private let encodeConfigurations: ([ProviderAccountConfiguration]) throws -> Data
+    private let persistConfigurations: (Data) throws -> Void
     private let configurationsKey = DefaultsKey.configurations
     private let groupsKey = DefaultsKey.groups
     private let appAppearanceKey = DefaultsKey.appAppearance
@@ -47,7 +48,8 @@ public final class ProviderConfigurationStore: ObservableObject {
     init(
         defaults: UserDefaults,
         secretStore: any SecretStore,
-        encodeConfigurations: @escaping ([ProviderAccountConfiguration]) throws -> Data
+        encodeConfigurations: @escaping ([ProviderAccountConfiguration]) throws -> Data,
+        persistConfigurations: ((Data) throws -> Void)? = nil
     ) {
         let groupLoadResult = Self.loadGroups(from: defaults)
         let configurationLoadResult = Self.loadConfigurations(
@@ -59,6 +61,9 @@ public final class ProviderConfigurationStore: ObservableObject {
         self.defaults = defaults
         self.secretStore = secretStore
         self.encodeConfigurations = encodeConfigurations
+        self.persistConfigurations = persistConfigurations ?? { data in
+            defaults.set(data, forKey: DefaultsKey.configurations)
+        }
         self.groups = groupLoadResult.groups
         self.configurations = configurationLoadResult.configurations
         self.secretAvailability = [:]
@@ -279,6 +284,88 @@ public final class ProviderConfigurationStore: ObservableObject {
             configurations = previousConfigurations
             return false
         }
+        return true
+    }
+
+    @discardableResult
+    public func replaceCredential(
+        _ credential: String,
+        for configuration: ProviderAccountConfiguration
+    ) -> Bool {
+        guard allowConfigurationMutation() else {
+            return false
+        }
+
+        guard !credential.isEmpty else {
+            lastError = "A credential is required to replace this account's sign-in."
+            return false
+        }
+
+        let normalized = Self.normalizedConfiguration(
+            configuration,
+            validGroupIDs: Set(groups.map(\.id))
+        )
+        guard isAccountNameUnique(normalized) else {
+            lastError = "Account names must be unique."
+            return false
+        }
+
+        var updatedConfigurations = configurations
+        if let index = updatedConfigurations.firstIndex(where: { $0.id == normalized.id }) {
+            updatedConfigurations[index] = normalized
+        } else {
+            updatedConfigurations.append(normalized)
+        }
+        updatedConfigurations = sortedConfigurations(updatedConfigurations)
+
+        let previousData: Data
+        let updatedData: Data
+        do {
+            previousData = try encodeConfigurations(configurations)
+            updatedData = try encodeConfigurations(updatedConfigurations)
+        } catch {
+            lastError = "Could not save account data: \(error.localizedDescription)"
+            return false
+        }
+
+        let account = Self.keychainAccount(for: normalized)
+        let previousCredential: String?
+        do {
+            previousCredential = try secretStore.readSecret(account: account)
+        } catch KeychainError.invalidSecretData {
+            // An unreadable Keychain item cannot be restored, but replacing it is
+            // the recovery path surfaced in Settings. Compensation deletes any
+            // partially written replacement so the account remains retryable.
+            previousCredential = nil
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+
+        do {
+            try writeCredential(credential, account: account)
+        } catch {
+            let firstError = error.localizedDescription
+            try? writeCredential(previousCredential, account: account)
+            lastError = firstError
+            refreshSecretAvailability(including: [normalized])
+            return false
+        }
+
+        do {
+            try persistConfigurations(updatedData)
+        } catch {
+            let firstError = "Could not save account data: \(error.localizedDescription)"
+            try? writeCredential(previousCredential, account: account)
+            try? persistConfigurations(previousData)
+            lastError = firstError
+            refreshSecretAvailability(including: [normalized])
+            return false
+        }
+
+        configurations = updatedConfigurations
+        lastError = nil
+        refreshSecretAvailability(including: [normalized])
         return true
     }
 
@@ -801,7 +888,7 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         do {
             let data = try encodeConfigurations(configurations)
-            defaults.set(data, forKey: configurationsKey)
+            try persistConfigurations(data)
             lastError = nil
             return true
         } catch {
@@ -1008,9 +1095,23 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     private func sortConfigurations() {
+        configurations = sortedConfigurations(configurations)
+    }
+
+    private func sortedConfigurations(
+        _ configurations: [ProviderAccountConfiguration]
+    ) -> [ProviderAccountConfiguration] {
         let groupNames = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.name) })
-        configurations.sort {
+        return configurations.sorted {
             Self.configurationSort($0, $1, groupNames: groupNames)
+        }
+    }
+
+    private func writeCredential(_ credential: String?, account: String) throws {
+        if let credential, !credential.isEmpty {
+            try secretStore.saveSecret(credential, account: account)
+        } else {
+            try secretStore.deleteSecret(account: account)
         }
     }
 

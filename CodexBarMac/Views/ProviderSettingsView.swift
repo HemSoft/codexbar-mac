@@ -519,16 +519,11 @@ struct ProviderSettingsView: View {
             }
             var updated = configuration
             updated.authMethod = .browserSession
-            guard configurationStore.update(updated) else {
+            guard configurationStore.replaceCredential(result.storedCredential, for: updated) else {
                 codexAuthError = configurationStore.lastError
                 return
             }
             configuration = updated
-            configurationStore.saveSecret(result.storedCredential, for: updated)
-            guard configurationStore.lastError == nil else {
-                codexAuthError = configurationStore.lastError
-                return
-            }
             secret = ""
             await onCredentialsChanged()
         } catch {
@@ -579,17 +574,12 @@ struct ProviderSettingsView: View {
             )
             var updated = configuration
             updated.authMethod = .browserSession
-            guard configurationStore.update(updated) else {
-                claudeAuthError = configurationStore.lastError
-                return
-            }
-            configuration = updated
-            configurationStore.saveSecret(result.storedCredential, for: updated)
-            guard configurationStore.lastError == nil else {
+            guard configurationStore.replaceCredential(result.storedCredential, for: updated) else {
                 claudeAuthError = configurationStore.lastError
                 claudeAuthDiagnostic = "Claude sign-in failed."
                 return
             }
+            configuration = updated
             secret = ""
             claudeAuthDiagnostic = "Claude sign-in complete."
             await onCredentialsChanged()
@@ -650,16 +640,14 @@ struct ProviderSettingsView: View {
             } else if updated.accountLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 updated.accountLabel = updated.githubOrganization.trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            guard configurationStore.update(updated) else {
+            guard configurationStore.replaceCredential(
+                result.storedCredential(username: username),
+                for: updated
+            ) else {
                 copilotAuthError = configurationStore.lastError
                 return
             }
             configuration = updated
-            configurationStore.saveSecret(result.storedCredential(username: username), for: updated)
-            guard configurationStore.lastError == nil else {
-                copilotAuthError = configurationStore.lastError
-                return
-            }
             secret = ""
             await onCredentialsChanged()
         } catch {
