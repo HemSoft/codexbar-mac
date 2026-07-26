@@ -4630,6 +4630,210 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testBrowserCredentialReplacementRollsBackSecretFailuresForAllProviders() throws {
+        for providerID in [ProviderID.codex, .claude, .copilot] {
+            let suiteName = "CodexBarMacTests.BrowserCredential.SecretFailure.\(providerID.rawValue).\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            defer {
+                defaults.removePersistentDomain(forName: suiteName)
+            }
+
+            let fixture = browserCredentialFixture(for: providerID)
+            let secretStore = TransactionalReplacementSecretStore()
+            defaults.set(
+                try JSONEncoder().encode([fixture.original, fixture.other]),
+                forKey: "providerConfigurations"
+            )
+            try secretStore.saveSecret(
+                "existing-\(providerID.rawValue)-credential",
+                account: ProviderConfigurationStore.keychainAccount(for: fixture.original)
+            )
+            try secretStore.saveSecret(
+                "other-\(providerID.rawValue)-credential",
+                account: ProviderConfigurationStore.keychainAccount(for: fixture.other)
+            )
+            secretStore.resetSavedCredentials()
+            secretStore.failNextSaveAfterWriting = true
+            let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+            XCTAssertFalse(
+                store.replaceCredential(
+                    "replacement-\(providerID.rawValue)-credential",
+                    for: fixture.replacement
+                )
+            )
+            XCTAssertEqual(store.lastError, "Injected secret save failure.")
+            XCTAssertEqual(
+                secretStore.savedCredentials,
+                [
+                    "replacement-\(providerID.rawValue)-credential",
+                    "existing-\(providerID.rawValue)-credential",
+                ]
+            )
+
+            let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+            XCTAssertEqual(
+                reloadedStore.configuration(accountID: fixture.original.id),
+                fixture.original
+            )
+            XCTAssertEqual(
+                try secretStore.readSecret(
+                    account: ProviderConfigurationStore.keychainAccount(for: fixture.original)
+                ),
+                "existing-\(providerID.rawValue)-credential"
+            )
+            XCTAssertEqual(
+                reloadedStore.configuration(accountID: fixture.other.id),
+                fixture.other
+            )
+            XCTAssertEqual(
+                try secretStore.readSecret(
+                    account: ProviderConfigurationStore.keychainAccount(for: fixture.other)
+                ),
+                "other-\(providerID.rawValue)-credential"
+            )
+        }
+    }
+
+    @MainActor
+    func testBrowserCredentialReplacementCompensatesConfigurationFailuresForAllProviders() throws {
+        for providerID in [ProviderID.codex, .claude, .copilot] {
+            let suiteName = "CodexBarMacTests.BrowserCredential.ConfigurationFailure.\(providerID.rawValue).\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            defer {
+                defaults.removePersistentDomain(forName: suiteName)
+            }
+
+            let fixture = browserCredentialFixture(for: providerID)
+            let secretStore = TransactionalReplacementSecretStore()
+            defaults.set(
+                try JSONEncoder().encode([fixture.original, fixture.other]),
+                forKey: "providerConfigurations"
+            )
+            try secretStore.saveSecret(
+                "existing-\(providerID.rawValue)-credential",
+                account: ProviderConfigurationStore.keychainAccount(for: fixture.original)
+            )
+            try secretStore.saveSecret(
+                "other-\(providerID.rawValue)-credential",
+                account: ProviderConfigurationStore.keychainAccount(for: fixture.other)
+            )
+            secretStore.resetSavedCredentials()
+            var persistenceAttempts = 0
+            let store = ProviderConfigurationStore(
+                defaults: defaults,
+                secretStore: secretStore,
+                encodeConfigurations: { try JSONEncoder().encode($0) },
+                persistConfigurations: { data in
+                    persistenceAttempts += 1
+                    if persistenceAttempts == 1 {
+                        throw TransactionalReplacementTestError.configurationPersistence
+                    }
+                    defaults.set(data, forKey: "providerConfigurations")
+                }
+            )
+
+            XCTAssertFalse(
+                store.replaceCredential(
+                    "replacement-\(providerID.rawValue)-credential",
+                    for: fixture.replacement
+                )
+            )
+            XCTAssertEqual(
+                store.lastError,
+                "Could not save account data: Injected configuration persistence failure."
+            )
+            XCTAssertEqual(persistenceAttempts, 2)
+            XCTAssertEqual(
+                secretStore.savedCredentials,
+                [
+                    "replacement-\(providerID.rawValue)-credential",
+                    "existing-\(providerID.rawValue)-credential",
+                ]
+            )
+
+            let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+            XCTAssertEqual(
+                reloadedStore.configuration(accountID: fixture.original.id),
+                fixture.original
+            )
+            XCTAssertEqual(
+                try secretStore.readSecret(
+                    account: ProviderConfigurationStore.keychainAccount(for: fixture.original)
+                ),
+                "existing-\(providerID.rawValue)-credential"
+            )
+            XCTAssertEqual(
+                reloadedStore.configuration(accountID: fixture.other.id),
+                fixture.other
+            )
+            XCTAssertEqual(
+                try secretStore.readSecret(
+                    account: ProviderConfigurationStore.keychainAccount(for: fixture.other)
+                ),
+                "other-\(providerID.rawValue)-credential"
+            )
+        }
+    }
+
+    @MainActor
+    func testBrowserCredentialReplacementCommitsExactAccountForAllProviders() throws {
+        for providerID in [ProviderID.codex, .claude, .copilot] {
+            let suiteName = "CodexBarMacTests.BrowserCredential.Success.\(providerID.rawValue).\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suiteName)!
+            defer {
+                defaults.removePersistentDomain(forName: suiteName)
+            }
+
+            let fixture = browserCredentialFixture(for: providerID)
+            let secretStore = TransactionalReplacementSecretStore()
+            defaults.set(
+                try JSONEncoder().encode([fixture.original, fixture.other]),
+                forKey: "providerConfigurations"
+            )
+            try secretStore.saveSecret(
+                "existing-\(providerID.rawValue)-credential",
+                account: ProviderConfigurationStore.keychainAccount(for: fixture.original)
+            )
+            try secretStore.saveSecret(
+                "other-\(providerID.rawValue)-credential",
+                account: ProviderConfigurationStore.keychainAccount(for: fixture.other)
+            )
+            let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+            XCTAssertTrue(
+                store.replaceCredential(
+                    "replacement-\(providerID.rawValue)-credential",
+                    for: fixture.replacement
+                )
+            )
+            XCTAssertNil(store.lastError)
+
+            let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+            XCTAssertEqual(
+                reloadedStore.configuration(accountID: fixture.replacement.id),
+                fixture.replacement
+            )
+            XCTAssertEqual(
+                try secretStore.readSecret(
+                    account: ProviderConfigurationStore.keychainAccount(for: fixture.replacement)
+                ),
+                "replacement-\(providerID.rawValue)-credential"
+            )
+            XCTAssertEqual(
+                reloadedStore.configuration(accountID: fixture.other.id),
+                fixture.other
+            )
+            XCTAssertEqual(
+                try secretStore.readSecret(
+                    account: ProviderConfigurationStore.keychainAccount(for: fixture.other)
+                ),
+                "other-\(providerID.rawValue)-credential"
+            )
+        }
+    }
+
+    @MainActor
     func testOpenCodeZenBootstrapImporterWaitsForAndResumesAfterConfigurationRecovery() throws {
         let suiteName = "OpenCodeZenBootstrapRecovery-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -8451,6 +8655,69 @@ private final class StubUsageAlertNotifier: UsageAlertNotifying {
     }
 
     func deliver(_ notification: UsageAlertNotification) async throws {}
+}
+
+private func browserCredentialFixture(
+    for providerID: ProviderID
+) -> (
+    original: ProviderAccountConfiguration,
+    replacement: ProviderAccountConfiguration,
+    other: ProviderAccountConfiguration
+) {
+    var original = ProviderAccountConfiguration.defaultConfiguration(for: providerID)
+    original.accountLabel = "Existing \(providerID.displayName)"
+    original.githubCLIUsername = providerID == .copilot ? "existing-user" : ""
+
+    var replacement = original
+    replacement.authMethod = .browserSession
+    replacement.accountLabel = "Replacement \(providerID.displayName)"
+    replacement.githubCLIUsername = providerID == .copilot ? "replacement-user" : ""
+
+    var other = ProviderAccountConfiguration.defaultConfiguration(for: providerID).withNewAccountID()
+    other.accountLabel = "Other \(providerID.displayName)"
+    other.githubCLIUsername = providerID == .copilot ? "other-user" : ""
+    return (original, replacement, other)
+}
+
+private enum TransactionalReplacementTestError: LocalizedError {
+    case secretSave
+    case configurationPersistence
+
+    var errorDescription: String? {
+        switch self {
+        case .secretSave:
+            "Injected secret save failure."
+        case .configurationPersistence:
+            "Injected configuration persistence failure."
+        }
+    }
+}
+
+private final class TransactionalReplacementSecretStore: SecretStore, @unchecked Sendable {
+    private var secrets: [String: String] = [:]
+    private(set) var savedCredentials: [String] = []
+    var failNextSaveAfterWriting = false
+
+    func resetSavedCredentials() {
+        savedCredentials = []
+    }
+
+    func readSecret(account: String) throws -> String? {
+        secrets[account]
+    }
+
+    func saveSecret(_ secret: String, account: String) throws {
+        secrets[account] = secret
+        savedCredentials.append(secret)
+        if failNextSaveAfterWriting {
+            failNextSaveAfterWriting = false
+            throw TransactionalReplacementTestError.secretSave
+        }
+    }
+
+    func deleteSecret(account: String) throws {
+        secrets.removeValue(forKey: account)
+    }
 }
 
 private final class FailingSecretStore: SecretStore, @unchecked Sendable {

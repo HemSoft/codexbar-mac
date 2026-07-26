@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Browser sign-in now keeps Codex, Claude, and GitHub Copilot credentials aligned
+  with their saved authentication and account metadata when replacement storage fails.
 - Damaged saved group data now preserves account assignments until the user
   explicitly replaces the unreadable groups in Settings.
 - Codex cards now omit redundant usage-threshold alert summaries while
