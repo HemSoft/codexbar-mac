@@ -226,7 +226,7 @@ public final class UsageRefreshService: ObservableObject {
         )
     }
 
-    nonisolated private static func fetchUsageWithTimeout(
+    nonisolated static func fetchUsageWithTimeout(
         provider: any UsageProvider,
         configuration: ProviderAccountConfiguration,
         timeout: Duration = .seconds(30)
@@ -272,6 +272,8 @@ private struct MissingUsageProviderError: LocalizedError {
 
 private final class FetchRaceState: @unchecked Sendable {
     private let gate = RefreshResultGate()
+    private let taskLock = NSLock()
+    private var isTerminal = false
     private var fetchTask: Task<Void, Never>?
     private var timeoutTask: Task<Void, Never>?
 
@@ -285,7 +287,7 @@ private final class FetchRaceState: @unchecked Sendable {
             return
         }
 
-        fetchTask = Task {
+        let fetchTask = Task {
             let result: ProviderUsageResult
             do {
                 result = try await provider.fetchUsage(for: configuration)
@@ -296,12 +298,12 @@ private final class FetchRaceState: @unchecked Sendable {
             }
 
             if gate.resumeOnce(with: result) {
-                timeoutTask?.cancel()
-                return
+                cancelTasks()
             }
         }
+        install(fetchTask, as: .fetch)
 
-        timeoutTask = Task {
+        let timeoutTask = Task {
             do {
                 try await Task.sleep(for: timeout)
             } catch {
@@ -309,16 +311,53 @@ private final class FetchRaceState: @unchecked Sendable {
             }
 
             if gate.resumeOnce(with: UsageRefreshService.errorResult(for: configuration, error: RefreshTimeoutError())) {
-                fetchTask?.cancel()
-                timeoutTask?.cancel()
+                cancelTasks()
             }
         }
+        install(timeoutTask, as: .timeout)
     }
 
     func cancel() {
         gate.markCancelled()
-        fetchTask?.cancel()
-        timeoutTask?.cancel()
+        cancelTasks()
+    }
+
+    private enum TaskKind {
+        case fetch
+        case timeout
+    }
+
+    private func install(_ task: Task<Void, Never>, as kind: TaskKind) {
+        let shouldCancel = taskLock.withLock {
+            guard !isTerminal else {
+                return true
+            }
+
+            switch kind {
+            case .fetch:
+                fetchTask = task
+            case .timeout:
+                timeoutTask = task
+            }
+            return false
+        }
+
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
+    private func cancelTasks() {
+        let tasks = taskLock.withLock {
+            isTerminal = true
+            let tasks = (fetchTask, timeoutTask)
+            fetchTask = nil
+            timeoutTask = nil
+            return tasks
+        }
+
+        tasks.0?.cancel()
+        tasks.1?.cancel()
     }
 }
 

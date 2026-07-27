@@ -6324,6 +6324,65 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(service.successfulRefreshResults.isEmpty)
     }
 
+    func testUsageRefreshFetchRaceReturnsFastProviderResult() async {
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        let expected = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .codex,
+            title: configuration.displayName,
+            subtitle: "Live usage",
+            bars: [UsageBar(label: "Weekly", used: 20, limit: 100)],
+            fetchedAt: Date()
+        )
+
+        let result = await UsageRefreshService.fetchUsageWithTimeout(
+            provider: StubUsageProvider(providerID: .codex, result: expected),
+            configuration: configuration,
+            timeout: .seconds(1)
+        )
+
+        XCTAssertEqual(result, expected)
+    }
+
+    func testUsageRefreshFetchRaceCancelsProviderWhenTimeoutWins() async throws {
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        let provider = BlockingUsageProvider(providerID: .codex)
+        let refreshTask = Task {
+            await UsageRefreshService.fetchUsageWithTimeout(
+                provider: provider,
+                configuration: configuration,
+                timeout: .milliseconds(50)
+            )
+        }
+
+        await provider.waitUntilStarted()
+        let result = await refreshTask.value
+        let cancellationObserved = await provider.waitUntilCancellationObserved()
+
+        XCTAssertEqual(result?.subtitle, "Refresh failed: Request timed out")
+        XCTAssertTrue(cancellationObserved)
+    }
+
+    func testUsageRefreshFetchRaceReturnsNilAndCancelsProviderWithCaller() async {
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        let provider = BlockingUsageProvider(providerID: .codex)
+        let refreshTask = Task {
+            await UsageRefreshService.fetchUsageWithTimeout(
+                provider: provider,
+                configuration: configuration,
+                timeout: .seconds(30)
+            )
+        }
+
+        await provider.waitUntilStarted()
+        refreshTask.cancel()
+        let result = await refreshTask.value
+        let cancellationObserved = await provider.waitUntilCancellationObserved()
+
+        XCTAssertNil(result)
+        XCTAssertTrue(cancellationObserved)
+    }
+
     @MainActor
     func testUsageRefreshServicePreservesLastKnownUsageAcrossFailureAndRecovery() async throws {
         let cachedAt = Date(timeIntervalSince1970: 1_700_000_000)
@@ -8708,6 +8767,52 @@ private actor SequencedUsageProvider: UsageProvider {
         case .result(let result):
             return result
         }
+    }
+}
+
+private actor BlockingUsageProvider: UsageProvider {
+    nonisolated let providerID: ProviderID
+    private var started = false
+    private var cancellationObserved = false
+
+    init(providerID: ProviderID) {
+        self.providerID = providerID
+    }
+
+    func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
+        started = true
+
+        do {
+            try await Task.sleep(for: .seconds(60))
+        } catch is CancellationError {
+            cancellationObserved = true
+            throw CancellationError()
+        }
+
+        return ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: providerID,
+            title: configuration.displayName,
+            subtitle: "Unexpected completion",
+            bars: [],
+            fetchedAt: Date()
+        )
+    }
+
+    func waitUntilStarted() async {
+        while !started {
+            await Task.yield()
+        }
+    }
+
+    func waitUntilCancellationObserved() async -> Bool {
+        for _ in 0..<200 {
+            if cancellationObserved {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return cancellationObserved
     }
 }
 
