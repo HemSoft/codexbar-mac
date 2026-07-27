@@ -8872,39 +8872,63 @@ private enum TransactionalReplacementTestError: LocalizedError {
 }
 
 private final class TransactionalReplacementSecretStore: SecretStore, @unchecked Sendable {
+    private let lock = NSLock()
     private var secrets: [String: String] = [:]
     private var unreadableAccounts: Set<String> = []
-    private(set) var savedCredentials: [String] = []
-    var failNextSaveAfterWriting = false
+    private var storedSavedCredentials: [String] = []
+    private var shouldFailNextSaveAfterWriting = false
+
+    var savedCredentials: [String] {
+        lock.withLock { storedSavedCredentials }
+    }
+
+    var failNextSaveAfterWriting: Bool {
+        get { lock.withLock { shouldFailNextSaveAfterWriting } }
+        set {
+            lock.withLock {
+                shouldFailNextSaveAfterWriting = newValue
+            }
+        }
+    }
 
     func markUnreadable(account: String) {
-        unreadableAccounts.insert(account)
+        lock.withLock {
+            unreadableAccounts.insert(account)
+        }
     }
 
     func resetSavedCredentials() {
-        savedCredentials = []
+        lock.withLock {
+            storedSavedCredentials = []
+        }
     }
 
     func readSecret(account: String) throws -> String? {
-        if unreadableAccounts.contains(account) {
-            throw KeychainError.invalidSecretData
+        try lock.withLock {
+            if unreadableAccounts.contains(account) {
+                throw KeychainError.invalidSecretData
+            }
+            return secrets[account]
         }
-        return secrets[account]
     }
 
     func saveSecret(_ secret: String, account: String) throws {
-        secrets[account] = secret
-        unreadableAccounts.remove(account)
-        savedCredentials.append(secret)
-        if failNextSaveAfterWriting {
-            failNextSaveAfterWriting = false
-            throw TransactionalReplacementTestError.secretSave
+        try lock.withLock {
+            secrets[account] = secret
+            unreadableAccounts.remove(account)
+            storedSavedCredentials.append(secret)
+            if shouldFailNextSaveAfterWriting {
+                shouldFailNextSaveAfterWriting = false
+                throw TransactionalReplacementTestError.secretSave
+            }
         }
     }
 
     func deleteSecret(account: String) throws {
-        secrets.removeValue(forKey: account)
-        unreadableAccounts.remove(account)
+        lock.withLock {
+            secrets.removeValue(forKey: account)
+            unreadableAccounts.remove(account)
+        }
     }
 }
 
