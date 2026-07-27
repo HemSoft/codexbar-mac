@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Usage refresh timeouts and cancellation now safely coordinate in-flight tasks,
+  preventing refresh races while still cancelling work that loses the race.
 - Browser sign-in now keeps Codex, Claude, and GitHub Copilot credentials aligned
   with their saved authentication and account metadata when replacement storage fails.
 - Damaged saved group data now preserves account assignments until the user
