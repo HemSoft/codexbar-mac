@@ -42,6 +42,7 @@ public struct UsageHistoryMonetaryMetricSnapshot: Equatable, Codable, Sendable {
 
 private protocol MonetaryMetricSnapshot {
     var metricKind: ProviderMonetaryMetricKind { get }
+    var label: String { get }
     var minorUnits: Decimal { get }
     var currencyCode: String { get }
     var decimalPlaces: Int { get }
@@ -120,6 +121,37 @@ public struct UsageHistorySnapshot: Identifiable, Equatable, Codable, Sendable {
 private func primaryBalanceLikeMetric<T>(in metrics: [T]) -> T? where T: MonetaryMetricSnapshot {
     metrics.first(where: { $0.metricKind == .balance })
         ?? metrics.first(where: { $0.metricKind == .remainingHeadroom })
+}
+
+private struct PrimaryMonetarySeriesIdentity {
+    let kind: ProviderMonetaryMetricKind
+    let label: String
+    let currencyCode: String
+    let decimalPlaces: Int
+
+    init<T>(metric: T) where T: MonetaryMetricSnapshot {
+        self.kind = metric.metricKind
+        self.label = metric.label
+        self.currencyCode = metric.currencyCode
+        self.decimalPlaces = metric.decimalPlaces
+    }
+}
+
+private func primaryMonetarySeriesIdentity(
+    for result: ProviderUsageResult,
+    snapshots: [UsageHistorySnapshot]
+) -> PrimaryMonetarySeriesIdentity? {
+    guard result.creditsRemaining == nil && result.bars.isEmpty else {
+        return nil
+    }
+    if let metric = primaryBalanceLikeMetric(in: result.monetaryMetrics) {
+        return PrimaryMonetarySeriesIdentity(metric: metric)
+    }
+    return snapshots.reversed().lazy.compactMap { snapshot in
+        primaryBalanceLikeMetric(in: snapshot.monetaryMetrics ?? []).map {
+            PrimaryMonetarySeriesIdentity(metric: $0)
+        }
+    }.first
 }
 
 public struct UsageTrendSummary: Equatable, Sendable {
@@ -419,12 +451,16 @@ public final class UsageHistoryStore: ObservableObject {
         since start: Date? = nil
     ) -> UsageHistorySeries {
         let accountSnapshots = snapshots(for: result.accountID, since: start)
+        let primaryMonetaryIdentity = primaryMonetarySeriesIdentity(
+            for: result,
+            snapshots: accountSnapshots
+        )
         let isBalance: Bool
         if result.creditsRemaining != nil {
             isBalance = true
         } else if !result.bars.isEmpty {
             isBalance = false
-        } else if primaryBalanceLikeMetric(in: result.monetaryMetrics) != nil {
+        } else if primaryMonetaryIdentity != nil {
             isBalance = true
         } else {
             isBalance = accountSnapshots.last.map {
@@ -433,34 +469,29 @@ public final class UsageHistoryStore: ObservableObject {
         }
 
         let points = accountSnapshots.compactMap { snapshot -> UsageHistoryPoint? in
-            if isBalance {
-                guard snapshot.creditsRemaining != nil || primaryBalanceLikeMetric(in: snapshot.monetaryMetrics ?? []) != nil else {
-                    return nil
-                }
+            let value: Double?
+            if let primaryMonetaryIdentity {
+                value = snapshot.monetaryMetrics?.first(where: {
+                    $0.kind == primaryMonetaryIdentity.kind
+                        && $0.currencyCode == primaryMonetaryIdentity.currencyCode
+                })?.doubleValue
+            } else if isBalance {
+                value = snapshot.creditsRemaining
             } else {
                 guard !snapshot.bars.isEmpty else {
                     return nil
                 }
+                value = snapshot.bars.map(\.fractionUsed).max()
             }
-            let value = isBalance
-                ? snapshot.monetaryPrimaryValue
-                : snapshot.bars.map(\.fractionUsed).max()
             return value.map { UsageHistoryPoint(snapshot: snapshot, value: $0) }
-        }
-        let monetaryFormat = primaryBalanceLikeMetric(in: result.monetaryMetrics).map {
-            ($0.currencyCode, $0.decimalPlaces)
-        } ?? accountSnapshots.last.flatMap { snapshot in
-            primaryBalanceLikeMetric(in: snapshot.monetaryMetrics ?? []).map {
-                ($0.currencyCode, $0.decimalPlaces)
-            }
         }
 
         return UsageHistorySeries(
             accountID: result.accountID,
             points: points,
             isBalance: isBalance,
-            currencyCode: monetaryFormat?.0,
-            decimalPlaces: min(max(monetaryFormat?.1 ?? 2, 0), 6)
+            currencyCode: primaryMonetaryIdentity?.currencyCode,
+            decimalPlaces: min(max(primaryMonetaryIdentity?.decimalPlaces ?? 2, 0), 6)
         )
     }
 
@@ -470,9 +501,10 @@ public final class UsageHistoryStore: ObservableObject {
     ) -> [UsageHistorySeriesOption] {
         let accountSnapshots = snapshots(for: result.accountID, since: start)
         var options: [UsageHistorySeriesOption] = []
-        let monetaryPrimary = result.bars.isEmpty && result.creditsRemaining == nil
-            ? primaryBalanceLikeMetric(in: result.monetaryMetrics)
-            : nil
+        let primaryMonetaryIdentity = primaryMonetarySeriesIdentity(
+            for: result,
+            snapshots: accountSnapshots
+        )
 
         if !result.bars.isEmpty || result.creditsRemaining != nil {
             options.append(UsageHistorySeriesOption(
@@ -480,15 +512,18 @@ public final class UsageHistoryStore: ObservableObject {
                 label: result.creditsRemaining == nil ? "Usage" : "Balance",
                 series: historySeries(for: result, since: start)
             ))
-        } else if let monetaryPrimary {
+        } else if let primaryMonetaryIdentity {
             options.append(UsageHistorySeriesOption(
                 id: "primary",
-                label: monetaryPrimary.label,
+                label: primaryMonetaryIdentity.label,
                 series: historySeries(for: result, since: start)
             ))
         }
 
-        for metric in result.monetaryMetrics where metric.id != monetaryPrimary?.id {
+        for metric in result.monetaryMetrics where
+            metric.kind != primaryMonetaryIdentity?.kind
+                || metric.currencyCode != primaryMonetaryIdentity?.currencyCode
+        {
             let points = accountSnapshots.compactMap { snapshot -> UsageHistoryPoint? in
                 guard let storedMetric = snapshot.monetaryMetrics?.first(where: {
                     $0.kind == metric.kind && $0.currencyCode == metric.currencyCode
