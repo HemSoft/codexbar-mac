@@ -49,6 +49,30 @@ final class CodexBarMacTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testCredentialReplacementUsesEnteredCredentialOrFallsBackToSavedValue() {
+        XCTAssertEqual(
+            CredentialMutationFlow.replacementCredential(
+                enteredCredential: "replacement-dashboard-token",
+                savedCredential: "existing-dashboard-token"
+            ),
+            "replacement-dashboard-token"
+        )
+        XCTAssertEqual(
+            CredentialMutationFlow.replacementCredential(
+                enteredCredential: "  ",
+                savedCredential: "existing-dashboard-token"
+            ),
+            "existing-dashboard-token"
+        )
+        XCTAssertNil(
+            CredentialMutationFlow.replacementCredential(
+                enteredCredential: "",
+                savedCredential: nil
+            )
+        )
+    }
+
     func testKeychainServiceDistinguishesMissingValidAndInvalidSecrets() throws {
         let service = "com.hemsoft.CodexBarMacTests.\(UUID().uuidString)"
         let account = "credential.\(UUID().uuidString)"
