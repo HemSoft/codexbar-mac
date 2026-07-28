@@ -5062,6 +5062,41 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testOpenCodeCredentialReplacementSurfacesCredentialCompensationFailure() throws {
+        let suiteName = "CodexBarMacTests.OpenCodeCredential.CompensationFailure.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        var original = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        original.accountLabel = "Existing OpenCode"
+        original.openCodeWorkspaceId = "wrk_existing"
+        var replacement = original
+        replacement.accountLabel = "Replacement OpenCode"
+        replacement.openCodeWorkspaceId = "wrk_replacement"
+        let account = ProviderConfigurationStore.keychainAccount(for: original)
+        let secretStore = FailingCredentialCompensationSecretStore(
+            account: account,
+            secret: "existing-dashboard-token"
+        )
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(try JSONEncoder().encode([original]), forKey: "providerConfigurations")
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+        XCTAssertFalse(store.replaceCredential("replacement-dashboard-token", for: replacement))
+        XCTAssertEqual(
+            store.lastError,
+            "Injected secret save failure. Restoring the previous account state also failed "
+                + "(credential: Injected credential compensation failure.). "
+                + "The account may be inconsistent; save its credential again."
+        )
+        XCTAssertEqual(store.configuration(accountID: original.id), original)
+
+        let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        XCTAssertEqual(reloadedStore.configuration(accountID: original.id), original)
+        XCTAssertEqual(try secretStore.readSecret(account: account), "replacement-dashboard-token")
+    }
+
+    @MainActor
     func testOpenCodeCredentialReplacementCompensatesConfigurationFailureAndReloads() throws {
         let suiteName = "CodexBarMacTests.OpenCodeCredential.ConfigurationFailure.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -5110,6 +5145,44 @@ final class CodexBarMacTests: XCTestCase {
 
         let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
         XCTAssertEqual(reloadedStore.configuration(accountID: original.id), original)
+        XCTAssertEqual(try secretStore.readSecret(account: account), "existing-dashboard-token")
+    }
+
+    @MainActor
+    func testOpenCodeCredentialReplacementSurfacesConfigurationCompensationFailure() throws {
+        let suiteName = "CodexBarMacTests.OpenCodeCredential.ConfigurationCompensationFailure.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = TransactionalReplacementSecretStore()
+        var original = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        original.accountLabel = "Existing OpenCode"
+        original.openCodeWorkspaceId = "wrk_existing"
+        var replacement = original
+        replacement.accountLabel = "Replacement OpenCode"
+        replacement.openCodeWorkspaceId = "wrk_replacement"
+        let account = ProviderConfigurationStore.keychainAccount(for: original)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(try JSONEncoder().encode([original]), forKey: "providerConfigurations")
+        try secretStore.saveSecret("existing-dashboard-token", account: account)
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) },
+            persistConfigurations: { _ in
+                throw TransactionalReplacementTestError.configurationPersistence
+            }
+        )
+
+        XCTAssertFalse(store.replaceCredential("replacement-dashboard-token", for: replacement))
+        XCTAssertEqual(
+            store.lastError,
+            "Could not save account data: Injected configuration persistence failure. "
+                + "Restoring the previous account state also failed "
+                + "(account data: Injected configuration persistence failure.). "
+                + "The account may be inconsistent; save its credential again."
+        )
+        XCTAssertEqual(store.configuration(accountID: original.id), original)
         XCTAssertEqual(try secretStore.readSecret(account: account), "existing-dashboard-token")
     }
 
@@ -5573,6 +5646,61 @@ final class CodexBarMacTests: XCTestCase {
         let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
         XCTAssertEqual(reloadedStore.configuration(accountID: original.id), original)
         XCTAssertEqual(try secretStore.readSecret(account: account), "existing-dashboard-token")
+        XCTAssertFalse(fileManager.fileExists(atPath: importURL.path))
+    }
+
+    @MainActor
+    func testOpenCodeZenBootstrapImporterDeletesFileAndSurfacesCompensationFailure() throws {
+        let suiteName = "OpenCodeZenBootstrapImporter-compensation-failure-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let fileManager = FileManager.default
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        var original = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        original.accountLabel = "Existing OpenCode"
+        original.openCodeWorkspaceId = "wrk_existing"
+        let account = ProviderConfigurationStore.keychainAccount(for: original)
+        let secretStore = FailingCredentialCompensationSecretStore(
+            account: account,
+            secret: "existing-dashboard-token"
+        )
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? fileManager.removeItem(at: tempDirectory)
+        }
+        try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defaults.set(try JSONEncoder().encode([original]), forKey: "providerConfigurations")
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore
+        )
+        let payload = """
+        {
+          "openCodeGoWorkspaceId": "wrk_from_windows",
+          "providers": {
+            "OpenCodeGo": {
+              "apiKey": "go-dashboard-token"
+            }
+          }
+        }
+        """
+        let importURL = tempDirectory.appendingPathComponent(OpenCodeZenBootstrapImporter.importFileName)
+        try Data(payload.utf8).write(to: importURL)
+
+        OpenCodeZenBootstrapImporter.importIfNeeded(
+            configurationStore: configurationStore,
+            fileManager: fileManager,
+            importDirectory: tempDirectory
+        )
+
+        XCTAssertTrue(
+            configurationStore.lastError?.contains(
+                "Restoring the previous account state also failed "
+                    + "(credential: Injected credential compensation failure.)"
+            ) == true
+        )
+        XCTAssertEqual(configurationStore.configuration(accountID: original.id), original)
+        XCTAssertEqual(try secretStore.readSecret(account: account), "go-dashboard-token")
         XCTAssertFalse(fileManager.fileExists(atPath: importURL.path))
     }
 
@@ -9295,6 +9423,7 @@ private func browserCredentialFixture(
 private enum TransactionalReplacementTestError: LocalizedError {
     case secretSave
     case configurationPersistence
+    case credentialCompensation
 
     var errorDescription: String? {
         switch self {
@@ -9302,6 +9431,8 @@ private enum TransactionalReplacementTestError: LocalizedError {
             "Injected secret save failure."
         case .configurationPersistence:
             "Injected configuration persistence failure."
+        case .credentialCompensation:
+            "Injected credential compensation failure."
         }
     }
 }
@@ -9418,6 +9549,39 @@ private final class TransactionalReplacementSecretStore: SecretStore, @unchecked
         lock.withLock {
             secrets.removeValue(forKey: account)
             unreadableAccounts.remove(account)
+        }
+    }
+}
+
+private final class FailingCredentialCompensationSecretStore: SecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var secrets: [String: String]
+    private var saveCount = 0
+
+    init(account: String, secret: String) {
+        self.secrets = [account: secret]
+    }
+
+    deinit {}
+
+    func readSecret(account: String) throws -> String? {
+        lock.withLock { secrets[account] }
+    }
+
+    func saveSecret(_ secret: String, account: String) throws {
+        try lock.withLock {
+            saveCount += 1
+            if saveCount == 1 {
+                secrets[account] = secret
+                throw TransactionalReplacementTestError.secretSave
+            }
+            throw TransactionalReplacementTestError.credentialCompensation
+        }
+    }
+
+    func deleteSecret(account: String) throws {
+        _ = lock.withLock {
+            secrets.removeValue(forKey: account)
         }
     }
 }

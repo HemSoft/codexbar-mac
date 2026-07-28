@@ -346,8 +346,16 @@ public final class ProviderConfigurationStore: ObservableObject {
             try writeCredential(credential, account: account)
         } catch {
             let firstError = error.localizedDescription
-            try? writeCredential(previousCredential, account: account)
-            lastError = firstError
+            var compensationErrors: [String] = []
+            do {
+                try writeCredential(previousCredential, account: account)
+            } catch {
+                compensationErrors.append("credential: \(error.localizedDescription)")
+            }
+            lastError = Self.credentialReplacementError(
+                firstError,
+                compensationErrors: compensationErrors
+            )
             refreshSecretAvailability(including: [normalized])
             return false
         }
@@ -356,9 +364,21 @@ public final class ProviderConfigurationStore: ObservableObject {
             try persistConfigurations(updatedData)
         } catch {
             let firstError = "Could not save account data: \(error.localizedDescription)"
-            try? writeCredential(previousCredential, account: account)
-            try? persistConfigurations(previousData)
-            lastError = firstError
+            var compensationErrors: [String] = []
+            do {
+                try writeCredential(previousCredential, account: account)
+            } catch {
+                compensationErrors.append("credential: \(error.localizedDescription)")
+            }
+            do {
+                try persistConfigurations(previousData)
+            } catch {
+                compensationErrors.append("account data: \(error.localizedDescription)")
+            }
+            lastError = Self.credentialReplacementError(
+                firstError,
+                compensationErrors: compensationErrors
+            )
             refreshSecretAvailability(including: [normalized])
             return false
         }
@@ -1116,6 +1136,19 @@ public final class ProviderConfigurationStore: ObservableObject {
         } else {
             try secretStore.deleteSecret(account: account)
         }
+    }
+
+    private static func credentialReplacementError(
+        _ firstError: String,
+        compensationErrors: [String]
+    ) -> String {
+        guard !compensationErrors.isEmpty else {
+            return firstError
+        }
+
+        return "\(firstError) Restoring the previous account state also failed "
+            + "(\(compensationErrors.joined(separator: "; "))). "
+            + "The account may be inconsistent; save its credential again."
     }
 
     private func sortGroups() {
