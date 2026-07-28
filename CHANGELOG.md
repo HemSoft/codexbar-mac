@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- OpenCode ZEN Settings saves and bootstrap imports now keep account metadata
+  and dashboard credentials consistent when Keychain or account persistence fails.
 - Failed credential saves and removals now preserve retryable Settings state,
   show the storage error, and refresh only after Keychain changes succeed.
 - Usage refresh timeouts and cancellation now safely coordinate in-flight tasks,

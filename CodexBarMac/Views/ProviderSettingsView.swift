@@ -2,6 +2,50 @@ import SwiftUI
 
 @MainActor
 enum CredentialMutationFlow {
+    static func canSaveOpenCodeSettings(
+        enteredCredential: String,
+        hasSavedCredential: Bool,
+        hasStagedSettings: Bool
+    ) -> Bool {
+        !enteredCredential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || hasSavedCredential
+            || hasStagedSettings
+    }
+
+    static func replacementCredential(
+        enteredCredential: String,
+        savedCredential: String?
+    ) -> String? {
+        if !enteredCredential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return enteredCredential
+        }
+
+        guard let savedCredential, !savedCredential.isEmpty else {
+            return nil
+        }
+        return savedCredential
+    }
+
+    static func configurationForAutomaticPersistence(
+        _ editedConfiguration: ProviderAccountConfiguration,
+        persistedConfiguration: ProviderAccountConfiguration?
+    ) -> ProviderAccountConfiguration {
+        guard
+            editedConfiguration.providerID == .openCodeZen,
+            let persistedConfiguration,
+            persistedConfiguration.id == editedConfiguration.id
+        else {
+            return editedConfiguration
+        }
+
+        var automaticallyPersisted = editedConfiguration
+        automaticallyPersisted.isEnabled = persistedConfiguration.isEnabled
+        automaticallyPersisted.accountLabel = persistedConfiguration.accountLabel
+        automaticallyPersisted.authMethod = persistedConfiguration.authMethod
+        automaticallyPersisted.openCodeWorkspaceId = persistedConfiguration.openCodeWorkspaceId
+        return automaticallyPersisted
+    }
+
     @discardableResult
     static func perform(
         secret: String,
@@ -176,18 +220,24 @@ struct ProviderSettingsView: View {
 #endif
         }
         .onChange(of: configuration) { oldValue, newValue in
-            guard configurationStore.update(newValue) else {
+            let persistedConfiguration = configurationStore.configuration(accountID: accountID)
+            let automaticallyPersisted = CredentialMutationFlow.configurationForAutomaticPersistence(
+                newValue,
+                persistedConfiguration: persistedConfiguration
+            )
+            guard configurationStore.update(automaticallyPersisted) else {
                 configuration = oldValue
                 syncCopilotAllotmentText()
                 return
             }
 
-            let shouldRefresh = oldValue.isEnabled != newValue.isEnabled
-                || oldValue.authMethod != newValue.authMethod
-                || oldValue.copilotAccountScope != newValue.copilotAccountScope
-                || oldValue.githubOrganization != newValue.githubOrganization
-                || oldValue.githubEnterprise != newValue.githubEnterprise
-                || oldValue.copilotTotalAllotment != newValue.copilotTotalAllotment
+            let previousPersisted = persistedConfiguration ?? oldValue
+            let shouldRefresh = previousPersisted.isEnabled != automaticallyPersisted.isEnabled
+                || previousPersisted.authMethod != automaticallyPersisted.authMethod
+                || previousPersisted.copilotAccountScope != automaticallyPersisted.copilotAccountScope
+                || previousPersisted.githubOrganization != automaticallyPersisted.githubOrganization
+                || previousPersisted.githubEnterprise != automaticallyPersisted.githubEnterprise
+                || previousPersisted.copilotTotalAllotment != automaticallyPersisted.copilotTotalAllotment
             guard shouldRefresh else {
                 return
             }
@@ -304,10 +354,16 @@ struct ProviderSettingsView: View {
         SecureField(secretPlaceholder, text: $secret)
             .textFieldStyle(.roundedBorder)
 
-        Button(configurationStore.hasSecret(for: configuration) ? "Update and Refresh" : "Save and Refresh") {
+        Button(openCodeSaveButtonTitle) {
             saveOpenCodeCredential()
         }
-        .disabled(secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .disabled(
+            !CredentialMutationFlow.canSaveOpenCodeSettings(
+                enteredCredential: secret,
+                hasSavedCredential: configurationStore.hasSecret(for: configuration),
+                hasStagedSettings: hasStagedOpenCodeSettings
+            )
+        )
 
         if configurationStore.hasSecret(for: configuration) {
             Button {
@@ -713,12 +769,40 @@ struct ProviderSettingsView: View {
 
     @MainActor
     private func saveOpenCodeCredential() {
-        guard configurationStore.update(configuration) else {
-            openCodeCredentialMessage = configurationStore.lastError
+        let savedCredentialReadResult = configurationStore.savedCredentialReadResult(for: configuration)
+        let savedCredential: String? = if case .credential(let credential) = savedCredentialReadResult {
+            credential
+        } else {
+            nil
+        }
+        guard let replacementCredential = CredentialMutationFlow.replacementCredential(
+            enteredCredential: secret,
+            savedCredential: savedCredential
+        ) else {
+            switch savedCredentialReadResult {
+            case .failure(let description):
+                openCodeCredentialMessage = description
+                return
+            case .credential:
+                openCodeCredentialMessage = "The saved OpenCode credential is empty. Enter a replacement before saving."
+                return
+            case .missing:
+                break
+            }
+
+            guard configurationStore.update(configuration) else {
+                openCodeCredentialMessage = configurationStore.lastError
+                return
+            }
+
+            openCodeCredentialMessage = "OpenCode settings saved. Add a dashboard auth value to refresh."
+            Task {
+                await onCredentialsChanged()
+            }
             return
         }
 
-        guard configurationStore.saveSecret(secret, for: configuration) else {
+        guard configurationStore.replaceCredential(replacementCredential, for: configuration) else {
             openCodeCredentialMessage = configurationStore.lastError
             return
         }
@@ -735,6 +819,21 @@ struct ProviderSettingsView: View {
         Task {
             await refreshOpenCode()
         }
+    }
+
+    private var openCodeSaveButtonTitle: String {
+        if configurationStore.hasSecret(for: configuration) {
+            return secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Save Settings and Refresh"
+                : "Update and Refresh"
+        }
+        return secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Save Settings"
+            : "Save and Refresh"
+    }
+
+    private var hasStagedOpenCodeSettings: Bool {
+        configurationStore.configuration(accountID: accountID) != configuration
     }
 
     @MainActor

@@ -119,12 +119,7 @@ enum OpenCodeZenBootstrapImporter {
             configuration.accountLabel = "OpenCode ZEN"
         }
 
-        guard configurationStore.update(configuration) else {
-            return false
-        }
-
-        configurationStore.saveSecret(credential, for: configuration)
-        guard configurationStore.lastError == nil else {
+        guard configurationStore.replaceCredential(credential, for: configuration) else {
             return false
         }
 

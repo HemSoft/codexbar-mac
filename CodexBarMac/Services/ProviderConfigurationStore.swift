@@ -1,6 +1,12 @@
 import Combine
 import Foundation
 
+public enum SavedCredentialReadResult: Equatable, Sendable {
+    case credential(String)
+    case missing
+    case failure(String)
+}
+
 @MainActor
 public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var configurations: [ProviderAccountConfiguration]
@@ -346,8 +352,16 @@ public final class ProviderConfigurationStore: ObservableObject {
             try writeCredential(credential, account: account)
         } catch {
             let firstError = error.localizedDescription
-            try? writeCredential(previousCredential, account: account)
-            lastError = firstError
+            var compensationErrors: [String] = []
+            do {
+                try writeCredential(previousCredential, account: account)
+            } catch {
+                compensationErrors.append("credential: \(error.localizedDescription)")
+            }
+            lastError = Self.credentialReplacementError(
+                firstError,
+                compensationErrors: compensationErrors
+            )
             refreshSecretAvailability(including: [normalized])
             return false
         }
@@ -356,9 +370,21 @@ public final class ProviderConfigurationStore: ObservableObject {
             try persistConfigurations(updatedData)
         } catch {
             let firstError = "Could not save account data: \(error.localizedDescription)"
-            try? writeCredential(previousCredential, account: account)
-            try? persistConfigurations(previousData)
-            lastError = firstError
+            var compensationErrors: [String] = []
+            do {
+                try writeCredential(previousCredential, account: account)
+            } catch {
+                compensationErrors.append("credential: \(error.localizedDescription)")
+            }
+            do {
+                try persistConfigurations(previousData)
+            } catch {
+                compensationErrors.append("account data: \(error.localizedDescription)")
+            }
+            lastError = Self.credentialReplacementError(
+                firstError,
+                compensationErrors: compensationErrors
+            )
             refreshSecretAvailability(including: [normalized])
             return false
         }
@@ -595,7 +621,25 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     public func readSavedSecret(for configuration: ProviderAccountConfiguration) -> String? {
-        try? secretStore.readSecret(account: Self.keychainAccount(for: configuration))
+        guard case .credential(let credential) = savedCredentialReadResult(for: configuration) else {
+            return nil
+        }
+        return credential
+    }
+
+    public func savedCredentialReadResult(
+        for configuration: ProviderAccountConfiguration
+    ) -> SavedCredentialReadResult {
+        do {
+            guard let credential = try secretStore.readSecret(
+                account: Self.keychainAccount(for: configuration)
+            ) else {
+                return .missing
+            }
+            return .credential(credential)
+        } catch {
+            return .failure(error.localizedDescription)
+        }
     }
 
     public func hasSecret(for configuration: ProviderAccountConfiguration) -> Bool {
@@ -1116,6 +1160,19 @@ public final class ProviderConfigurationStore: ObservableObject {
         } else {
             try secretStore.deleteSecret(account: account)
         }
+    }
+
+    private static func credentialReplacementError(
+        _ firstError: String,
+        compensationErrors: [String]
+    ) -> String {
+        guard !compensationErrors.isEmpty else {
+            return firstError
+        }
+
+        return "\(firstError) Restoring the previous account state also failed "
+            + "(\(compensationErrors.joined(separator: "; "))). "
+            + "The account may be inconsistent; retry this credential update."
     }
 
     private func sortGroups() {
