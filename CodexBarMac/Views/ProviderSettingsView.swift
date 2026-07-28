@@ -713,12 +713,7 @@ struct ProviderSettingsView: View {
 
     @MainActor
     private func saveOpenCodeCredential() {
-        guard configurationStore.update(configuration) else {
-            openCodeCredentialMessage = configurationStore.lastError
-            return
-        }
-
-        guard configurationStore.saveSecret(secret, for: configuration) else {
+        guard configurationStore.replaceCredential(secret, for: configuration) else {
             openCodeCredentialMessage = configurationStore.lastError
             return
         }

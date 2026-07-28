@@ -5025,6 +5025,125 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testOpenCodeCredentialReplacementRollsBackSecretFailureAndReloads() throws {
+        let suiteName = "CodexBarMacTests.OpenCodeCredential.SecretFailure.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = TransactionalReplacementSecretStore()
+        var original = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        original.accountLabel = "Existing OpenCode"
+        original.isEnabled = false
+        original.openCodeWorkspaceId = "wrk_existing"
+        var replacement = original
+        replacement.accountLabel = "Replacement OpenCode"
+        replacement.isEnabled = true
+        replacement.authMethod = .apiKey
+        replacement.openCodeWorkspaceId = "wrk_replacement"
+        let account = ProviderConfigurationStore.keychainAccount(for: original)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(try JSONEncoder().encode([original]), forKey: "providerConfigurations")
+        try secretStore.saveSecret("existing-dashboard-token", account: account)
+        secretStore.resetSavedCredentials()
+        secretStore.failNextSaveAfterWriting = true
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+        XCTAssertFalse(store.replaceCredential("replacement-dashboard-token", for: replacement))
+        XCTAssertEqual(store.lastError, "Injected secret save failure.")
+        XCTAssertEqual(store.configuration(accountID: original.id), original)
+        XCTAssertEqual(
+            secretStore.savedCredentials,
+            ["replacement-dashboard-token", "existing-dashboard-token"]
+        )
+
+        let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        XCTAssertEqual(reloadedStore.configuration(accountID: original.id), original)
+        XCTAssertEqual(try secretStore.readSecret(account: account), "existing-dashboard-token")
+    }
+
+    @MainActor
+    func testOpenCodeCredentialReplacementCompensatesConfigurationFailureAndReloads() throws {
+        let suiteName = "CodexBarMacTests.OpenCodeCredential.ConfigurationFailure.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = TransactionalReplacementSecretStore()
+        var original = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        original.accountLabel = "Existing OpenCode"
+        original.isEnabled = false
+        original.openCodeWorkspaceId = "wrk_existing"
+        var replacement = original
+        replacement.accountLabel = "Replacement OpenCode"
+        replacement.isEnabled = true
+        replacement.authMethod = .apiKey
+        replacement.openCodeWorkspaceId = "wrk_replacement"
+        let account = ProviderConfigurationStore.keychainAccount(for: original)
+        var persistenceAttempts = 0
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(try JSONEncoder().encode([original]), forKey: "providerConfigurations")
+        try secretStore.saveSecret("existing-dashboard-token", account: account)
+        secretStore.resetSavedCredentials()
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) },
+            persistConfigurations: { data in
+                persistenceAttempts += 1
+                if persistenceAttempts == 1 {
+                    throw TransactionalReplacementTestError.configurationPersistence
+                }
+                defaults.set(data, forKey: "providerConfigurations")
+            }
+        )
+
+        XCTAssertFalse(store.replaceCredential("replacement-dashboard-token", for: replacement))
+        XCTAssertEqual(
+            store.lastError,
+            "Could not save account data: Injected configuration persistence failure."
+        )
+        XCTAssertEqual(persistenceAttempts, 2)
+        XCTAssertEqual(store.configuration(accountID: original.id), original)
+        XCTAssertEqual(
+            secretStore.savedCredentials,
+            ["replacement-dashboard-token", "existing-dashboard-token"]
+        )
+
+        let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        XCTAssertEqual(reloadedStore.configuration(accountID: original.id), original)
+        XCTAssertEqual(try secretStore.readSecret(account: account), "existing-dashboard-token")
+    }
+
+    @MainActor
+    func testOpenCodeCredentialReplacementCommitsConfigurationAndCredential() throws {
+        let suiteName = "CodexBarMacTests.OpenCodeCredential.Success.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = TransactionalReplacementSecretStore()
+        var original = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        original.accountLabel = "Existing OpenCode"
+        original.isEnabled = false
+        original.openCodeWorkspaceId = "wrk_existing"
+        var replacement = original
+        replacement.accountLabel = "Replacement OpenCode"
+        replacement.isEnabled = true
+        replacement.authMethod = .apiKey
+        replacement.openCodeWorkspaceId = "wrk_replacement"
+        let account = ProviderConfigurationStore.keychainAccount(for: original)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(try JSONEncoder().encode([original]), forKey: "providerConfigurations")
+        try secretStore.saveSecret("existing-dashboard-token", account: account)
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+        XCTAssertTrue(store.replaceCredential("replacement-dashboard-token", for: replacement))
+        XCTAssertNil(store.lastError)
+
+        let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        XCTAssertEqual(reloadedStore.configuration(accountID: replacement.id), replacement)
+        XCTAssertEqual(try secretStore.readSecret(account: account), "replacement-dashboard-token")
+    }
+
+    @MainActor
     func testOpenCodeZenBootstrapImporterWaitsForAndResumesAfterConfigurationRecovery() throws {
         let suiteName = "OpenCodeZenBootstrapRecovery-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -5336,6 +5455,12 @@ final class CodexBarMacTests: XCTestCase {
     func testOpenCodeZenBootstrapImporterDeletesFileWhenSecretSaveFails() throws {
         let suiteName = "OpenCodeZenBootstrapImporter-persistence-failure-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = TransactionalReplacementSecretStore()
+        var original = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        original.accountLabel = "Existing OpenCode"
+        original.isEnabled = false
+        original.openCodeWorkspaceId = "wrk_existing"
+        let account = ProviderConfigurationStore.keychainAccount(for: original)
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -5348,7 +5473,10 @@ final class CodexBarMacTests: XCTestCase {
             try? fileManager.removeItem(at: tempDirectory)
         }
 
-        let secretStore = FailingSecretStore()
+        defaults.set(try JSONEncoder().encode([original]), forKey: "providerConfigurations")
+        try secretStore.saveSecret("existing-dashboard-token", account: account)
+        secretStore.resetSavedCredentials()
+        secretStore.failNextSaveAfterWriting = true
         let configurationStore = ProviderConfigurationStore(
             defaults: defaults,
             secretStore: secretStore
@@ -5374,7 +5502,77 @@ final class CodexBarMacTests: XCTestCase {
         )
 
         XCTAssertNotNil(configurationStore.lastError)
-        XCTAssertNil(configurationStore.readSavedSecret(for: .defaultConfiguration(for: .openCodeZen)))
+        XCTAssertEqual(configurationStore.configuration(accountID: original.id), original)
+        XCTAssertEqual(try secretStore.readSecret(account: account), "existing-dashboard-token")
+        let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        XCTAssertEqual(reloadedStore.configuration(accountID: original.id), original)
+        XCTAssertEqual(try secretStore.readSecret(account: account), "existing-dashboard-token")
+        XCTAssertFalse(fileManager.fileExists(atPath: importURL.path))
+    }
+
+    @MainActor
+    func testOpenCodeZenBootstrapImporterDeletesFileWhenConfigurationSaveFails() throws {
+        let suiteName = "OpenCodeZenBootstrapImporter-configuration-failure-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let fileManager = FileManager.default
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let secretStore = TransactionalReplacementSecretStore()
+        var original = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        original.accountLabel = "Existing OpenCode"
+        original.isEnabled = false
+        original.openCodeWorkspaceId = "wrk_existing"
+        let account = ProviderConfigurationStore.keychainAccount(for: original)
+        var persistenceAttempts = 0
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? fileManager.removeItem(at: tempDirectory)
+        }
+        try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defaults.set(try JSONEncoder().encode([original]), forKey: "providerConfigurations")
+        try secretStore.saveSecret("existing-dashboard-token", account: account)
+        secretStore.resetSavedCredentials()
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) },
+            persistConfigurations: { data in
+                persistenceAttempts += 1
+                if persistenceAttempts == 1 {
+                    throw TransactionalReplacementTestError.configurationPersistence
+                }
+                defaults.set(data, forKey: "providerConfigurations")
+            }
+        )
+        let payload = """
+        {
+          "openCodeGoWorkspaceId": "wrk_from_windows",
+          "providers": {
+            "OpenCodeGo": {
+              "apiKey": "go-dashboard-token"
+            }
+          }
+        }
+        """
+        let importURL = tempDirectory.appendingPathComponent(OpenCodeZenBootstrapImporter.importFileName)
+        try Data(payload.utf8).write(to: importURL)
+
+        OpenCodeZenBootstrapImporter.importIfNeeded(
+            configurationStore: configurationStore,
+            fileManager: fileManager,
+            importDirectory: tempDirectory
+        )
+
+        XCTAssertEqual(
+            configurationStore.lastError,
+            "Could not save account data: Injected configuration persistence failure."
+        )
+        XCTAssertEqual(persistenceAttempts, 2)
+        XCTAssertEqual(configurationStore.configuration(accountID: original.id), original)
+        XCTAssertEqual(try secretStore.readSecret(account: account), "existing-dashboard-token")
+        let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        XCTAssertEqual(reloadedStore.configuration(accountID: original.id), original)
+        XCTAssertEqual(try secretStore.readSecret(account: account), "existing-dashboard-token")
         XCTAssertFalse(fileManager.fileExists(atPath: importURL.path))
     }
 
