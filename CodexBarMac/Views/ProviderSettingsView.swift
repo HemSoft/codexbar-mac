@@ -769,11 +769,27 @@ struct ProviderSettingsView: View {
 
     @MainActor
     private func saveOpenCodeCredential() {
-        let savedCredential = configurationStore.readSavedSecret(for: configuration)
+        let savedCredentialReadResult = configurationStore.savedCredentialReadResult(for: configuration)
+        let savedCredential: String? = if case .credential(let credential) = savedCredentialReadResult {
+            credential
+        } else {
+            nil
+        }
         guard let replacementCredential = CredentialMutationFlow.replacementCredential(
             enteredCredential: secret,
             savedCredential: savedCredential
         ) else {
+            switch savedCredentialReadResult {
+            case .failure(let description):
+                openCodeCredentialMessage = description
+                return
+            case .credential:
+                openCodeCredentialMessage = "The saved OpenCode credential is empty. Enter a replacement before saving."
+                return
+            case .missing:
+                break
+            }
+
             guard configurationStore.update(configuration) else {
                 openCodeCredentialMessage = configurationStore.lastError
                 return

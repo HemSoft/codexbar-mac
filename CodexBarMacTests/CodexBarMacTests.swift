@@ -105,6 +105,33 @@ final class CodexBarMacTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testSavedCredentialReadResultDistinguishesMissingCredentialAndReadFailure() {
+        let suiteName = "CodexBarMacTests.SavedCredentialReadResult.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        let secretStore = MutableReadSecretStore(result: .failure(.invalidSecretData))
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+        XCTAssertEqual(
+            store.savedCredentialReadResult(for: configuration),
+            .failure("The saved credential contains invalid data. Replace it in Settings.")
+        )
+
+        secretStore.setResult(.success(nil))
+        XCTAssertEqual(store.savedCredentialReadResult(for: configuration), .missing)
+
+        secretStore.setResult(.success("redacted-dashboard-token"))
+        XCTAssertEqual(
+            store.savedCredentialReadResult(for: configuration),
+            .credential("redacted-dashboard-token")
+        )
+    }
+
     func testKeychainServiceDistinguishesMissingValidAndInvalidSecrets() throws {
         let service = "com.hemsoft.CodexBarMacTests.\(UUID().uuidString)"
         let account = "credential.\(UUID().uuidString)"

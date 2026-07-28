@@ -1,6 +1,12 @@
 import Combine
 import Foundation
 
+public enum SavedCredentialReadResult: Equatable, Sendable {
+    case credential(String)
+    case missing
+    case failure(String)
+}
+
 @MainActor
 public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var configurations: [ProviderAccountConfiguration]
@@ -615,7 +621,25 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     public func readSavedSecret(for configuration: ProviderAccountConfiguration) -> String? {
-        try? secretStore.readSecret(account: Self.keychainAccount(for: configuration))
+        guard case .credential(let credential) = savedCredentialReadResult(for: configuration) else {
+            return nil
+        }
+        return credential
+    }
+
+    public func savedCredentialReadResult(
+        for configuration: ProviderAccountConfiguration
+    ) -> SavedCredentialReadResult {
+        do {
+            guard let credential = try secretStore.readSecret(
+                account: Self.keychainAccount(for: configuration)
+            ) else {
+                return .missing
+            }
+            return .credential(credential)
+        } catch {
+            return .failure(error.localizedDescription)
+        }
     }
 
     public func hasSecret(for configuration: ProviderAccountConfiguration) -> Bool {
