@@ -1,5 +1,25 @@
 import SwiftUI
 
+@MainActor
+enum CredentialMutationFlow {
+    @discardableResult
+    static func perform(
+        secret: String,
+        for configuration: ProviderAccountConfiguration,
+        using configurationStore: ProviderConfigurationStore,
+        onFailure: (String?) -> Void = { _ in },
+        onSuccess: () -> Void
+    ) -> Bool {
+        guard configurationStore.saveSecret(secret, for: configuration) else {
+            onFailure(configurationStore.lastError)
+            return false
+        }
+
+        onSuccess()
+        return true
+    }
+}
+
 struct ProviderSettingsView: View {
     @ObservedObject var configurationStore: ProviderConfigurationStore
     let accountID: String
@@ -306,11 +326,19 @@ struct ProviderSettingsView: View {
 
         if configurationStore.hasSecret(for: configuration) {
             Button("Remove Saved Credential", role: .destructive) {
-                configurationStore.saveSecret("", for: configuration)
-                openCodeCredentialMessage = "OpenCode credential removed."
-                Task {
-                    await onCredentialsChanged()
-                }
+                CredentialMutationFlow.perform(
+                    secret: "",
+                    for: configuration,
+                    using: configurationStore,
+                    onFailure: { openCodeCredentialMessage = $0 },
+                    onSuccess: {
+                        secret = ""
+                        openCodeCredentialMessage = "OpenCode credential removed."
+                        Task {
+                            await onCredentialsChanged()
+                        }
+                    }
+                )
             }
         }
 
@@ -446,42 +474,68 @@ struct ProviderSettingsView: View {
             return
         }
 
-        configurationStore.saveSecret(trimmedSecret, for: configuration)
-        secret = ""
-
-        Task {
-            await onCredentialsChanged()
-        }
+        CredentialMutationFlow.perform(
+            secret: trimmedSecret,
+            for: configuration,
+            using: configurationStore,
+            onSuccess: {
+                secret = ""
+                Task {
+                    await onCredentialsChanged()
+                }
+            }
+        )
     }
 
     private func removeSecret() {
-        configurationStore.saveSecret("", for: configuration)
-        secret = ""
-
-        Task {
-            await onCredentialsChanged()
-        }
+        CredentialMutationFlow.perform(
+            secret: "",
+            for: configuration,
+            using: configurationStore,
+            onSuccess: {
+                secret = ""
+                Task {
+                    await onCredentialsChanged()
+                }
+            }
+        )
     }
 
     private func removeBrowserCredential() {
-        configurationStore.saveSecret("", for: configuration)
-        codexAuthError = configurationStore.lastError
-        claudeAuthError = configurationStore.lastError
-        claudeAuthDiagnostic = nil
-
-        Task {
-            await onCredentialsChanged()
-        }
+        CredentialMutationFlow.perform(
+            secret: "",
+            for: configuration,
+            using: configurationStore,
+            onFailure: { error in
+                codexAuthError = error
+                claudeAuthError = error
+                claudeAuthDiagnostic = nil
+            },
+            onSuccess: {
+                codexAuthError = nil
+                claudeAuthError = nil
+                claudeAuthDiagnostic = nil
+                Task {
+                    await onCredentialsChanged()
+                }
+            }
+        )
     }
 
     private func removeCopilotCredential() {
-        configurationStore.saveSecret("", for: configuration)
-        copilotAuthError = configurationStore.lastError
-        secret = ""
-
-        Task {
-            await onCredentialsChanged()
-        }
+        CredentialMutationFlow.perform(
+            secret: "",
+            for: configuration,
+            using: configurationStore,
+            onFailure: { copilotAuthError = $0 },
+            onSuccess: {
+                copilotAuthError = nil
+                secret = ""
+                Task {
+                    await onCredentialsChanged()
+                }
+            }
+        )
     }
 
     @MainActor
@@ -664,8 +718,7 @@ struct ProviderSettingsView: View {
             return
         }
 
-        configurationStore.saveSecret(secret, for: configuration)
-        guard configurationStore.lastError == nil else {
+        guard configurationStore.saveSecret(secret, for: configuration) else {
             openCodeCredentialMessage = configurationStore.lastError
             return
         }
