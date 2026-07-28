@@ -73,6 +73,38 @@ final class CodexBarMacTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testOpenCodeSaveIsAvailableForCredentialOrMetadataChanges() {
+        XCTAssertTrue(
+            CredentialMutationFlow.canSaveOpenCodeSettings(
+                enteredCredential: "replacement-dashboard-token",
+                hasSavedCredential: false,
+                hasStagedSettings: false
+            )
+        )
+        XCTAssertTrue(
+            CredentialMutationFlow.canSaveOpenCodeSettings(
+                enteredCredential: "",
+                hasSavedCredential: true,
+                hasStagedSettings: false
+            )
+        )
+        XCTAssertTrue(
+            CredentialMutationFlow.canSaveOpenCodeSettings(
+                enteredCredential: "",
+                hasSavedCredential: false,
+                hasStagedSettings: true
+            )
+        )
+        XCTAssertFalse(
+            CredentialMutationFlow.canSaveOpenCodeSettings(
+                enteredCredential: "  ",
+                hasSavedCredential: false,
+                hasStagedSettings: false
+            )
+        )
+    }
+
     func testKeychainServiceDistinguishesMissingValidAndInvalidSecrets() throws {
         let service = "com.hemsoft.CodexBarMacTests.\(UUID().uuidString)"
         let account = "credential.\(UUID().uuidString)"

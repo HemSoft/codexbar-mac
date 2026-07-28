@@ -2,6 +2,16 @@ import SwiftUI
 
 @MainActor
 enum CredentialMutationFlow {
+    static func canSaveOpenCodeSettings(
+        enteredCredential: String,
+        hasSavedCredential: Bool,
+        hasStagedSettings: Bool
+    ) -> Bool {
+        !enteredCredential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || hasSavedCredential
+            || hasStagedSettings
+    }
+
     static func replacementCredential(
         enteredCredential: String,
         savedCredential: String?
@@ -348,8 +358,11 @@ struct ProviderSettingsView: View {
             saveOpenCodeCredential()
         }
         .disabled(
-            secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && !configurationStore.hasSecret(for: configuration)
+            !CredentialMutationFlow.canSaveOpenCodeSettings(
+                enteredCredential: secret,
+                hasSavedCredential: configurationStore.hasSecret(for: configuration),
+                hasStagedSettings: hasStagedOpenCodeSettings
+            )
         )
 
         if configurationStore.hasSecret(for: configuration) {
@@ -761,7 +774,15 @@ struct ProviderSettingsView: View {
             enteredCredential: secret,
             savedCredential: savedCredential
         ) else {
-            openCodeCredentialMessage = "Enter an OpenCode dashboard auth value before saving."
+            guard configurationStore.update(configuration) else {
+                openCodeCredentialMessage = configurationStore.lastError
+                return
+            }
+
+            openCodeCredentialMessage = "OpenCode settings saved. Add a dashboard auth value to refresh."
+            Task {
+                await onCredentialsChanged()
+            }
             return
         }
 
@@ -790,7 +811,13 @@ struct ProviderSettingsView: View {
                 ? "Save Settings and Refresh"
                 : "Update and Refresh"
         }
-        return "Save and Refresh"
+        return secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Save Settings"
+            : "Save and Refresh"
+    }
+
+    private var hasStagedOpenCodeSettings: Bool {
+        configurationStore.configuration(accountID: accountID) != configuration
     }
 
     @MainActor
