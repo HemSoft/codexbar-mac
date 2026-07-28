@@ -44,6 +44,119 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testCredentialSaveFlowPreservesInputAndSkipsRefreshUntilStorageSucceeds() {
+        let suiteName = "CodexBarMacTests.CredentialSaveFlow.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openRouter)
+        let secretStore = CredentialMutationSecretStore()
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        var pastedSecret = "redacted-test-secret"
+        var surfacedError: String?
+        var refreshCount = 0
+
+        secretStore.failSaves = true
+        XCTAssertFalse(
+            CredentialMutationFlow.perform(
+                secret: pastedSecret,
+                for: configuration,
+                using: store,
+                onFailure: { surfacedError = $0 },
+                onSuccess: {
+                    pastedSecret = ""
+                    refreshCount += 1
+                }
+            )
+        )
+        XCTAssertEqual(pastedSecret, "redacted-test-secret")
+        XCTAssertEqual(surfacedError, "Injected credential save failure.")
+        XCTAssertEqual(store.lastError, surfacedError)
+        XCTAssertEqual(refreshCount, 0)
+        XCTAssertNil(store.readSavedSecret(for: configuration))
+
+        secretStore.failSaves = false
+        XCTAssertTrue(
+            CredentialMutationFlow.perform(
+                secret: pastedSecret,
+                for: configuration,
+                using: store,
+                onFailure: { surfacedError = $0 },
+                onSuccess: {
+                    pastedSecret = ""
+                    refreshCount += 1
+                }
+            )
+        )
+        XCTAssertTrue(pastedSecret.isEmpty)
+        XCTAssertNil(store.lastError)
+        XCTAssertEqual(refreshCount, 1)
+        XCTAssertNotNil(store.readSavedSecret(for: configuration))
+    }
+
+    @MainActor
+    func testCredentialRemovalFlowPreservesPresentStateAndSkipsRefreshUntilDeletionSucceeds() throws {
+        let suiteName = "CodexBarMacTests.CredentialRemovalFlow.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        let secretStore = CredentialMutationSecretStore()
+        try secretStore.saveSecret(
+            "redacted-existing-secret",
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        var reportsCredentialPresent = true
+        var surfacedMessage: String?
+        var refreshCount = 0
+
+        secretStore.failDeletes = true
+        XCTAssertFalse(
+            CredentialMutationFlow.perform(
+                secret: "",
+                for: configuration,
+                using: store,
+                onFailure: { surfacedMessage = $0 },
+                onSuccess: {
+                    reportsCredentialPresent = false
+                    surfacedMessage = "OpenCode credential removed."
+                    refreshCount += 1
+                }
+            )
+        )
+        XCTAssertTrue(reportsCredentialPresent)
+        XCTAssertEqual(surfacedMessage, "Injected credential deletion failure.")
+        XCTAssertEqual(store.lastError, surfacedMessage)
+        XCTAssertEqual(refreshCount, 0)
+        XCTAssertNotNil(store.readSavedSecret(for: configuration))
+
+        secretStore.failDeletes = false
+        XCTAssertTrue(
+            CredentialMutationFlow.perform(
+                secret: "",
+                for: configuration,
+                using: store,
+                onFailure: { surfacedMessage = $0 },
+                onSuccess: {
+                    reportsCredentialPresent = false
+                    surfacedMessage = "OpenCode credential removed."
+                    refreshCount += 1
+                }
+            )
+        )
+        XCTAssertFalse(reportsCredentialPresent)
+        XCTAssertEqual(surfacedMessage, "OpenCode credential removed.")
+        XCTAssertNil(store.lastError)
+        XCTAssertEqual(refreshCount, 1)
+        XCTAssertNil(store.readSavedSecret(for: configuration))
+    }
+
+    @MainActor
     func testCredentialReadinessSurfacesAndClearsSecretReadErrors() async throws {
         let suiteName = "CodexBarMacTests.CredentialReadiness.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -8986,6 +9099,59 @@ private enum TransactionalReplacementTestError: LocalizedError {
             "Injected secret save failure."
         case .configurationPersistence:
             "Injected configuration persistence failure."
+        }
+    }
+}
+
+private enum CredentialMutationTestError: LocalizedError {
+    case save
+    case delete
+
+    var errorDescription: String? {
+        switch self {
+        case .save:
+            "Injected credential save failure."
+        case .delete:
+            "Injected credential deletion failure."
+        }
+    }
+}
+
+private final class CredentialMutationSecretStore: SecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var secrets: [String: String] = [:]
+    private var shouldFailSaves = false
+    private var shouldFailDeletes = false
+
+    var failSaves: Bool {
+        get { lock.withLock { shouldFailSaves } }
+        set { lock.withLock { shouldFailSaves = newValue } }
+    }
+
+    var failDeletes: Bool {
+        get { lock.withLock { shouldFailDeletes } }
+        set { lock.withLock { shouldFailDeletes = newValue } }
+    }
+
+    func readSecret(account: String) throws -> String? {
+        lock.withLock { secrets[account] }
+    }
+
+    func saveSecret(_ secret: String, account: String) throws {
+        try lock.withLock {
+            if shouldFailSaves {
+                throw CredentialMutationTestError.save
+            }
+            secrets[account] = secret
+        }
+    }
+
+    func deleteSecret(account: String) throws {
+        try lock.withLock {
+            if shouldFailDeletes {
+                throw CredentialMutationTestError.delete
+            }
+            secrets.removeValue(forKey: account)
         }
     }
 }

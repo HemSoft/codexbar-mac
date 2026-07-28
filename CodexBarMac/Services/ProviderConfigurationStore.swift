@@ -569,9 +569,10 @@ public final class ProviderConfigurationStore: ObservableObject {
         return disconnectedConfiguration
     }
 
-    public func saveSecret(_ secret: String, for configuration: ProviderAccountConfiguration) {
+    @discardableResult
+    public func saveSecret(_ secret: String, for configuration: ProviderAccountConfiguration) -> Bool {
         guard allowConfigurationMutation() else {
-            return
+            return false
         }
 
         do {
@@ -586,8 +587,10 @@ public final class ProviderConfigurationStore: ObservableObject {
             secretReadErrors.removeValue(forKey: configuration.id)
             lastError = nil
             refreshSecretAvailability(including: [configuration])
+            return true
         } catch {
             lastError = error.localizedDescription
+            return false
         }
     }
 

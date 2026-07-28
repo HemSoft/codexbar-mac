@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Failed credential saves and removals now preserve retryable Settings state,
+  show the storage error, and refresh only after Keychain changes succeed.
 - Usage refresh timeouts and cancellation now safely coordinate in-flight tasks,
   preventing refresh races while still cancelling work that loses the race.
 - Browser sign-in now keeps Codex, Claude, and GitHub Copilot credentials aligned
