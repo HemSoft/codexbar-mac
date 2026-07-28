@@ -112,6 +112,7 @@ final class CodexBarMacTests: XCTestCase {
         )
         let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
         var reportsCredentialPresent = true
+        var pendingSecret = "redacted-pending-secret"
         var surfacedMessage: String?
         var refreshCount = 0
 
@@ -124,12 +125,14 @@ final class CodexBarMacTests: XCTestCase {
                 onFailure: { surfacedMessage = $0 },
                 onSuccess: {
                     reportsCredentialPresent = false
+                    pendingSecret = ""
                     surfacedMessage = "OpenCode credential removed."
                     refreshCount += 1
                 }
             )
         )
         XCTAssertTrue(reportsCredentialPresent)
+        XCTAssertEqual(pendingSecret, "redacted-pending-secret")
         XCTAssertEqual(surfacedMessage, "Injected credential deletion failure.")
         XCTAssertEqual(store.lastError, surfacedMessage)
         XCTAssertEqual(refreshCount, 0)
@@ -144,12 +147,14 @@ final class CodexBarMacTests: XCTestCase {
                 onFailure: { surfacedMessage = $0 },
                 onSuccess: {
                     reportsCredentialPresent = false
+                    pendingSecret = ""
                     surfacedMessage = "OpenCode credential removed."
                     refreshCount += 1
                 }
             )
         )
         XCTAssertFalse(reportsCredentialPresent)
+        XCTAssertTrue(pendingSecret.isEmpty)
         XCTAssertEqual(surfacedMessage, "OpenCode credential removed.")
         XCTAssertNil(store.lastError)
         XCTAssertEqual(refreshCount, 1)
@@ -9123,6 +9128,8 @@ private final class CredentialMutationSecretStore: SecretStore, @unchecked Senda
     private var shouldFailSaves = false
     private var shouldFailDeletes = false
 
+    deinit {}
+
     var failSaves: Bool {
         get { lock.withLock { shouldFailSaves } }
         set { lock.withLock { shouldFailSaves = newValue } }
@@ -9151,7 +9158,7 @@ private final class CredentialMutationSecretStore: SecretStore, @unchecked Senda
             if shouldFailDeletes {
                 throw CredentialMutationTestError.delete
             }
-            secrets.removeValue(forKey: account)
+            _ = secrets.removeValue(forKey: account)
         }
     }
 }

@@ -332,6 +332,7 @@ struct ProviderSettingsView: View {
                     using: configurationStore,
                     onFailure: { openCodeCredentialMessage = $0 },
                     onSuccess: {
+                        secret = ""
                         openCodeCredentialMessage = "OpenCode credential removed."
                         Task {
                             await onCredentialsChanged()
