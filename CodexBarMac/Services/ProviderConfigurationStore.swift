@@ -1148,7 +1148,7 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         return "\(firstError) Restoring the previous account state also failed "
             + "(\(compensationErrors.joined(separator: "; "))). "
-            + "The account may be inconsistent; save its credential again."
+            + "The account may be inconsistent; retry this credential update."
     }
 
     private func sortGroups() {

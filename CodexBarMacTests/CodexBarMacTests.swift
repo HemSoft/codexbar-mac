@@ -5087,7 +5087,7 @@ final class CodexBarMacTests: XCTestCase {
             store.lastError,
             "Injected secret save failure. Restoring the previous account state also failed "
                 + "(credential: Injected credential compensation failure.). "
-                + "The account may be inconsistent; save its credential again."
+                + "The account may be inconsistent; retry this credential update."
         )
         XCTAssertEqual(store.configuration(accountID: original.id), original)
 
@@ -5180,7 +5180,7 @@ final class CodexBarMacTests: XCTestCase {
             "Could not save account data: Injected configuration persistence failure. "
                 + "Restoring the previous account state also failed "
                 + "(account data: Injected configuration persistence failure.). "
-                + "The account may be inconsistent; save its credential again."
+                + "The account may be inconsistent; retry this credential update."
         )
         XCTAssertEqual(store.configuration(accountID: original.id), original)
         XCTAssertEqual(try secretStore.readSecret(account: account), "existing-dashboard-token")
