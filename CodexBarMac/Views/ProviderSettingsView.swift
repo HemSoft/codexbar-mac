@@ -2,6 +2,26 @@ import SwiftUI
 
 @MainActor
 enum CredentialMutationFlow {
+    static func configurationForAutomaticPersistence(
+        _ editedConfiguration: ProviderAccountConfiguration,
+        persistedConfiguration: ProviderAccountConfiguration?
+    ) -> ProviderAccountConfiguration {
+        guard
+            editedConfiguration.providerID == .openCodeZen,
+            let persistedConfiguration,
+            persistedConfiguration.id == editedConfiguration.id
+        else {
+            return editedConfiguration
+        }
+
+        var automaticallyPersisted = editedConfiguration
+        automaticallyPersisted.isEnabled = persistedConfiguration.isEnabled
+        automaticallyPersisted.accountLabel = persistedConfiguration.accountLabel
+        automaticallyPersisted.authMethod = persistedConfiguration.authMethod
+        automaticallyPersisted.openCodeWorkspaceId = persistedConfiguration.openCodeWorkspaceId
+        return automaticallyPersisted
+    }
+
     @discardableResult
     static func perform(
         secret: String,
@@ -176,18 +196,24 @@ struct ProviderSettingsView: View {
 #endif
         }
         .onChange(of: configuration) { oldValue, newValue in
-            guard configurationStore.update(newValue) else {
+            let persistedConfiguration = configurationStore.configuration(accountID: accountID)
+            let automaticallyPersisted = CredentialMutationFlow.configurationForAutomaticPersistence(
+                newValue,
+                persistedConfiguration: persistedConfiguration
+            )
+            guard configurationStore.update(automaticallyPersisted) else {
                 configuration = oldValue
                 syncCopilotAllotmentText()
                 return
             }
 
-            let shouldRefresh = oldValue.isEnabled != newValue.isEnabled
-                || oldValue.authMethod != newValue.authMethod
-                || oldValue.copilotAccountScope != newValue.copilotAccountScope
-                || oldValue.githubOrganization != newValue.githubOrganization
-                || oldValue.githubEnterprise != newValue.githubEnterprise
-                || oldValue.copilotTotalAllotment != newValue.copilotTotalAllotment
+            let previousPersisted = persistedConfiguration ?? oldValue
+            let shouldRefresh = previousPersisted.isEnabled != automaticallyPersisted.isEnabled
+                || previousPersisted.authMethod != automaticallyPersisted.authMethod
+                || previousPersisted.copilotAccountScope != automaticallyPersisted.copilotAccountScope
+                || previousPersisted.githubOrganization != automaticallyPersisted.githubOrganization
+                || previousPersisted.githubEnterprise != automaticallyPersisted.githubEnterprise
+                || previousPersisted.copilotTotalAllotment != automaticallyPersisted.copilotTotalAllotment
             guard shouldRefresh else {
                 return
             }

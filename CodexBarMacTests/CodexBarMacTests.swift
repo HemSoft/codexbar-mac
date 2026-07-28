@@ -4,6 +4,51 @@ import Security
 @testable import CodexBarMac
 
 final class CodexBarMacTests: XCTestCase {
+    @MainActor
+    func testOpenCodeAutomaticPersistenceStagesCredentialCoupledMetadata() {
+        var persisted = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        persisted.isEnabled = true
+        persisted.accountLabel = "Existing OpenCode"
+        persisted.authMethod = .apiKey
+        persisted.openCodeWorkspaceId = "wrk_existing"
+        persisted.showsHistory = true
+
+        var edited = persisted
+        edited.isEnabled = false
+        edited.accountLabel = "Replacement OpenCode"
+        edited.authMethod = .browserSession
+        edited.openCodeWorkspaceId = "wrk_replacement"
+        edited.showsHistory = false
+
+        let automaticallyPersisted = CredentialMutationFlow.configurationForAutomaticPersistence(
+            edited,
+            persistedConfiguration: persisted
+        )
+
+        XCTAssertTrue(automaticallyPersisted.isEnabled)
+        XCTAssertEqual(automaticallyPersisted.accountLabel, "Existing OpenCode")
+        XCTAssertEqual(automaticallyPersisted.authMethod, .apiKey)
+        XCTAssertEqual(automaticallyPersisted.openCodeWorkspaceId, "wrk_existing")
+        XCTAssertFalse(automaticallyPersisted.showsHistory)
+    }
+
+    @MainActor
+    func testAutomaticPersistenceDoesNotStageOtherProviders() {
+        var persisted = ProviderAccountConfiguration.defaultConfiguration(for: .openRouter)
+        persisted.accountLabel = "Existing OpenRouter"
+
+        var edited = persisted
+        edited.accountLabel = "Replacement OpenRouter"
+
+        XCTAssertEqual(
+            CredentialMutationFlow.configurationForAutomaticPersistence(
+                edited,
+                persistedConfiguration: persisted
+            ),
+            edited
+        )
+    }
+
     func testKeychainServiceDistinguishesMissingValidAndInvalidSecrets() throws {
         let service = "com.hemsoft.CodexBarMacTests.\(UUID().uuidString)"
         let account = "credential.\(UUID().uuidString)"
