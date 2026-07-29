@@ -150,6 +150,7 @@ public final class CursorUsageProvider: UsageProvider {
         if let plan = usage.planUsage {
             bars.append(contentsOf: [
                 usageBar(
+                    stableKey: "total",
                     label: "Total",
                     percent: plan.totalPercentUsed,
                     reset: reset,
@@ -157,6 +158,7 @@ public final class CursorUsageProvider: UsageProvider {
                     billingPeriod: billingPeriod
                 ),
                 usageBar(
+                    stableKey: "auto",
                     label: "Auto",
                     percent: plan.autoPercentUsed,
                     reset: reset,
@@ -164,6 +166,7 @@ public final class CursorUsageProvider: UsageProvider {
                     billingPeriod: billingPeriod
                 ),
                 usageBar(
+                    stableKey: "api",
                     label: "API",
                     percent: plan.apiPercentUsed,
                     reset: reset,
@@ -213,6 +216,7 @@ public final class CursorUsageProvider: UsageProvider {
     }
 
     private static func usageBar(
+        stableKey: String,
         label: String,
         percent: Double?,
         reset: Date?,
@@ -225,6 +229,7 @@ public final class CursorUsageProvider: UsageProvider {
 
         let usedPercent = min(max(percent, 0), 100)
         return UsageBar(
+            stableKey: stableKey,
             label: label,
             used: usedPercent,
             limit: 100,
