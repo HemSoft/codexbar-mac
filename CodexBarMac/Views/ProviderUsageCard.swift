@@ -126,7 +126,10 @@ struct ProviderUsageCard: View {
                 Button {
                     isShowingHistory = true
                 } label: {
-                    UsageHistoryCompactView(series: history)
+                    UsageHistoryCompactView(
+                        label: historyOptions.first?.label ?? "Usage",
+                        series: history
+                    )
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -243,6 +246,7 @@ private struct UsageAlertSummaryView: View {
 }
 
 private struct UsageHistoryCompactView: View {
+    let label: String
     let series: UsageHistorySeries
 
     var body: some View {
@@ -251,6 +255,11 @@ private struct UsageHistoryCompactView: View {
                 .frame(width: 88, height: 38)
 
             VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(series.latestValueDescription)
                         .font(.subheadline.weight(.semibold))
@@ -278,7 +287,7 @@ private struct UsageHistoryCompactView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "Usage history. Latest \(series.latestValueDescription). \(series.changeDescription). \(series.rangeDescription)."
+            "\(label) history. Latest \(series.latestValueDescription). \(series.changeDescription). \(series.rangeDescription)."
         )
     }
 }
