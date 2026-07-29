@@ -133,9 +133,12 @@ public struct UsageHistorySnapshot: Identifiable, Equatable, Codable, Sendable {
 
         if providerID == .cursor,
            let total = bars.first(where: {
-               $0.stableKey == "total"
+               $0.stableKey == CursorUsageIdentity.totalStableKey
                    || ($0.stableKey == nil
-                       && $0.label.caseInsensitiveCompare("Total") == .orderedSame)
+                       && CursorUsageIdentity.matchesLegacyLabel(
+                           $0.label,
+                           stableKey: CursorUsageIdentity.totalStableKey
+                       ))
            })
         {
             return total.fractionUsed
@@ -507,7 +510,7 @@ public final class UsageHistoryStore: ObservableObject {
         }
 
         let points = accountSnapshots.compactMap { snapshot -> UsageHistoryPoint? in
-            if !isBalance && result.providerID == .cursor {
+            if !isBalance, primaryMonetaryIdentity == nil, result.providerID == .cursor {
                 return Self.cursorPrimaryBar(in: snapshot).map {
                     UsageHistoryPoint(
                         id: snapshot.id,
@@ -616,28 +619,13 @@ public final class UsageHistoryStore: ObservableObject {
         in snapshot: UsageHistorySnapshot
     ) -> UsageHistoryBarSnapshot? {
         snapshot.bars.first(where: {
-            $0.stableKey == "total"
-                || ($0.stableKey == nil && matchesLegacyCursorBar($0, stableKey: "total"))
+            $0.stableKey == CursorUsageIdentity.totalStableKey
+                || ($0.stableKey == nil
+                    && CursorUsageIdentity.matchesLegacyLabel(
+                        $0.label,
+                        stableKey: CursorUsageIdentity.totalStableKey
+                    ))
         }) ?? snapshot.bars.max(by: { $0.fractionUsed < $1.fractionUsed })
-    }
-
-    private static func matchesLegacyCursorBar(
-        _ bar: UsageHistoryBarSnapshot,
-        stableKey: String
-    ) -> Bool {
-        let label = bar.label.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch stableKey {
-        case "total":
-            return label.caseInsensitiveCompare("Total") == .orderedSame
-        case "auto":
-            return label.caseInsensitiveCompare("Auto") == .orderedSame
-        case "api":
-            return label.caseInsensitiveCompare("API") == .orderedSame
-        case "on-demand":
-            return label.lowercased().hasPrefix("on-demand")
-        default:
-            return false
-        }
     }
 
     private func cursorUsageSeries(
@@ -651,7 +639,10 @@ public final class UsageHistoryStore: ObservableObject {
                 snapshot.bars.first(where: {
                     $0.stableKey == stableKey
                         || ($0.stableKey == nil
-                            && Self.matchesLegacyCursorBar($0, stableKey: stableKey))
+                            && CursorUsageIdentity.matchesLegacyLabel(
+                                $0.label,
+                                stableKey: stableKey
+                            ))
                 }).map {
                     UsageHistoryPoint(
                         id: snapshot.id,
@@ -690,67 +681,73 @@ public final class UsageHistoryStore: ObservableObject {
         snapshots: [UsageHistorySnapshot],
         currentBars: [UsageBar]
     ) -> [UsageHistorySeriesOption] {
-        let metricOptions: [UsageHistorySeriesOption] = [
-            ("total", "Total"),
-            ("auto", "Auto"),
-            ("api", "API"),
-            ("on-demand", "On-demand"),
-        ].compactMap { stableKey, label in
-            let isAvailable = currentBars.contains(where: { $0.stableKey == stableKey })
-                || snapshots.contains(where: { snapshot in
-                    snapshot.bars.contains(where: {
-                        $0.stableKey == stableKey
-                            || ($0.stableKey == nil
-                                && Self.matchesLegacyCursorBar($0, stableKey: stableKey))
+        let metricOptions: [UsageHistorySeriesOption] =
+            CursorUsageIdentity.metricDefinitions.compactMap { stableKey, label in
+                let isAvailable = currentBars.contains(where: { $0.stableKey == stableKey })
+                    || snapshots.contains(where: { snapshot in
+                        snapshot.bars.contains(where: {
+                            $0.stableKey == stableKey
+                                || ($0.stableKey == nil
+                                    && CursorUsageIdentity.matchesLegacyLabel(
+                                        $0.label,
+                                        stableKey: stableKey
+                                    ))
+                        })
                     })
-                })
-            guard isAvailable else {
-                return nil
+                guard isAvailable else {
+                    return nil
+                }
+
+                return UsageHistorySeriesOption(
+                    id: "usage.\(stableKey)",
+                    label: label,
+                    series: cursorUsageSeries(
+                        accountID: accountID,
+                        snapshots: snapshots,
+                        stableKey: stableKey
+                    )
+                )
             }
 
-            return UsageHistorySeriesOption(
-                id: "usage.\(stableKey)",
-                label: label,
-                series: cursorUsageSeries(
-                    accountID: accountID,
-                    snapshots: snapshots,
-                    stableKey: stableKey
-                )
-            )
-        }
-
-        guard !metricOptions.contains(where: { $0.id == "usage.total" }) else {
+        if metricOptions.contains(where: {
+            $0.id == "usage.\(CursorUsageIdentity.totalStableKey)"
+        }) {
+            // Older snapshots may predate Cursor's Total bar, so keep their highest
+            // available value in the default series while preserving named metrics.
             let hasFallbackSamples = snapshots.contains(where: { snapshot in
                 !snapshot.bars.isEmpty
                     && !snapshot.bars.contains(where: {
-                        $0.stableKey == "total"
+                        $0.stableKey == CursorUsageIdentity.totalStableKey
                             || ($0.stableKey == nil
-                                && Self.matchesLegacyCursorBar($0, stableKey: "total"))
+                                && CursorUsageIdentity.matchesLegacyLabel(
+                                    $0.label,
+                                    stableKey: CursorUsageIdentity.totalStableKey
+                                ))
                     })
             })
-            guard hasFallbackSamples else {
-                return metricOptions
+            if hasFallbackSamples {
+                return [
+                    UsageHistorySeriesOption(
+                        id: "usage",
+                        label: "Total / highest available",
+                        series: cursorPrimaryUsageSeries(
+                            accountID: accountID,
+                            snapshots: snapshots
+                        )
+                    ),
+                ] + metricOptions
             }
 
+            return metricOptions
+        } else {
             return [
                 UsageHistorySeriesOption(
                     id: "usage",
-                    label: "Total / highest available",
-                    series: cursorPrimaryUsageSeries(
-                        accountID: accountID,
-                        snapshots: snapshots
-                    )
+                    label: "Highest usage",
+                    series: cursorPrimaryUsageSeries(accountID: accountID, snapshots: snapshots)
                 ),
             ] + metricOptions
         }
-
-        return [
-            UsageHistorySeriesOption(
-                id: "usage",
-                label: "Highest usage",
-                series: cursorPrimaryUsageSeries(accountID: accountID, snapshots: snapshots)
-            ),
-        ] + metricOptions
     }
 
     public func trendSummary(for result: ProviderUsageResult, now: Date = Date()) -> UsageTrendSummary? {

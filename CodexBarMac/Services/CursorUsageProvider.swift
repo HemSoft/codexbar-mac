@@ -1,5 +1,35 @@
 import Foundation
 
+enum CursorUsageIdentity {
+    static let totalStableKey = "total"
+    static let autoStableKey = "auto"
+    static let apiStableKey = "api"
+    static let onDemandStableKey = "on-demand"
+
+    static let metricDefinitions: [(stableKey: String, label: String)] = [
+        (totalStableKey, "Total"),
+        (autoStableKey, "Auto"),
+        (apiStableKey, "API"),
+        (onDemandStableKey, "On-demand"),
+    ]
+
+    static func matchesLegacyLabel(_ label: String, stableKey: String) -> Bool {
+        let normalizedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch stableKey {
+        case totalStableKey:
+            return normalizedLabel.caseInsensitiveCompare("Total") == .orderedSame
+        case autoStableKey:
+            return normalizedLabel.caseInsensitiveCompare("Auto") == .orderedSame
+        case apiStableKey:
+            return normalizedLabel.caseInsensitiveCompare("API") == .orderedSame
+        case onDemandStableKey:
+            return normalizedLabel.lowercased().hasPrefix("on-demand")
+        default:
+            return false
+        }
+    }
+}
+
 public final class CursorUsageProvider: UsageProvider {
     private let secretStore: any SecretStore
     private let session: URLSession
@@ -150,7 +180,7 @@ public final class CursorUsageProvider: UsageProvider {
         if let plan = usage.planUsage {
             bars.append(contentsOf: [
                 usageBar(
-                    stableKey: "total",
+                    stableKey: CursorUsageIdentity.totalStableKey,
                     label: "Total",
                     percent: plan.totalPercentUsed,
                     reset: reset,
@@ -158,7 +188,7 @@ public final class CursorUsageProvider: UsageProvider {
                     billingPeriod: billingPeriod
                 ),
                 usageBar(
-                    stableKey: "auto",
+                    stableKey: CursorUsageIdentity.autoStableKey,
                     label: "Auto",
                     percent: plan.autoPercentUsed,
                     reset: reset,
@@ -166,7 +196,7 @@ public final class CursorUsageProvider: UsageProvider {
                     billingPeriod: billingPeriod
                 ),
                 usageBar(
-                    stableKey: "api",
+                    stableKey: CursorUsageIdentity.apiStableKey,
                     label: "API",
                     percent: plan.apiPercentUsed,
                     reset: reset,
@@ -184,7 +214,7 @@ public final class CursorUsageProvider: UsageProvider {
         {
             let used = max(0, limit - remaining)
             bars.append(UsageBar(
-                stableKey: "on-demand",
+                stableKey: CursorUsageIdentity.onDemandStableKey,
                 label: "On-demand \(formatCents(used)) / \(formatCents(limit))",
                 used: Double(used) / 100,
                 limit: Double(limit) / 100,

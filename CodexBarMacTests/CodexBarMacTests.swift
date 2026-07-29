@@ -9129,7 +9129,12 @@ final class CodexBarMacTests: XCTestCase {
 
         let reloadedStore = UsageHistoryStore(defaults: defaults)
         XCTAssertFalse(reloadedStore.requiresRecovery)
-        XCTAssertNil(reloadedStore.snapshots.first?.bars.first?.stableKey)
+        let reloadedBars = try XCTUnwrap(reloadedStore.snapshots.first?.bars)
+        XCTAssertTrue(reloadedBars.allSatisfy { $0.stableKey == nil })
+        XCTAssertEqual(
+            reloadedBars.first(where: { $0.label == "API" })?.effectiveSeverity,
+            .critical
+        )
         XCTAssertEqual(reloadedStore.historySeries(for: result).points.map(\.value), [0.38])
 
         let options = reloadedStore.historySeriesOptions(for: result)
