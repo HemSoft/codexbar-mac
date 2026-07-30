@@ -1246,6 +1246,54 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.first?.used, 0.5)
     }
 
+    func testClaudeUsageParserDecodesOptionalSectionsIndependently() throws {
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"five_hour":{"utilization":13,"resets_at":"2030-01-01T02:00:00Z"},"seven_day":[],"spend":[],"extra_usage":[]}"#.utf8),
+            subscriptionType: "pro"
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), ["5 hour usage limit"])
+        XCTAssertEqual(result.bars.map(\.used), [13])
+        XCTAssertTrue(result.monetaryMetrics.isEmpty)
+        XCTAssertTrue(result.usageMessages.isEmpty)
+    }
+
+    func testClaudeUsageParserDecodesStructuredLimitsElementByElement() throws {
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"limits":[{"kind":"session","percent":7,"is_active":"yes"},{"kind":"session","percent":13},"unexpected",{"kind":"weekly_all","group":[],"percent":24},{"kind":"weekly_all","percent":36,"resets_at":"2030-01-08T02:00:00Z"}]}"#.utf8),
+            subscriptionType: "pro"
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), [
+            "5 hour usage limit",
+            "Weekly usage limit",
+        ])
+        XCTAssertEqual(result.bars.map(\.used), [13, 36])
+    }
+
+    func testClaudeUsageParserLossilyDecodesLimitResetAndScopeFields() throws {
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"five_hour":{"utilization":13,"resets_at":[]},"limits":[{"kind":"session","percent":7,"scope":"unexpected"},{"kind":"session","percent":8,"scope":{"model":[]}},{"kind":"session","percent":9,"scope":{"model":{"display_name":[]}}},{"kind":"weekly_all","percent":36,"resets_at":[]}]}"#.utf8),
+            subscriptionType: "pro"
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), [
+            "Weekly usage limit",
+            "5 hour usage limit",
+        ])
+        XCTAssertEqual(result.bars.map(\.used), [36, 13])
+        XCTAssertEqual(result.bars.map(\.resetsAt), [nil, nil])
+    }
+
+    func testClaudeUsageParserRejectsFullyUnusableLossyResponse() {
+        let result = ClaudeUsageParser.parse(
+            Data(#"{"five_hour":[],"seven_day":{"utilization":"unknown"},"limits":["unexpected",{"kind":"weekly_all","percent":"unknown"}],"spend":[],"extra_usage":[]}"#.utf8),
+            subscriptionType: "pro"
+        )
+
+        XCTAssertNil(result)
+    }
+
     func testClaudeUsageParserReadsStructuredAndScopedLimitsWithoutDuplicates() throws {
         let payload = """
         {

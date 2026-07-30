@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Claude usage responses now preserve valid session, weekly, and monetary data
+  when neighboring optional sections or structured-limit fields are malformed.
 - Healthy usage history now remains intact while damaged account data awaits
   explicit recovery, including across relaunches, then resumes cleanup against
   the replacement account list.
