@@ -9001,6 +9001,37 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelSkipsHistoryPruningForNonIdentityAccountEdits() throws {
+        let suiteName = "CodexBarMacTests.HistoryNonIdentityAccountEdit.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        var historyEncodingCount = 0
+        let historyStore = UsageHistoryStore(defaults: defaults) { snapshots in
+            historyEncodingCount += 1
+            return try JSONEncoder().encode(snapshots)
+        }
+        let model = AppModel(
+            refreshService: UsageRefreshService(providers: []),
+            configurationStore: configurationStore,
+            historyStore: historyStore,
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+        var configuration = try XCTUnwrap(configurationStore.configurations.first)
+        let initialHistoryEncodingCount = historyEncodingCount
+
+        configuration.isEnabled.toggle()
+        XCTAssertTrue(configurationStore.update(configuration))
+
+        XCTAssertEqual(historyEncodingCount, initialHistoryEncodingCount)
+        XCTAssertTrue(model.historyStore.snapshots.isEmpty)
+    }
+
+    @MainActor
     func testUsageHistoryStoreRollsBackEncodingFailureAndRecovers() throws {
         let suiteName = "CodexBarMacTests.HistoryEncoding.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

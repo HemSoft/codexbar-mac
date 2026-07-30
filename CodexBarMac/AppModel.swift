@@ -65,6 +65,10 @@ final class AppModel: ObservableObject {
 
         configurationStore.$configurations
             .combineLatest(configurationStore.$isConfigurationRecoveryRequired)
+            .removeDuplicates { lhs, rhs in
+                Set(lhs.0.map(\.id)) == Set(rhs.0.map(\.id))
+                    && lhs.1 == rhs.1
+            }
             .sink { [weak self] configurations, isRecoveryRequired in
                 guard let self else {
                     return
