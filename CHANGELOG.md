@@ -40,6 +40,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Healthy usage history now remains intact while damaged account data awaits
+  explicit recovery, including across relaunches, then resumes cleanup against
+  the replacement account list.
 - Cursor history now follows Total usage by default, keeps Total, Auto, API, and On-demand as distinct
   series, and continues to read previously saved label-only snapshots.
 - OpenCode ZEN Settings saves and bootstrap imports now keep account metadata

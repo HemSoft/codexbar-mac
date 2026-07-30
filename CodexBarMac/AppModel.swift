@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var pendingRefresh = false
+    private var isAwaitingConfigurationRecoveryCompletion: Bool
 
     init(
         refreshService: UsageRefreshService = .live(),
@@ -27,6 +28,8 @@ final class AppModel: ObservableObject {
         self.historyStore = historyStore
         self.launchAtLoginManager = launchAtLoginManager
         self.usageAlertNotifier = usageAlertNotifier
+        self.isAwaitingConfigurationRecoveryCompletion =
+            configurationStore.isConfigurationRecoveryCompletionPending
         configurationStore.seedDefaultConfigurationsIfNeeded()
 
         refreshService.objectWillChange
@@ -61,8 +64,22 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
 
         configurationStore.$configurations
-            .sink { [weak self] configurations in
+            .combineLatest(configurationStore.$isConfigurationRecoveryRequired)
+            .removeDuplicates { lhs, rhs in
+                Set(lhs.0.map(\.id)) == Set(rhs.0.map(\.id))
+                    && lhs.1 == rhs.1
+            }
+            .sink { [weak self] configurations, isRecoveryRequired in
                 guard let self else {
+                    return
+                }
+
+                if isRecoveryRequired {
+                    self.isAwaitingConfigurationRecoveryCompletion = true
+                    return
+                }
+
+                guard !self.isAwaitingConfigurationRecoveryCompletion else {
                     return
                 }
 
@@ -147,6 +164,7 @@ final class AppModel: ObservableObject {
     func activate() async {
         OpenCodeZenBootstrapImporter.importIfNeeded(configurationStore: configurationStore)
         await discoverLocalCredentials()
+        completeConfigurationRecoveryIfPossible()
         updateAutoRefresh()
         await refresh()
     }
@@ -217,6 +235,19 @@ final class AppModel: ObservableObject {
     func handleAccountsChanged() async {
         updateAutoRefresh()
         await refresh()
+    }
+
+    func completeConfigurationRecoveryIfPossible() {
+        guard isAwaitingConfigurationRecoveryCompletion,
+              configurationStore.completeConfigurationRecovery()
+        else {
+            return
+        }
+
+        isAwaitingConfigurationRecoveryCompletion = false
+        historyStore.removeSnapshotsForMissingAccounts(
+            validAccountIDs: Set(configurationStore.configurations.map(\.id))
+        )
     }
 
     func refreshAccount(_ configuration: ProviderAccountConfiguration) async -> ProviderUsageResult? {
