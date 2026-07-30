@@ -97,6 +97,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Developer Experience
 
+- CI now pins `actions/checkout` v7.0.1 to its reviewed full commit SHA while retaining credential hardening.
 - Credential replacement test doubles now synchronize injected failures, saved-secret
   observations, and credential storage so detached availability checks cannot race them.
 - `CodexBarMacTests` target with parser and provider unit tests using redacted fixtures.
