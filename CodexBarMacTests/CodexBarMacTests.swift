@@ -1558,7 +1558,7 @@ final class CodexBarMacTests: XCTestCase {
 
     func testClaudeUsageParserFillsMissingSpendMetricsFromExtraUsage() throws {
         let result = try XCTUnwrap(ClaudeUsageParser.parse(
-            Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":2},"balance":{"amount_minor":800,"currency":"USD","exponent":2}},"extra_usage":{"is_enabled":true,"used_credits":99,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8),
+            Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":2},"balance":{"amount_minor":800,"currency":"USD","exponent":2}},"extra_usage":{"is_enabled":true,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8),
             subscriptionType: nil
         ))
 
@@ -1583,6 +1583,20 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(
             missingSpent.monetaryMetrics.map(\.minorUnits),
             [Decimal(1250), Decimal(5000), Decimal(3750), Decimal(800)]
+        )
+    }
+
+    func testClaudeUsageParserPreservesFallbackNoLimitMessage() throws {
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"used":"broken"},"extra_usage":{"is_enabled":true,"used_credits":1250,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+
+        XCTAssertEqual(result.monetaryMetrics.map(\.kind), [.spent])
+        XCTAssertEqual(result.monetaryMetrics.map(\.minorUnits), [Decimal(1250)])
+        XCTAssertEqual(
+            result.usageMessages,
+            ["Usage credits are enabled with no monthly spend limit reported."]
         )
     }
 
