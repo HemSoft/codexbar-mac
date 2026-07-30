@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Claude usage now fills missing provider spend and limit values from compatible
+  legacy data without replacing balances or deriving mismatched headroom.
 - Claude usage responses now preserve valid session, weekly, and monetary data
   when neighboring optional sections or structured-limit fields are malformed.
 - Healthy usage history now remains intact while damaged account data awaits

@@ -1556,6 +1556,127 @@ final class CodexBarMacTests: XCTestCase {
         )
     }
 
+    func testClaudeUsageParserFillsMissingSpendMetricsFromExtraUsage() throws {
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":2},"balance":{"amount_minor":800,"currency":"USD","exponent":2}},"extra_usage":{"is_enabled":true,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+
+        XCTAssertEqual(
+            result.monetaryMetrics.map(\.kind),
+            [.spent, .spendLimit, .remainingHeadroom, .balance]
+        )
+        XCTAssertEqual(
+            result.monetaryMetrics.map(\.minorUnits),
+            [Decimal(1250), Decimal(5000), Decimal(3750), Decimal(800)]
+        )
+        XCTAssertTrue(result.usageMessages.isEmpty)
+
+        let missingSpent = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"limit":{"amount_minor":5000,"currency":"USD","exponent":2},"balance":{"amount_minor":800,"currency":"USD","exponent":2}},"extra_usage":{"is_enabled":true,"used_credits":1250,"monthly_limit":9999,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertEqual(
+            missingSpent.monetaryMetrics.map(\.kind),
+            [.spent, .spendLimit, .remainingHeadroom, .balance]
+        )
+        XCTAssertEqual(
+            missingSpent.monetaryMetrics.map(\.minorUnits),
+            [Decimal(1250), Decimal(5000), Decimal(3750), Decimal(800)]
+        )
+
+        let missingSpentWithLimitOnlyFallback = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"used":"broken"},"extra_usage":{"is_enabled":true,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertEqual(
+            missingSpentWithLimitOnlyFallback.monetaryMetrics.map(\.kind),
+            [.spendLimit]
+        )
+        XCTAssertEqual(
+            missingSpentWithLimitOnlyFallback.usageMessages,
+            ["Usage credits are enabled, but monetary details are temporarily unavailable."]
+        )
+    }
+
+    func testClaudeUsageParserPreservesFallbackNoLimitMessage() throws {
+        let result = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"used":"broken"},"extra_usage":{"is_enabled":true,"used_credits":1250,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+
+        XCTAssertEqual(result.monetaryMetrics.map(\.kind), [.spent])
+        XCTAssertEqual(result.monetaryMetrics.map(\.minorUnits), [Decimal(1250)])
+        XCTAssertEqual(
+            result.usageMessages,
+            ["Usage credits are enabled with no monthly spend limit reported."]
+        )
+
+        let unknownEnabledState = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"used":"broken"},"extra_usage":{"used_credits":1250,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertEqual(
+            unknownEnabledState.monetaryMetrics.map(\.kind),
+            [.spent, .spendLimit, .remainingHeadroom]
+        )
+        XCTAssertEqual(
+            unknownEnabledState.usageMessages,
+            ["Usage-credit enabled status was not reported."]
+        )
+    }
+
+    func testClaudeUsageParserDoesNotDeriveHeadroomFromIncompatibleFallbackMetrics() throws {
+        let differentCurrency = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":2}},"extra_usage":{"is_enabled":true,"used_credits":99,"monthly_limit":5000,"currency":"EUR","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertEqual(differentCurrency.monetaryMetrics.map(\.kind), [.spent, .spendLimit])
+        XCTAssertEqual(differentCurrency.monetaryMetrics.map(\.currencyCode), ["USD", "EUR"])
+
+        let differentPrecision = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":3}},"extra_usage":{"is_enabled":true,"used_credits":99,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertEqual(differentPrecision.monetaryMetrics.map(\.kind), [.spent, .spendLimit])
+        XCTAssertEqual(differentPrecision.monetaryMetrics.map(\.decimalPlaces), [3, 2])
+
+        let unsupportedPrecision = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":7}},"extra_usage":{"is_enabled":true,"used_credits":99,"monthly_limit":5000,"currency":"USD","decimal_places":8}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertTrue(unsupportedPrecision.monetaryMetrics.isEmpty)
+        XCTAssertEqual(unsupportedPrecision.usageMessages, [
+            "Usage credits are enabled, but monetary details are temporarily unavailable.",
+        ])
+    }
+
+    func testClaudeUsageParserUsesExplicitEnabledStateAcrossSpendPayloads() throws {
+        let fallbackDisabled = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"used":{"amount_minor":1250,"currency":"USD","exponent":2}},"extra_usage":{"is_enabled":false,"disabled_reason":"Not funded"}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertTrue(fallbackDisabled.monetaryMetrics.isEmpty)
+        XCTAssertEqual(fallbackDisabled.usageMessages, ["Usage credits are disabled: Not funded."])
+
+        let providerEnabled = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":2}},"extra_usage":{"is_enabled":false,"disabled_reason":"Not funded"}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertEqual(providerEnabled.monetaryMetrics.map(\.kind), [.spent])
+        XCTAssertEqual(
+            providerEnabled.usageMessages,
+            ["Usage credits are enabled with no monthly spend limit reported."]
+        )
+
+        let providerDisabled = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":false},"extra_usage":{"is_enabled":true,"used_credits":1250,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertTrue(providerDisabled.monetaryMetrics.isEmpty)
+        XCTAssertEqual(providerDisabled.usageMessages, ["Usage credits are disabled."])
+    }
+
     func testClaudeCredentialStorePreservesFilePermissionsAndMetadata() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
