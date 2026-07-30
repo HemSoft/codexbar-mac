@@ -61,13 +61,22 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
 
         configurationStore.$configurations
-            .sink { [weak self] configurations in
+            .combineLatest(configurationStore.$isConfigurationRecoveryRequired)
+            .compactMap { configurations, isRecoveryRequired -> Set<String>? in
+                guard !isRecoveryRequired else {
+                    return nil
+                }
+
+                return Set(configurations.map(\.id))
+            }
+            .removeDuplicates()
+            .sink { [weak self] validAccountIDs in
                 guard let self else {
                     return
                 }
 
                 self.historyStore.removeSnapshotsForMissingAccounts(
-                    validAccountIDs: Set(configurations.map(\.id))
+                    validAccountIDs: validAccountIDs
                 )
             }
             .store(in: &cancellables)
