@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var pendingRefresh = false
+    private var isAwaitingConfigurationRecoveryCompletion: Bool
 
     init(
         refreshService: UsageRefreshService = .live(),
@@ -27,6 +28,8 @@ final class AppModel: ObservableObject {
         self.historyStore = historyStore
         self.launchAtLoginManager = launchAtLoginManager
         self.usageAlertNotifier = usageAlertNotifier
+        self.isAwaitingConfigurationRecoveryCompletion =
+            configurationStore.isConfigurationRecoveryRequired
         configurationStore.seedDefaultConfigurationsIfNeeded()
 
         refreshService.objectWillChange
@@ -62,21 +65,22 @@ final class AppModel: ObservableObject {
 
         configurationStore.$configurations
             .combineLatest(configurationStore.$isConfigurationRecoveryRequired)
-            .compactMap { configurations, isRecoveryRequired -> Set<String>? in
-                guard !isRecoveryRequired else {
-                    return nil
-                }
-
-                return Set(configurations.map(\.id))
-            }
-            .removeDuplicates()
-            .sink { [weak self] validAccountIDs in
+            .sink { [weak self] configurations, isRecoveryRequired in
                 guard let self else {
                     return
                 }
 
+                if isRecoveryRequired {
+                    self.isAwaitingConfigurationRecoveryCompletion = true
+                    return
+                }
+
+                guard !self.isAwaitingConfigurationRecoveryCompletion else {
+                    return
+                }
+
                 self.historyStore.removeSnapshotsForMissingAccounts(
-                    validAccountIDs: validAccountIDs
+                    validAccountIDs: Set(configurations.map(\.id))
                 )
             }
             .store(in: &cancellables)
@@ -224,6 +228,7 @@ final class AppModel: ObservableObject {
     }
 
     func handleAccountsChanged() async {
+        resumeHistoryPruningAfterConfigurationRecoveryIfNeeded()
         updateAutoRefresh()
         await refresh()
     }
@@ -247,6 +252,19 @@ final class AppModel: ObservableObject {
 
     private func recordUsageHistory() {
         historyStore.record(results: alertEligibleResults())
+    }
+
+    private func resumeHistoryPruningAfterConfigurationRecoveryIfNeeded() {
+        guard isAwaitingConfigurationRecoveryCompletion,
+              !configurationStore.isConfigurationRecoveryRequired
+        else {
+            return
+        }
+
+        isAwaitingConfigurationRecoveryCompletion = false
+        historyStore.removeSnapshotsForMissingAccounts(
+            validAccountIDs: Set(configurationStore.configurations.map(\.id))
+        )
     }
 
     private func processUsageAlerts(

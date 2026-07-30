@@ -8619,7 +8619,7 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
-    func testAppModelPreservesHealthyHistoryUntilDamagedAccountDataIsReplaced() throws {
+    func testAppModelPreservesHealthyHistoryUntilDamagedAccountDataReplacementCompletes() async throws {
         let suiteName = "CodexBarMacTests.HistoryConfigurationRecovery.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -8657,6 +8657,11 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(configurationStore.replaceCorruptedConfigurations())
 
         XCTAssertFalse(configurationStore.isConfigurationRecoveryRequired)
+        XCTAssertEqual(model.historyStore.snapshots.map(\.accountID), [result.accountID])
+        XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), originalHistoryData)
+
+        await model.handleAccountsChanged()
+
         XCTAssertTrue(model.historyStore.snapshots.isEmpty)
         XCTAssertEqual(
             try JSONDecoder().decode(
@@ -8664,6 +8669,54 @@ final class CodexBarMacTests: XCTestCase {
                 from: try XCTUnwrap(defaults.data(forKey: "usageHistorySnapshots"))
             ),
             []
+        )
+    }
+
+    @MainActor
+    func testAppModelPreservesHistoryForAccountsRestoredDuringConfigurationRecovery() async throws {
+        let suiteName = "CodexBarMacTests.HistoryRestoredConfiguration.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let restoredConfiguration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        let fetchedAt = Date()
+        let result = ProviderUsageResult(
+            accountID: restoredConfiguration.id,
+            providerID: restoredConfiguration.providerID,
+            title: restoredConfiguration.displayName,
+            subtitle: "Live usage",
+            bars: [UsageBar(label: "Weekly", used: 20, limit: 100)],
+            fetchedAt: fetchedAt
+        )
+        let historyWriter = UsageHistoryStore(defaults: defaults)
+        historyWriter.record(results: [result], now: fetchedAt)
+        let originalHistoryData = try XCTUnwrap(defaults.data(forKey: "usageHistorySnapshots"))
+        defaults.set(Data("not valid account data".utf8), forKey: "providerConfigurations")
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        let historyStore = UsageHistoryStore(defaults: defaults)
+        let model = AppModel(
+            refreshService: UsageRefreshService(providers: []),
+            configurationStore: configurationStore,
+            historyStore: historyStore,
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+
+        XCTAssertTrue(configurationStore.replaceCorruptedConfigurations())
+        XCTAssertTrue(configurationStore.update(restoredConfiguration))
+
+        XCTAssertEqual(configurationStore.configurations.map(\.id), [restoredConfiguration.id])
+        XCTAssertEqual(model.historyStore.snapshots.map(\.accountID), [restoredConfiguration.id])
+        XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), originalHistoryData)
+
+        await model.handleAccountsChanged()
+
+        XCTAssertEqual(model.historyStore.snapshots.map(\.accountID), [restoredConfiguration.id])
+        XCTAssertEqual(
+            UsageHistoryStore(defaults: defaults).snapshots.map(\.accountID),
+            [restoredConfiguration.id]
         )
     }
 
