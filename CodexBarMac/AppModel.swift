@@ -29,7 +29,7 @@ final class AppModel: ObservableObject {
         self.launchAtLoginManager = launchAtLoginManager
         self.usageAlertNotifier = usageAlertNotifier
         self.isAwaitingConfigurationRecoveryCompletion =
-            configurationStore.isConfigurationRecoveryRequired
+            configurationStore.isPersistenceRecoveryRequired
         configurationStore.seedDefaultConfigurationsIfNeeded()
 
         refreshService.objectWillChange
