@@ -246,6 +246,7 @@ struct SettingsView: View {
 
                     Task {
                         await model.discoverLocalCredentials()
+                        model.completeConfigurationRecoveryIfPossible()
                         await model.handleAccountsChanged()
                     }
                 }
@@ -268,6 +269,7 @@ struct SettingsView: View {
 
                     Task {
                         await model.discoverLocalCredentials()
+                        model.completeConfigurationRecoveryIfPossible()
                         await model.handleAccountsChanged()
                     }
                 }

@@ -228,9 +228,21 @@ final class AppModel: ObservableObject {
     }
 
     func handleAccountsChanged() async {
-        resumeHistoryPruningAfterConfigurationRecoveryIfNeeded()
         updateAutoRefresh()
         await refresh()
+    }
+
+    func completeConfigurationRecoveryIfPossible() {
+        guard isAwaitingConfigurationRecoveryCompletion,
+              !configurationStore.isPersistenceRecoveryRequired
+        else {
+            return
+        }
+
+        isAwaitingConfigurationRecoveryCompletion = false
+        historyStore.removeSnapshotsForMissingAccounts(
+            validAccountIDs: Set(configurationStore.configurations.map(\.id))
+        )
     }
 
     func refreshAccount(_ configuration: ProviderAccountConfiguration) async -> ProviderUsageResult? {
@@ -252,19 +264,6 @@ final class AppModel: ObservableObject {
 
     private func recordUsageHistory() {
         historyStore.record(results: alertEligibleResults())
-    }
-
-    private func resumeHistoryPruningAfterConfigurationRecoveryIfNeeded() {
-        guard isAwaitingConfigurationRecoveryCompletion,
-              !configurationStore.isConfigurationRecoveryRequired
-        else {
-            return
-        }
-
-        isAwaitingConfigurationRecoveryCompletion = false
-        historyStore.removeSnapshotsForMissingAccounts(
-            validAccountIDs: Set(configurationStore.configurations.map(\.id))
-        )
     }
 
     private func processUsageAlerts(
