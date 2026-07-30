@@ -1273,16 +1273,16 @@ final class CodexBarMacTests: XCTestCase {
 
     func testClaudeUsageParserLossilyDecodesLimitResetAndScopeFields() throws {
         let result = try XCTUnwrap(ClaudeUsageParser.parse(
-            Data(#"{"limits":[{"kind":"session","percent":13,"resets_at":[],"scope":{"model":{"display_name":[]}}},{"kind":"weekly_scoped","percent":24,"scope":{"model":[]}},{"kind":"weekly_all","percent":36,"scope":"unexpected"}]}"#.utf8),
+            Data(#"{"five_hour":{"utilization":13,"resets_at":[]},"limits":[{"kind":"session","percent":7,"scope":"unexpected"},{"kind":"session","percent":8,"scope":{"model":[]}},{"kind":"session","percent":9,"scope":{"model":{"display_name":[]}}},{"kind":"weekly_all","percent":36,"resets_at":[]}]}"#.utf8),
             subscriptionType: "pro"
         ))
 
         XCTAssertEqual(result.bars.map(\.label), [
-            "5 hour usage limit",
             "Weekly usage limit",
+            "5 hour usage limit",
         ])
-        XCTAssertEqual(result.bars.map(\.used), [13, 36])
-        XCTAssertNil(result.bars.first?.resetsAt)
+        XCTAssertEqual(result.bars.map(\.used), [36, 13])
+        XCTAssertEqual(result.bars.map(\.resetsAt), [nil, nil])
     }
 
     func testClaudeUsageParserRejectsFullyUnusableLossyResponse() {

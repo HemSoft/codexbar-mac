@@ -110,7 +110,7 @@ public enum ClaudeUsageParser {
             group = try container.decodeIfPresent(String.self, forKey: .group)
             percent = try? container.decodeIfPresent(Double.self, forKey: .percent)
             resetsAt = try? container.decodeIfPresent(String.self, forKey: .resetsAt)
-            scope = try? container.decodeIfPresent(LimitScope.self, forKey: .scope)
+            scope = try container.decodeIfPresent(LimitScope.self, forKey: .scope)
             isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive)
         }
     }
@@ -133,7 +133,7 @@ public enum ClaudeUsageParser {
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            model = try? container.decodeIfPresent(LimitModel.self, forKey: .model)
+            model = try container.decodeIfPresent(LimitModel.self, forKey: .model)
         }
     }
 
@@ -146,7 +146,7 @@ public enum ClaudeUsageParser {
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            displayName = try? container.decodeIfPresent(String.self, forKey: .displayName)
+            displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
         }
     }
 
