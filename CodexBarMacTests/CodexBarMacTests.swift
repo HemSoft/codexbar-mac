@@ -1584,6 +1584,19 @@ final class CodexBarMacTests: XCTestCase {
             missingSpent.monetaryMetrics.map(\.minorUnits),
             [Decimal(1250), Decimal(5000), Decimal(3750), Decimal(800)]
         )
+
+        let missingSpentWithLimitOnlyFallback = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"used":"broken"},"extra_usage":{"is_enabled":true,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertEqual(
+            missingSpentWithLimitOnlyFallback.monetaryMetrics.map(\.kind),
+            [.spendLimit]
+        )
+        XCTAssertEqual(
+            missingSpentWithLimitOnlyFallback.usageMessages,
+            ["Usage credits are enabled, but monetary details are temporarily unavailable."]
+        )
     }
 
     func testClaudeUsageParserPreservesFallbackNoLimitMessage() throws {

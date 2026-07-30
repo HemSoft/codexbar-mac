@@ -619,7 +619,7 @@ public enum ClaudeUsageParser {
         messages.removeAll {
             $0 == noSpendLimitMessage
         }
-        if !metrics.isEmpty {
+        if spent != nil {
             messages.removeAll {
                 $0 == monetaryUnavailableMessage
             }
