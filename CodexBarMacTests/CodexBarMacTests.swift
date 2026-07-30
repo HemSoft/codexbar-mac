@@ -1588,7 +1588,7 @@ final class CodexBarMacTests: XCTestCase {
 
     func testClaudeUsageParserPreservesFallbackNoLimitMessage() throws {
         let result = try XCTUnwrap(ClaudeUsageParser.parse(
-            Data(#"{"spend":{"enabled":true,"used":"broken"},"extra_usage":{"is_enabled":true,"used_credits":1250,"currency":"USD","decimal_places":2}}"#.utf8),
+            Data(#"{"spend":{"used":"broken"},"extra_usage":{"is_enabled":true,"used_credits":1250,"currency":"USD","decimal_places":2}}"#.utf8),
             subscriptionType: nil
         ))
 
