@@ -583,30 +583,25 @@ public enum ClaudeUsageParser {
 
         let legacyMetrics = mergeableExtraUsageMetrics(from: extraUsage)
         let providerByKind = Dictionary(
-            uniqueKeysWithValues: provider.metrics.map { ($0.kind, $0) }
+            provider.metrics.map { ($0.kind, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
         let legacyByKind = Dictionary(
-            uniqueKeysWithValues: legacyMetrics.map { ($0.kind, $0) }
+            legacyMetrics.map { ($0.kind, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
         let spent = providerByKind[.spent] ?? legacyByKind[.spent]
         let limit = providerByKind[.spendLimit] ?? legacyByKind[.spendLimit]
         let balance = providerByKind[.balance]
+        let remainingHeadroom = spent.flatMap { spent in
+            limit.flatMap { limit in
+                remainingHeadroomMetric(spent: spent, limit: limit)
+            }
+        }
 
         var metrics = [spent, limit].compactMap { $0 }
-        if
-            let spent,
-            let limit,
-            spent.currencyCode == limit.currencyCode,
-            spent.decimalPlaces == limit.decimalPlaces
-        {
-            metrics.append(ProviderMonetaryMetric(
-                kind: .remainingHeadroom,
-                label: "Remaining spend headroom",
-                minorUnits: max(limit.minorUnits - spent.minorUnits, 0),
-                currencyCode: limit.currencyCode,
-                decimalPlaces: limit.decimalPlaces,
-                detail: "Not a prepaid balance"
-            ))
+        if let remainingHeadroom {
+            metrics.append(remainingHeadroom)
         }
         if let balance {
             metrics.append(balance)
@@ -617,28 +612,27 @@ public enum ClaudeUsageParser {
             messages.removeAll { $0 == "Usage-credit enabled status was not reported." }
         }
         messages.removeAll {
-            $0 == "Usage credits are enabled with no monthly spend limit reported."
+            $0 == noSpendLimitMessage
         }
         if !metrics.isEmpty {
             messages.removeAll {
-                $0 == "Usage credits are enabled, but monetary details are temporarily unavailable."
+                $0 == monetaryUnavailableMessage
             }
         }
         if spent != nil, limit == nil {
-            messages.append("Usage credits are enabled with no monthly spend limit reported.")
+            messages.append(noSpendLimitMessage)
         }
         messages.removeAll {
-            $0 == "The monthly usage-credit spend limit has been reached."
+            $0 == spendLimitReachedMessage
         }
         if
             let spent,
             let limit,
-            spent.currencyCode == limit.currencyCode,
-            spent.decimalPlaces == limit.decimalPlaces,
+            remainingHeadroom != nil,
             limit.minorUnits > 0,
             spent.minorUnits >= limit.minorUnits
         {
-            messages.append("The monthly usage-credit spend limit has been reached.")
+            messages.append(spendLimitReachedMessage)
         }
         return (metrics, uniqueMessages(messages))
     }
@@ -654,7 +648,7 @@ public enum ClaudeUsageParser {
         guard let currency = currencyCandidates.lazy.compactMap({ resolvedCurrencyCode(from: $0) }).first
             ?? resolvedCurrencyCode(from: nil)
         else {
-            return ([], ["Usage credits are enabled, but monetary details are temporarily unavailable."])
+            return ([], [monetaryUnavailableMessage])
         }
 
         let decimalPlaces = [spend.used?.exponent, spend.limit?.exponent, spend.balance?.exponent]
@@ -701,17 +695,17 @@ public enum ClaudeUsageParser {
                 decimalPlaces: places,
                 detail: "Usage-credit policy cap"
             ))
-            if let spent = matchingAmount(spend.used) {
-                metrics.append(ProviderMonetaryMetric(
-                    kind: .remainingHeadroom,
-                    label: "Remaining spend headroom",
-                    minorUnits: max(limit - spent, 0),
-                    currencyCode: currency,
-                    decimalPlaces: places,
-                    detail: "Not a prepaid balance"
-                ))
-                if limit > 0, spent >= limit {
-                    messages.append("The monthly usage-credit spend limit has been reached.")
+            if
+                let spentMetric = metrics.first(where: { $0.kind == .spent }),
+                let limitMetric = metrics.first(where: { $0.kind == .spendLimit }),
+                let headroom = remainingHeadroomMetric(spent: spentMetric, limit: limitMetric)
+            {
+                metrics.append(headroom)
+                if
+                    limitMetric.minorUnits > 0,
+                    spentMetric.minorUnits >= limitMetric.minorUnits
+                {
+                    messages.append(spendLimitReachedMessage)
                 }
             }
         }
@@ -726,11 +720,11 @@ public enum ClaudeUsageParser {
                 detail: "Prepaid balance"
             ))
         } else if matchingAmount(spend.limit) == nil, matchingAmount(spend.used) != nil {
-            messages.append("Usage credits are enabled with no monthly spend limit reported.")
+            messages.append(noSpendLimitMessage)
         }
 
         if metrics.isEmpty {
-            return ([], ["Usage credits are enabled, but monetary details are temporarily unavailable."])
+            return ([], [monetaryUnavailableMessage])
         }
         return (metrics, messages)
     }
@@ -750,7 +744,7 @@ public enum ClaudeUsageParser {
         }
         let mergeableMetrics = mergeableExtraUsageMetrics(from: extraUsage)
         guard let spent = mergeableMetrics.first(where: { $0.kind == .spent }) else {
-            return ([], ["Usage credits are enabled, but monetary details are temporarily unavailable."])
+            return ([], [monetaryUnavailableMessage])
         }
         var metrics = [spent]
         var messages: [String] = extraUsage.isEnabled == nil
@@ -759,19 +753,14 @@ public enum ClaudeUsageParser {
 
         if let limit = mergeableMetrics.first(where: { $0.kind == .spendLimit }) {
             metrics.append(limit)
-            metrics.append(ProviderMonetaryMetric(
-                kind: .remainingHeadroom,
-                label: "Remaining spend headroom",
-                minorUnits: max(limit.minorUnits - spent.minorUnits, 0),
-                currencyCode: limit.currencyCode,
-                decimalPlaces: limit.decimalPlaces,
-                detail: "Not a prepaid balance"
-            ))
-            if limit.minorUnits > 0, spent.minorUnits >= limit.minorUnits {
-                messages.append("The monthly usage-credit spend limit has been reached.")
+            if let headroom = remainingHeadroomMetric(spent: spent, limit: limit) {
+                metrics.append(headroom)
+                if limit.minorUnits > 0, spent.minorUnits >= limit.minorUnits {
+                    messages.append(spendLimitReachedMessage)
+                }
             }
         } else {
-            messages.append("Usage credits are enabled with no monthly spend limit reported.")
+            messages.append(noSpendLimitMessage)
         }
         return (metrics, messages)
     }
@@ -809,6 +798,33 @@ public enum ClaudeUsageParser {
             ))
         }
         return metrics
+    }
+
+    private static let noSpendLimitMessage =
+        "Usage credits are enabled with no monthly spend limit reported."
+    private static let spendLimitReachedMessage =
+        "The monthly usage-credit spend limit has been reached."
+    private static let monetaryUnavailableMessage =
+        "Usage credits are enabled, but monetary details are temporarily unavailable."
+
+    private static func remainingHeadroomMetric(
+        spent: ProviderMonetaryMetric,
+        limit: ProviderMonetaryMetric
+    ) -> ProviderMonetaryMetric? {
+        guard
+            spent.currencyCode == limit.currencyCode,
+            spent.decimalPlaces == limit.decimalPlaces
+        else {
+            return nil
+        }
+        return ProviderMonetaryMetric(
+            kind: .remainingHeadroom,
+            label: "Remaining spend headroom",
+            minorUnits: max(limit.minorUnits - spent.minorUnits, 0),
+            currencyCode: limit.currencyCode,
+            decimalPlaces: limit.decimalPlaces,
+            detail: "Not a prepaid balance"
+        )
     }
 
     private static func resolvedCurrencyCode(from reportedCurrency: String?) -> String? {
