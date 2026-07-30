@@ -1260,7 +1260,7 @@ final class CodexBarMacTests: XCTestCase {
 
     func testClaudeUsageParserDecodesStructuredLimitsElementByElement() throws {
         let result = try XCTUnwrap(ClaudeUsageParser.parse(
-            Data(#"{"limits":[{"kind":"session","percent":13},"unexpected",{"kind":"weekly_all","percent":"unknown"},{"kind":"weekly_all","percent":36,"resets_at":"2030-01-08T02:00:00Z"}]}"#.utf8),
+            Data(#"{"limits":[{"kind":"session","percent":7,"is_active":"yes"},{"kind":"session","percent":13},"unexpected",{"kind":"weekly_all","group":[],"percent":24},{"kind":"weekly_all","percent":36,"resets_at":"2030-01-08T02:00:00Z"}]}"#.utf8),
             subscriptionType: "pro"
         ))
 
