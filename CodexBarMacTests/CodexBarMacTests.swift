@@ -8837,6 +8837,62 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelPreservesHistoryAcrossAccountRecoveryRelaunch() throws {
+        let suiteName = "CodexBarMacTests.HistoryAccountRecoveryRelaunch.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let restoredConfiguration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        let fetchedAt = Date()
+        let result = ProviderUsageResult(
+            accountID: restoredConfiguration.id,
+            providerID: restoredConfiguration.providerID,
+            title: restoredConfiguration.displayName,
+            subtitle: "Live usage",
+            bars: [UsageBar(label: "Weekly", used: 20, limit: 100)],
+            fetchedAt: fetchedAt
+        )
+        let historyWriter = UsageHistoryStore(defaults: defaults)
+        historyWriter.record(results: [result], now: fetchedAt)
+        let originalHistoryData = try XCTUnwrap(defaults.data(forKey: "usageHistorySnapshots"))
+        defaults.set(Data("not valid account data".utf8), forKey: "providerConfigurations")
+        let recoveryStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+
+        XCTAssertTrue(recoveryStore.replaceCorruptedConfigurations())
+        XCTAssertFalse(recoveryStore.isPersistenceRecoveryRequired)
+        XCTAssertTrue(recoveryStore.isConfigurationRecoveryCompletionPending)
+
+        let reconstructedStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        let model = AppModel(
+            refreshService: UsageRefreshService(providers: []),
+            configurationStore: reconstructedStore,
+            historyStore: UsageHistoryStore(defaults: defaults),
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+
+        XCTAssertFalse(reconstructedStore.isPersistenceRecoveryRequired)
+        XCTAssertTrue(reconstructedStore.isConfigurationRecoveryCompletionPending)
+        XCTAssertEqual(model.historyStore.snapshots.map(\.accountID), [restoredConfiguration.id])
+        XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), originalHistoryData)
+
+        XCTAssertTrue(reconstructedStore.update(restoredConfiguration))
+        model.completeConfigurationRecoveryIfPossible()
+
+        XCTAssertFalse(reconstructedStore.isConfigurationRecoveryCompletionPending)
+        XCTAssertEqual(model.historyStore.snapshots.map(\.accountID), [restoredConfiguration.id])
+        XCTAssertEqual(
+            UsageHistoryStore(defaults: defaults).snapshots.map(\.accountID),
+            [restoredConfiguration.id]
+        )
+    }
+
+    @MainActor
     func testAppModelValidStartupPrunesHistoryForMissingAccounts() throws {
         let suiteName = "CodexBarMacTests.HistoryValidConfigurationStartup.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

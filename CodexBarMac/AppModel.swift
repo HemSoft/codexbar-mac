@@ -29,7 +29,7 @@ final class AppModel: ObservableObject {
         self.launchAtLoginManager = launchAtLoginManager
         self.usageAlertNotifier = usageAlertNotifier
         self.isAwaitingConfigurationRecoveryCompletion =
-            configurationStore.isPersistenceRecoveryRequired
+            configurationStore.isConfigurationRecoveryCompletionPending
         configurationStore.seedDefaultConfigurationsIfNeeded()
 
         refreshService.objectWillChange
@@ -160,6 +160,7 @@ final class AppModel: ObservableObject {
     func activate() async {
         OpenCodeZenBootstrapImporter.importIfNeeded(configurationStore: configurationStore)
         await discoverLocalCredentials()
+        completeConfigurationRecoveryIfPossible()
         updateAutoRefresh()
         await refresh()
     }
@@ -234,7 +235,7 @@ final class AppModel: ObservableObject {
 
     func completeConfigurationRecoveryIfPossible() {
         guard isAwaitingConfigurationRecoveryCompletion,
-              !configurationStore.isPersistenceRecoveryRequired
+              configurationStore.completeConfigurationRecovery()
         else {
             return
         }

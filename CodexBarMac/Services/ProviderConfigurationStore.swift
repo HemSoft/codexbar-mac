@@ -21,6 +21,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var usageAlertActiveIDs: Set<String>
     @Published public private(set) var isConfigurationRecoveryRequired: Bool
     @Published public private(set) var isGroupRecoveryRequired: Bool
+    @Published public private(set) var isConfigurationRecoveryCompletionPending: Bool
     @Published public private(set) var lastError: String?
 
     private let defaults: UserDefaults
@@ -34,6 +35,8 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let dashboardOrderingModeKey = DefaultsKey.dashboardOrderingMode
     private let usageAlertSettingsKey = DefaultsKey.usageAlertSettings
     private let usageAlertActiveIDsKey = DefaultsKey.usageAlertActiveIDs
+    private let configurationRecoveryCompletionPendingKey =
+        DefaultsKey.configurationRecoveryCompletionPending
     private let suppressedCopilotDiscoveryUsernamesKey = DefaultsKey.suppressedCopilotDiscoveryUsernames
     private let suppressedGeminiDiscoveryKey = DefaultsKey.suppressedGeminiDiscovery
     private var secretAvailabilityGeneration = 0
@@ -82,6 +85,10 @@ public final class ProviderConfigurationStore: ObservableObject {
         self.usageAlertActiveIDs = Self.loadUsageAlertActiveIDs(from: defaults)
         self.isConfigurationRecoveryRequired = configurationLoadResult.error != nil
         self.isGroupRecoveryRequired = groupLoadResult.error != nil
+        self.isConfigurationRecoveryCompletionPending =
+            defaults.bool(forKey: DefaultsKey.configurationRecoveryCompletionPending)
+            || configurationLoadResult.error != nil
+            || groupLoadResult.error != nil
         self.lastError = configurationLoadResult.error ?? groupLoadResult.error
         sortConfigurations()
         refreshSecretAvailability()
@@ -89,6 +96,19 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     public var isPersistenceRecoveryRequired: Bool {
         isConfigurationRecoveryRequired || isGroupRecoveryRequired
+    }
+
+    @discardableResult
+    public func completeConfigurationRecovery() -> Bool {
+        guard isConfigurationRecoveryCompletionPending,
+              !isPersistenceRecoveryRequired
+        else {
+            return false
+        }
+
+        defaults.removeObject(forKey: configurationRecoveryCompletionPendingKey)
+        isConfigurationRecoveryCompletionPending = false
+        return true
     }
 
     public var enabledConfigurations: [ProviderAccountConfiguration] {
@@ -879,12 +899,14 @@ public final class ProviderConfigurationStore: ObservableObject {
         let replacement: [ProviderAccountConfiguration] = []
         do {
             let data = try encodeConfigurations(replacement)
+            defaults.set(true, forKey: configurationRecoveryCompletionPendingKey)
             defaults.set(data, forKey: configurationsKey)
             configurations = replacement
             secretAvailability = [:]
             secretReadErrors = [:]
             localCredentialHints = [:]
             isConfigurationRecoveryRequired = false
+            isConfigurationRecoveryCompletionPending = true
             lastError = isGroupRecoveryRequired ? Self.groupLoadErrorMessage : nil
             return true
         } catch {
@@ -909,6 +931,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         do {
             let groupData = try JSONEncoder().encode(replacementGroups)
             let configurationData = try encodeConfigurations(replacementConfigurations)
+            defaults.set(true, forKey: configurationRecoveryCompletionPendingKey)
             defaults.set(groupData, forKey: groupsKey)
             if !isConfigurationRecoveryRequired {
                 defaults.set(configurationData, forKey: configurationsKey)
@@ -917,6 +940,7 @@ public final class ProviderConfigurationStore: ObservableObject {
             }
             groups = replacementGroups
             isGroupRecoveryRequired = false
+            isConfigurationRecoveryCompletionPending = true
             lastError = isConfigurationRecoveryRequired
                 ? Self.configurationLoadErrorMessage
                 : nil
@@ -982,6 +1006,8 @@ public final class ProviderConfigurationStore: ObservableObject {
         static let dashboardOrderingMode = "dashboardOrderingMode"
         static let usageAlertSettings = "usageAlertSettings"
         static let usageAlertActiveIDs = "usageAlertActiveIDs"
+        static let configurationRecoveryCompletionPending =
+            "configurationRecoveryCompletionPending"
         static let suppressedCopilotDiscoveryUsernames = "suppressedCopilotDiscoveryUsernames"
         static let suppressedGeminiDiscovery = "suppressedGeminiDiscovery"
     }
