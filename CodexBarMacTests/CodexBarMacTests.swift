@@ -1598,6 +1598,19 @@ final class CodexBarMacTests: XCTestCase {
             result.usageMessages,
             ["Usage credits are enabled with no monthly spend limit reported."]
         )
+
+        let unknownEnabledState = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"used":"broken"},"extra_usage":{"used_credits":1250,"monthly_limit":5000,"currency":"USD","decimal_places":2}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertEqual(
+            unknownEnabledState.monetaryMetrics.map(\.kind),
+            [.spent, .spendLimit, .remainingHeadroom]
+        )
+        XCTAssertEqual(
+            unknownEnabledState.usageMessages,
+            ["Usage-credit enabled status was not reported."]
+        )
     }
 
     func testClaudeUsageParserDoesNotDeriveHeadroomFromIncompatibleFallbackMetrics() throws {
@@ -1614,6 +1627,15 @@ final class CodexBarMacTests: XCTestCase {
         ))
         XCTAssertEqual(differentPrecision.monetaryMetrics.map(\.kind), [.spent, .spendLimit])
         XCTAssertEqual(differentPrecision.monetaryMetrics.map(\.decimalPlaces), [3, 2])
+
+        let unsupportedPrecision = try XCTUnwrap(ClaudeUsageParser.parse(
+            Data(#"{"spend":{"enabled":true,"used":{"amount_minor":1250,"currency":"USD","exponent":7}},"extra_usage":{"is_enabled":true,"used_credits":99,"monthly_limit":5000,"currency":"USD","decimal_places":8}}"#.utf8),
+            subscriptionType: nil
+        ))
+        XCTAssertTrue(unsupportedPrecision.monetaryMetrics.isEmpty)
+        XCTAssertEqual(unsupportedPrecision.usageMessages, [
+            "Usage credits are enabled, but monetary details are temporarily unavailable.",
+        ])
     }
 
     func testClaudeUsageParserUsesExplicitEnabledStateAcrossSpendPayloads() throws {

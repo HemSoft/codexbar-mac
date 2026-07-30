@@ -608,8 +608,13 @@ public enum ClaudeUsageParser {
         }
 
         var messages = provider.messages
-        if spend.enabled == nil, extraUsage?.isEnabled == true {
-            messages.removeAll { $0 == "Usage-credit enabled status was not reported." }
+        messages.removeAll { $0 == enabledStatusUnknownMessage }
+        if
+            !metrics.isEmpty,
+            spend.enabled == nil,
+            extraUsage?.isEnabled == nil
+        {
+            messages.insert(enabledStatusUnknownMessage, at: 0)
         }
         messages.removeAll {
             $0 == noSpendLimitMessage
@@ -651,12 +656,18 @@ public enum ClaudeUsageParser {
             return ([], [monetaryUnavailableMessage])
         }
 
-        let decimalPlaces = [spend.used?.exponent, spend.limit?.exponent, spend.balance?.exponent]
+        let defaultDecimalPlaces = [spend.used?.exponent, spend.limit?.exponent, spend.balance?.exponent]
             .compactMap { $0 }
-            .first
+            .first(where: { (0...6).contains($0) })
             ?? currencyDecimalPlaces(currency)
 
-        func matchingAmount(_ amount: MoneyAmount?, allowNegative: Bool = false) -> Decimal? {
+        func monetaryMetric(
+            _ amount: MoneyAmount?,
+            kind: ProviderMonetaryMetricKind,
+            label: String,
+            detail: String?,
+            allowNegative: Bool = false
+        ) -> ProviderMonetaryMetric? {
             guard let amount, let minor = amount.amountMinor else {
                 return nil
             }
@@ -666,38 +677,50 @@ public enum ClaudeUsageParser {
             {
                 return nil
             }
-            return allowNegative ? minor : max(minor, 0)
+            let decimalPlaces: Int
+            if let exponent = amount.exponent {
+                guard (0...6).contains(exponent) else {
+                    return nil
+                }
+                decimalPlaces = exponent
+            } else {
+                decimalPlaces = defaultDecimalPlaces
+            }
+            return ProviderMonetaryMetric(
+                kind: kind,
+                label: label,
+                minorUnits: allowNegative ? minor : max(minor, 0),
+                currencyCode: currency,
+                decimalPlaces: decimalPlaces,
+                detail: detail
+            )
         }
 
         var metrics: [ProviderMonetaryMetric] = []
         var messages: [String] = spend.enabled == nil
-            ? ["Usage-credit enabled status was not reported."]
+            ? [enabledStatusUnknownMessage]
             : []
 
-        if let spent = matchingAmount(spend.used) {
-            metrics.append(ProviderMonetaryMetric(
-                kind: .spent,
-                label: "Usage credits spent",
-                minorUnits: spent,
-                currencyCode: currency,
-                decimalPlaces: spend.used?.exponent ?? decimalPlaces,
-                detail: "Month to date"
-            ))
+        let spentMetric = monetaryMetric(
+            spend.used,
+            kind: .spent,
+            label: "Usage credits spent",
+            detail: "Month to date"
+        )
+        if let spentMetric {
+            metrics.append(spentMetric)
         }
 
-        if let limit = matchingAmount(spend.limit) {
-            let places = spend.limit?.exponent ?? decimalPlaces
-            metrics.append(ProviderMonetaryMetric(
-                kind: .spendLimit,
-                label: "Monthly spend limit",
-                minorUnits: limit,
-                currencyCode: currency,
-                decimalPlaces: places,
-                detail: "Usage-credit policy cap"
-            ))
+        let limitMetric = monetaryMetric(
+            spend.limit,
+            kind: .spendLimit,
+            label: "Monthly spend limit",
+            detail: "Usage-credit policy cap"
+        )
+        if let limitMetric {
+            metrics.append(limitMetric)
             if
-                let spentMetric = metrics.first(where: { $0.kind == .spent }),
-                let limitMetric = metrics.first(where: { $0.kind == .spendLimit }),
+                let spentMetric,
                 let headroom = remainingHeadroomMetric(spent: spentMetric, limit: limitMetric)
             {
                 metrics.append(headroom)
@@ -710,16 +733,16 @@ public enum ClaudeUsageParser {
             }
         }
 
-        if let balance = matchingAmount(spend.balance, allowNegative: true) {
-            metrics.append(ProviderMonetaryMetric(
-                kind: .balance,
-                label: "Usage credit balance",
-                minorUnits: balance,
-                currencyCode: currency,
-                decimalPlaces: spend.balance?.exponent ?? decimalPlaces,
-                detail: "Prepaid balance"
-            ))
-        } else if matchingAmount(spend.limit) == nil, matchingAmount(spend.used) != nil {
+        let balanceMetric = monetaryMetric(
+            spend.balance,
+            kind: .balance,
+            label: "Usage credit balance",
+            detail: "Prepaid balance",
+            allowNegative: true
+        )
+        if let balanceMetric {
+            metrics.append(balanceMetric)
+        } else if limitMetric == nil, spentMetric != nil {
             messages.append(noSpendLimitMessage)
         }
 
@@ -776,6 +799,9 @@ public enum ClaudeUsageParser {
             return []
         }
         let decimalPlaces = extraUsage.decimalPlaces ?? currencyDecimalPlaces(currency)
+        guard (0...6).contains(decimalPlaces) else {
+            return []
+        }
         var metrics: [ProviderMonetaryMetric] = []
         if let usedCredits = extraUsage.usedCredits {
             metrics.append(ProviderMonetaryMetric(
@@ -806,6 +832,8 @@ public enum ClaudeUsageParser {
         "The monthly usage-credit spend limit has been reached."
     private static let monetaryUnavailableMessage =
         "Usage credits are enabled, but monetary details are temporarily unavailable."
+    private static let enabledStatusUnknownMessage =
+        "Usage-credit enabled status was not reported."
 
     private static func remainingHeadroomMetric(
         spent: ProviderMonetaryMetric,
