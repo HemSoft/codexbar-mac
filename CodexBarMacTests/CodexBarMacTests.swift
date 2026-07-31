@@ -5179,7 +5179,8 @@ final class CodexBarMacTests: XCTestCase {
         }
         let store = ProviderConfigurationStore(
             defaults: defaults,
-            secretStore: TransactionalReplacementSecretStore()
+            secretStore: TransactionalReplacementSecretStore(),
+            encodeConfigurations: { try JSONEncoder().encode($0) }
         )
         let configuration = store.addAccount(for: .codex)
 
@@ -5197,7 +5198,11 @@ final class CodexBarMacTests: XCTestCase {
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
-        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) }
+        )
         let first = store.addAccount(for: .codex)
         let second = store.addAccount(for: .codex)
         try secretStore.saveSecret(
@@ -5214,6 +5219,80 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testCodexBrowserIdentityRejectsDuplicateActiveLocalCLIAccount() throws {
+        let suiteName = "CodexBarMacTests.CodexIdentity.LocalDuplicate.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = TransactionalReplacementSecretStore()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) },
+            readCodexAuthCredentials: {
+                CodexCredentials(accessToken: "local-token", accountID: "local-account")
+            }
+        )
+        var localAccount = store.addAccount(for: .codex)
+        localAccount.accountLabel = "Codex CLI"
+        localAccount.authMethod = .codexAuthJSON
+        XCTAssertTrue(store.update(localAccount))
+        let browserAccount = store.addAccount(for: .codex)
+        let browserCredential = CodexCredentialsParser.storedCredential(
+            from: CodexCredentials(accessToken: "browser-token", accountID: "browser-account")
+        )
+        try secretStore.saveSecret(
+            browserCredential,
+            account: ProviderConfigurationStore.keychainAccount(for: browserAccount)
+        )
+        let configurationsBeforeValidation = store.configurations
+
+        XCTAssertEqual(
+            store.validateCodexAccountIdentity(" local-account ", for: browserAccount),
+            .duplicate(accountName: "Codex CLI")
+        )
+        XCTAssertEqual(store.configurations, configurationsBeforeValidation)
+        XCTAssertNil(
+            try secretStore.readSecret(
+                account: ProviderConfigurationStore.keychainAccount(for: localAccount)
+            )
+        )
+        XCTAssertEqual(
+            try secretStore.readSecret(
+                account: ProviderConfigurationStore.keychainAccount(for: browserAccount)
+            ),
+            browserCredential
+        )
+    }
+
+    @MainActor
+    func testCodexBrowserIdentityAcceptsDistinctActiveLocalCLIAccount() {
+        let suiteName = "CodexBarMacTests.CodexIdentity.LocalAvailable.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: TransactionalReplacementSecretStore(),
+            encodeConfigurations: { try JSONEncoder().encode($0) },
+            readCodexAuthCredentials: {
+                CodexCredentials(accessToken: "local-token", accountID: "local-account")
+            }
+        )
+        var localAccount = store.addAccount(for: .codex)
+        localAccount.authMethod = .codexAuthJSON
+        XCTAssertTrue(store.update(localAccount))
+        let browserAccount = store.addAccount(for: .codex)
+
+        XCTAssertEqual(
+            store.validateCodexAccountIdentity("browser-account", for: browserAccount),
+            .available
+        )
+    }
+
+    @MainActor
     func testCodexDuplicateBrowserIdentityReportsOwnerAndDoesNotMutateAccounts() throws {
         let suiteName = "CodexBarMacTests.CodexIdentity.Duplicate.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -5221,7 +5300,11 @@ final class CodexBarMacTests: XCTestCase {
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
-        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) }
+        )
         var first = store.addAccount(for: .codex)
         first.accountLabel = "Personal Codex"
         XCTAssertTrue(store.update(first))
@@ -5269,7 +5352,11 @@ final class CodexBarMacTests: XCTestCase {
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
-        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) }
+        )
         let first = store.addAccount(for: .codex)
         let second = store.addAccount(for: .codex)
         let firstCredential = CodexCredentialsParser.storedCredential(
@@ -5315,7 +5402,11 @@ final class CodexBarMacTests: XCTestCase {
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
-        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) }
+        )
         let first = store.addAccount(for: .codex)
         let second = store.addAccount(for: .codex)
         let peerCredential = CodexCredentialsParser.storedCredential(
@@ -5348,7 +5439,11 @@ final class CodexBarMacTests: XCTestCase {
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
-        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) }
+        )
         let first = store.addAccount(for: .codex)
         let second = store.addAccount(for: .codex)
         let secondCredential = CodexCredentialsParser.storedCredential(
@@ -5391,7 +5486,11 @@ final class CodexBarMacTests: XCTestCase {
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
-        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) }
+        )
         let first = store.addAccount(for: .codex)
         let second = store.addAccount(for: .codex)
         try secretStore.saveSecret(

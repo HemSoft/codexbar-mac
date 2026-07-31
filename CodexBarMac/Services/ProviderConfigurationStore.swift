@@ -13,6 +13,12 @@ enum CodexAccountIdentityValidation: Equatable {
     case unableToVerify
 }
 
+private enum SavedCodexAccountIdentity {
+    case missing
+    case verified(String)
+    case unableToVerify
+}
+
 @MainActor
 public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var configurations: [ProviderAccountConfiguration]
@@ -34,6 +40,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let secretStore: any SecretStore
     private let encodeConfigurations: ([ProviderAccountConfiguration]) throws -> Data
     private let persistConfigurations: (Data) throws -> Void
+    private let readCodexAuthCredentials: () -> CodexCredentials?
     private let configurationsKey = DefaultsKey.configurations
     private let groupsKey = DefaultsKey.groups
     private let appAppearanceKey = DefaultsKey.appAppearance
@@ -56,7 +63,8 @@ public final class ProviderConfigurationStore: ObservableObject {
         self.init(
             defaults: defaults,
             secretStore: secretStore,
-            encodeConfigurations: { try JSONEncoder().encode($0) }
+            encodeConfigurations: { try JSONEncoder().encode($0) },
+            readCodexAuthCredentials: { CodexAuthFileStore.readCredentials() }
         )
     }
 
@@ -64,7 +72,8 @@ public final class ProviderConfigurationStore: ObservableObject {
         defaults: UserDefaults,
         secretStore: any SecretStore,
         encodeConfigurations: @escaping ([ProviderAccountConfiguration]) throws -> Data,
-        persistConfigurations: ((Data) throws -> Void)? = nil
+        persistConfigurations: ((Data) throws -> Void)? = nil,
+        readCodexAuthCredentials: @escaping () -> CodexCredentials? = { nil }
     ) {
         let groupLoadResult = Self.loadGroups(from: defaults)
         let configurationLoadResult = Self.loadConfigurations(
@@ -79,6 +88,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         self.persistConfigurations = persistConfigurations ?? { data in
             defaults.set(data, forKey: DefaultsKey.configurations)
         }
+        self.readCodexAuthCredentials = readCodexAuthCredentials
         self.groups = groupLoadResult.groups
         self.configurations = configurationLoadResult.configurations
         self.secretAvailability = [:]
@@ -694,24 +704,21 @@ public final class ProviderConfigurationStore: ObservableObject {
             return .unableToVerify
         }
 
+        let localCredentials = readCodexAuthCredentials()
         for existing in otherConfigurations {
             do {
-                guard let secret = try secretStore.readSecret(
-                    account: Self.keychainAccount(for: existing)
-                ) else {
+                switch try savedCodexAccountIdentity(
+                    for: existing,
+                    localCredentials: localCredentials
+                ) {
+                case .missing:
                     continue
-                }
-                guard
-                    let existingAccountID = CodexCredentialsParser.parse(secret)?
-                        .accountID?
-                        .trimmingCharacters(in: .whitespacesAndNewlines),
-                    !existingAccountID.isEmpty
-                else {
+                case .unableToVerify:
                     return .unableToVerify
-                }
-
-                if existingAccountID == accountID {
-                    return .duplicate(accountName: existing.displayName)
+                case .verified(let existingAccountID):
+                    if existingAccountID == accountID {
+                        return .duplicate(accountName: existing.displayName)
+                    }
                 }
             } catch {
                 lastError = "Could not verify the saved ChatGPT accounts: \(error.localizedDescription)"
@@ -720,6 +727,59 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
 
         return .available
+    }
+
+    private func savedCodexAccountIdentity(
+        for configuration: ProviderAccountConfiguration,
+        localCredentials: CodexCredentials?
+    ) throws -> SavedCodexAccountIdentity {
+        let prefersLocalCredentials =
+            configuration.authMethod == .codexAuthJSON
+            || (
+                configuration.authMethod == .browserSession
+                && configuration.id == configuration.providerID.rawValue
+            )
+
+        if prefersLocalCredentials, let localCredentials {
+            return Self.savedCodexAccountIdentity(from: localCredentials)
+        }
+
+        let keychainIdentity = try savedKeychainCodexAccountIdentity(for: configuration)
+        guard case .missing = keychainIdentity else {
+            return keychainIdentity
+        }
+
+        if configuration.authMethod == .browserSession, let localCredentials {
+            return Self.savedCodexAccountIdentity(from: localCredentials)
+        }
+        return .missing
+    }
+
+    private func savedKeychainCodexAccountIdentity(
+        for configuration: ProviderAccountConfiguration
+    ) throws -> SavedCodexAccountIdentity {
+        guard let secret = try secretStore.readSecret(
+            account: Self.keychainAccount(for: configuration)
+        ) else {
+            return .missing
+        }
+        guard let credentials = CodexCredentialsParser.parse(secret) else {
+            return .unableToVerify
+        }
+        return Self.savedCodexAccountIdentity(from: credentials)
+    }
+
+    private static func savedCodexAccountIdentity(
+        from credentials: CodexCredentials
+    ) -> SavedCodexAccountIdentity {
+        guard
+            let accountID = credentials.accountID?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !accountID.isEmpty
+        else {
+            return .unableToVerify
+        }
+        return .verified(accountID)
     }
 
     public func credentialReadiness(for configuration: ProviderAccountConfiguration) -> CredentialReadiness {
