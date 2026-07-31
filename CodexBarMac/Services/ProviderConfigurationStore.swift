@@ -40,7 +40,7 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let secretStore: any SecretStore
     private let encodeConfigurations: ([ProviderAccountConfiguration]) throws -> Data
     private let persistConfigurations: (Data) throws -> Void
-    private let readCodexAuthCredentials: () -> CodexCredentials?
+    private let readCodexAuthCredentials: () -> CodexAuthFileReadResult
     private let configurationsKey = DefaultsKey.configurations
     private let groupsKey = DefaultsKey.groups
     private let appAppearanceKey = DefaultsKey.appAppearance
@@ -64,7 +64,7 @@ public final class ProviderConfigurationStore: ObservableObject {
             defaults: defaults,
             secretStore: secretStore,
             encodeConfigurations: { try JSONEncoder().encode($0) },
-            readCodexAuthCredentials: { CodexAuthFileStore.readCredentials() }
+            readCodexAuthCredentials: { CodexAuthFileStore.readResult() }
         )
     }
 
@@ -73,7 +73,7 @@ public final class ProviderConfigurationStore: ObservableObject {
         secretStore: any SecretStore,
         encodeConfigurations: @escaping ([ProviderAccountConfiguration]) throws -> Data,
         persistConfigurations: ((Data) throws -> Void)? = nil,
-        readCodexAuthCredentials: @escaping () -> CodexCredentials? = { nil }
+        readCodexAuthCredentials: @escaping () -> CodexAuthFileReadResult = { .missing }
     ) {
         let groupLoadResult = Self.loadGroups(from: defaults)
         let configurationLoadResult = Self.loadConfigurations(
@@ -731,7 +731,7 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     private func savedCodexAccountIdentity(
         for configuration: ProviderAccountConfiguration,
-        localCredentials: CodexCredentials?
+        localCredentials: CodexAuthFileReadResult
     ) throws -> SavedCodexAccountIdentity {
         let prefersLocalCredentials =
             configuration.authMethod == .codexAuthJSON
@@ -740,8 +740,15 @@ public final class ProviderConfigurationStore: ObservableObject {
                 && configuration.id == configuration.providerID.rawValue
             )
 
-        if prefersLocalCredentials, let localCredentials {
-            return Self.savedCodexAccountIdentity(from: localCredentials)
+        if prefersLocalCredentials {
+            switch localCredentials {
+            case .credentials(let credentials):
+                return Self.savedCodexAccountIdentity(from: credentials)
+            case .failure:
+                return .unableToVerify
+            case .missing:
+                break
+            }
         }
 
         let keychainIdentity = try savedKeychainCodexAccountIdentity(for: configuration)
@@ -749,8 +756,15 @@ public final class ProviderConfigurationStore: ObservableObject {
             return keychainIdentity
         }
 
-        if configuration.authMethod == .browserSession, let localCredentials {
-            return Self.savedCodexAccountIdentity(from: localCredentials)
+        if configuration.authMethod == .browserSession {
+            switch localCredentials {
+            case .credentials(let credentials):
+                return Self.savedCodexAccountIdentity(from: credentials)
+            case .failure:
+                return .unableToVerify
+            case .missing:
+                break
+            }
         }
         return .missing
     }

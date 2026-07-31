@@ -5231,7 +5231,9 @@ final class CodexBarMacTests: XCTestCase {
             secretStore: secretStore,
             encodeConfigurations: { try JSONEncoder().encode($0) },
             readCodexAuthCredentials: {
-                CodexCredentials(accessToken: "local-token", accountID: "local-account")
+                .credentials(
+                    CodexCredentials(accessToken: "local-token", accountID: "local-account")
+                )
             }
         )
         var localAccount = store.addAccount(for: .codex)
@@ -5278,7 +5280,9 @@ final class CodexBarMacTests: XCTestCase {
             secretStore: TransactionalReplacementSecretStore(),
             encodeConfigurations: { try JSONEncoder().encode($0) },
             readCodexAuthCredentials: {
-                CodexCredentials(accessToken: "local-token", accountID: "local-account")
+                .credentials(
+                    CodexCredentials(accessToken: "local-token", accountID: "local-account")
+                )
             }
         )
         var localAccount = store.addAccount(for: .codex)
@@ -5289,6 +5293,67 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(
             store.validateCodexAccountIdentity("browser-account", for: browserAccount),
             .available
+        )
+    }
+
+    @MainActor
+    func testCodexMalformedLocalPeerCredentialDoesNotMutateAccounts() throws {
+        let suiteName = "CodexBarMacTests.CodexIdentity.MalformedLocal.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = TransactionalReplacementSecretStore()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let authPath = directory.appendingPathComponent("auth.json").path
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        XCTAssertEqual(
+            CodexAuthFileStore.readResult(
+                at: directory.appendingPathComponent("missing-auth.json").path
+            ),
+            .missing
+        )
+        try Data("{ malformed".utf8).write(to: URL(fileURLWithPath: authPath))
+        XCTAssertEqual(CodexAuthFileStore.readResult(at: authPath), .failure)
+
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) },
+            readCodexAuthCredentials: {
+                CodexAuthFileStore.readResult(at: authPath)
+            }
+        )
+        var localAccount = store.addAccount(for: .codex)
+        localAccount.authMethod = .codexAuthJSON
+        XCTAssertTrue(store.update(localAccount))
+        let browserAccount = store.addAccount(for: .codex)
+        let browserCredential = CodexCredentialsParser.storedCredential(
+            from: CodexCredentials(accessToken: "browser-token", accountID: "browser-account")
+        )
+        try secretStore.saveSecret(
+            browserCredential,
+            account: ProviderConfigurationStore.keychainAccount(for: browserAccount)
+        )
+        let configurationsBeforeValidation = store.configurations
+
+        XCTAssertEqual(
+            store.validateCodexAccountIdentity("new-account", for: browserAccount),
+            .unableToVerify
+        )
+        XCTAssertEqual(store.configurations, configurationsBeforeValidation)
+        XCTAssertNil(
+            try secretStore.readSecret(
+                account: ProviderConfigurationStore.keychainAccount(for: localAccount)
+            )
+        )
+        XCTAssertEqual(
+            try secretStore.readSecret(
+                account: ProviderConfigurationStore.keychainAccount(for: browserAccount)
+            ),
+            browserCredential
         )
     }
 
