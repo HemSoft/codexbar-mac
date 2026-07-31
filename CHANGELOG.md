@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Additional Codex and Claude browser accounts now use their account-specific
+  saved credentials while the default account keeps preferring local CLI sign-in.
 - Claude usage now fills missing provider spend and limit values from compatible
   legacy data without replacing balances or deriving mismatched headroom.
 - Claude usage responses now preserve valid session, weekly, and monetary data

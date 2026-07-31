@@ -127,24 +127,28 @@ public final class ClaudeUsageProvider: UsageProvider {
     }
 
     private func credentialCandidates(configuration: ProviderAccountConfiguration) -> [LoadedCredentials] {
-        var candidates: [LoadedCredentials] = []
-        if let local = ClaudeCredentialStore.readCredentials(
+        let local = ClaudeCredentialStore.readCredentials(
             keychainAccount: keychainAccount,
             credentialsFilePath: credentialsFilePath
-        ) {
-            candidates.append(LoadedCredentials(credentials: local.credentials, storage: local.storage))
+        ).map {
+            LoadedCredentials(credentials: $0.credentials, storage: $0.storage)
         }
 
         let account = ProviderConfigurationStore.keychainAccount(for: configuration)
+        var saved: LoadedCredentials?
         if
             let storedSecret = try? secretStore.readSecret(account: account),
             let parsedCredentials = ClaudeCredentialsParser.parse(storedSecret),
             parsedCredentials.accessToken?.isEmpty == false
         {
-            candidates.append(LoadedCredentials(credentials: parsedCredentials, storage: nil))
+            saved = LoadedCredentials(credentials: parsedCredentials, storage: nil)
         }
 
-        return candidates
+        if configuration.authMethod == .browserSession,
+           configuration.id != configuration.providerID.rawValue {
+            return [saved, local].compactMap { $0 }
+        }
+        return [local, saved].compactMap { $0 }
     }
 
     private func notConfiguredMessage(for configuration: ProviderAccountConfiguration) -> String {
