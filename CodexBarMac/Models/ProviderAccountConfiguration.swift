@@ -57,6 +57,51 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         return label.isEmpty ? providerID.displayName : label
     }
 
+    public func openCodeDisplayName(
+        hasGoUsage: Bool,
+        hasZenBalance: Bool
+    ) -> String {
+        let label = accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !hasCustomOpenCodeAccountLabel(label) else {
+            return label
+        }
+
+        switch (hasGoUsage, hasZenBalance) {
+        case (true, true):
+            return "OpenCode Go + Zen"
+        case (true, false):
+            return "OpenCode Go"
+        case (false, true):
+            return "OpenCode ZEN"
+        case (false, false):
+            return providerID.displayName
+        }
+    }
+
+    private func hasCustomOpenCodeAccountLabel(_ label: String) -> Bool {
+        guard !label.isEmpty else {
+            return false
+        }
+        guard providerID == .openCodeZen else {
+            return true
+        }
+
+        for base in ["OpenCode ZEN", "OpenCode Go + Zen"] {
+            if label == base {
+                return false
+            }
+
+            let prefix = "\(base) "
+            if label.hasPrefix(prefix) {
+                let suffix = String(label.dropFirst(prefix.count))
+                if let accountNumber = Int(suffix), accountNumber > 0, suffix == String(accountNumber) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
     public func withNewAccountID() -> ProviderAccountConfiguration {
         ProviderAccountConfiguration(
             id: "\(providerID.rawValue).\(UUID().uuidString)",
