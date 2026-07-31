@@ -1,6 +1,22 @@
 import AppKit
 import SwiftUI
 
+enum StatusBarRightClickRoute: Equatable {
+    case passThrough
+    case openMenu
+
+    static func resolve(
+        eventWindowMatchesButton: Bool,
+        locationIsInsideButton: Bool
+    ) -> Self {
+        guard eventWindowMatchesButton, locationIsInsideButton else {
+            return .passThrough
+        }
+
+        return .openMenu
+    }
+}
+
 struct MenuBarStatusLabel: View {
     let severity: UsageSeverity
     let isRefreshEnabled: Bool
@@ -86,6 +102,7 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
             }
         }
 
+        @MainActor
         func attachIfNeeded(from view: NSView) {
             guard statusBarButton == nil,
                   let button = Self.findStatusBarButton(startingAt: view)
@@ -142,37 +159,51 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
             onQuit()
         }
 
+        @MainActor
         private func installEventMonitor() {
             guard eventMonitor == nil else {
                 return
             }
 
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseUp) { [weak self] event in
-                guard
-                    let self,
-                    let button = self.statusBarButton,
-                    let menu = self.menu,
-                    let window = button.window,
-                    event.window === window
-                else {
-                    return event
+                let shouldConsumeEvent = MainActor.assumeIsolated {
+                    self?.handleRightMouseUp(event) ?? false
                 }
-
-                let locationInButton = button.convert(event.locationInWindow, from: nil)
-                guard button.bounds.contains(locationInButton) else {
-                    return event
-                }
-
-                NSApp.activate(ignoringOtherApps: true)
-                menu.popUp(
-                    positioning: nil,
-                    at: NSPoint(x: 0, y: button.bounds.height + 4),
-                    in: button
-                )
-                return nil
+                return shouldConsumeEvent ? nil : event
             }
         }
 
+        @MainActor
+        private func handleRightMouseUp(_ event: NSEvent) -> Bool {
+            guard
+                let button = statusBarButton,
+                let menu,
+                let window = button.window
+            else {
+                return false
+            }
+
+            let eventWindowMatchesButton = event.window === window
+            let locationIsInsideButton = eventWindowMatchesButton
+                && button.bounds.contains(button.convert(event.locationInWindow, from: nil))
+            let route = StatusBarRightClickRoute.resolve(
+                eventWindowMatchesButton: eventWindowMatchesButton,
+                locationIsInsideButton: locationIsInsideButton
+            )
+            guard route == .openMenu else {
+                return false
+            }
+
+            NSApp.activate(ignoringOtherApps: true)
+            menu.popUp(
+                positioning: nil,
+                at: NSPoint(x: 0, y: button.bounds.height + 4),
+                in: button
+            )
+            return true
+        }
+
+        @MainActor
         private static func findStatusBarButton(startingAt view: NSView) -> NSStatusBarButton? {
             var current: NSView? = view
             while let candidate = current {

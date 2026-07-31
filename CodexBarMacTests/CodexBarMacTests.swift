@@ -4,6 +4,30 @@ import Security
 @testable import CodexBarMac
 
 final class CodexBarMacTests: XCTestCase {
+    func testStatusBarRightClickRoutingConsumesOnlyClicksInsideMatchingButtonWindow() {
+        XCTAssertEqual(
+            StatusBarRightClickRoute.resolve(
+                eventWindowMatchesButton: true,
+                locationIsInsideButton: true
+            ),
+            .openMenu
+        )
+        XCTAssertEqual(
+            StatusBarRightClickRoute.resolve(
+                eventWindowMatchesButton: true,
+                locationIsInsideButton: false
+            ),
+            .passThrough
+        )
+        XCTAssertEqual(
+            StatusBarRightClickRoute.resolve(
+                eventWindowMatchesButton: false,
+                locationIsInsideButton: true
+            ),
+            .passThrough
+        )
+    }
+
     @MainActor
     func testOpenCodeAutomaticPersistenceStagesCredentialCoupledMetadata() {
         var persisted = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
