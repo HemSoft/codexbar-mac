@@ -8237,6 +8237,28 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(mergedBalanceOnly.usageMessages, balanceOnly.usageMessages)
         XCTAssertEqual(mergedBalanceOnly.fetchedAt, refreshedAt)
 
+        let cachedBalanceOnly = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode ZEN 2",
+            subtitle: "ZEN credit balance",
+            bars: [],
+            creditsRemaining: 12,
+            fetchedAt: cachedAt
+        )
+        let preGoService = UsageRefreshService(
+            providers: [StubUsageProvider(providerID: .openCodeZen, result: balanceOnly)],
+            initialResults: [cachedBalanceOnly]
+        )
+
+        let preGoRefreshed = await preGoService.refresh(configurations: [configuration])
+        XCTAssertTrue(preGoRefreshed)
+        let freshBalanceOnly = try XCTUnwrap(preGoService.results.first)
+        XCTAssertEqual(freshBalanceOnly.title, "OpenCode ZEN 2")
+        XCTAssertTrue(freshBalanceOnly.bars.isEmpty)
+        XCTAssertEqual(freshBalanceOnly.creditsRemaining, 9)
+        XCTAssertEqual(freshBalanceOnly.subtitle, "ZEN credit balance")
+
         let freshBars = [
             UsageBar(stableKey: "go.weekly", label: "Weekly usage limit", used: 35, limit: 100),
         ]

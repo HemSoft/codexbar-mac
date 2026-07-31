@@ -196,9 +196,7 @@ public final class UsageRefreshService: ObservableObject {
             || result.preservesCachedCreditsOnIncompleteRefresh
         guard
             result.isIncompleteRefresh,
-            let cachedResult,
-            cachedResult.creditsRemaining != nil || !cachedResult.bars.isEmpty || !cachedResult.monetaryMetrics.isEmpty,
-            !resultHasUsageData || hasComponentPreservation
+            let cachedResult
         else {
             return result
         }
@@ -208,13 +206,26 @@ public final class UsageRefreshService: ObservableObject {
                 || result.preservesCachedBarsOnIncompleteRefresh
                     && result.preservesCachedCreditsOnIncompleteRefresh
         )
-        let bars = preservesAllUsageData || result.preservesCachedBarsOnIncompleteRefresh
+        let restoresBars = (preservesAllUsageData || result.preservesCachedBarsOnIncompleteRefresh)
+            && result.bars.isEmpty
+            && !cachedResult.bars.isEmpty
+        let restoresCredits = (preservesAllUsageData || result.preservesCachedCreditsOnIncompleteRefresh)
+            && result.creditsRemaining == nil
+            && cachedResult.creditsRemaining != nil
+        let restoresMonetaryMetrics = preservesAllUsageData
+            && result.monetaryMetrics.isEmpty
+            && !cachedResult.monetaryMetrics.isEmpty
+        guard restoresBars || restoresCredits || restoresMonetaryMetrics else {
+            return result
+        }
+
+        let bars = restoresBars
             ? cachedResult.bars
             : result.bars
-        let creditsRemaining = preservesAllUsageData || result.preservesCachedCreditsOnIncompleteRefresh
+        let creditsRemaining = restoresCredits
             ? cachedResult.creditsRemaining
             : result.creditsRemaining
-        let monetaryMetrics = preservesAllUsageData ? cachedResult.monetaryMetrics : result.monetaryMetrics
+        let monetaryMetrics = restoresMonetaryMetrics ? cachedResult.monetaryMetrics : result.monetaryMetrics
 
         let subtitle: String
         if result.subtitle.localizedCaseInsensitiveContains("last known data") {
