@@ -299,6 +299,8 @@ public final class CodexUsageProvider: UsageProvider {
             ProviderConfigurationStore.keychainAccount(for: configuration)
         )
         switch configuration.authMethod {
+        case .browserSession where configuration.id != configuration.providerID.rawValue:
+            return [keychain, .authFile(authFilePath)]
         case .codexAuthJSON, .browserSession:
             return [.authFile(authFilePath), keychain]
         default:
