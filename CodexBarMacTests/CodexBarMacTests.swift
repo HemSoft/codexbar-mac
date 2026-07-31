@@ -5317,6 +5317,7 @@ final class CodexBarMacTests: XCTestCase {
         let incomingAccount = store.addAccount(for: .codex)
         var browserPeer = store.addAccount(for: .codex)
         browserPeer.accountLabel = "Browser peer"
+        browserPeer.authMethod = .browserSession
         XCTAssertTrue(store.update(browserPeer))
 
         XCTAssertNil(
