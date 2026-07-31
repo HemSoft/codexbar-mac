@@ -905,6 +905,8 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
                 title: configuration.openCodeDisplayName(hasGoUsage: false, hasZenBalance: false),
                 subtitle: message,
                 bars: [],
+                preservesCachedBarsOnIncompleteRefresh: true,
+                preservesCachedCreditsOnIncompleteRefresh: true,
                 isIncompleteRefresh: true,
                 fetchedAt: fetchedAt
             )
@@ -941,6 +943,8 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
             bars: usageBars,
             creditsRemaining: creditsRemaining,
             usageMessages: usageMessages,
+            preservesCachedBarsOnIncompleteRefresh: goFailure != nil,
+            preservesCachedCreditsOnIncompleteRefresh: balanceFailure != nil,
             isIncompleteRefresh: balanceFailure != nil || goFailure != nil,
             fetchedAt: fetchedAt
         )

@@ -4831,6 +4831,8 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(balanceOnly.usageMessages, [
             "Go usage unavailable: Could not parse all OpenCode Go usage windows.",
         ])
+        XCTAssertTrue(balanceOnly.preservesCachedBarsOnIncompleteRefresh)
+        XCTAssertFalse(balanceOnly.preservesCachedCreditsOnIncompleteRefresh)
         XCTAssertTrue(balanceOnly.isIncompleteRefresh)
 
         MockURLProtocol.handler = { request in
@@ -4850,6 +4852,8 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(goOnly.usageMessages, [
             "ZEN balance unavailable: Could not parse OpenCode ZEN balance.",
         ])
+        XCTAssertFalse(goOnly.preservesCachedBarsOnIncompleteRefresh)
+        XCTAssertTrue(goOnly.preservesCachedCreditsOnIncompleteRefresh)
         XCTAssertTrue(goOnly.isIncompleteRefresh)
     }
 
@@ -8187,6 +8191,120 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(refreshed)
         XCTAssertEqual(service.incompleteRefreshAccountIDs, [configuration.id])
         XCTAssertTrue(service.successfulRefreshResults.isEmpty)
+    }
+
+    @MainActor
+    func testUsageRefreshServiceMergesCachedOpenCodeComponentsForPartialFailures() async throws {
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        configuration.accountLabel = "OpenCode ZEN 2"
+        let cachedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let refreshedAt = Date(timeIntervalSince1970: 1_700_000_100)
+        let cachedBars = [
+            UsageBar(stableKey: "go.weekly", label: "Weekly usage limit", used: 20, limit: 100),
+        ]
+        let cached = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode Go + Zen 2",
+            subtitle: "Go usage and ZEN credit balance",
+            bars: cachedBars,
+            creditsRemaining: 12,
+            fetchedAt: cachedAt
+        )
+        let balanceOnly = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode ZEN 2",
+            subtitle: "ZEN credit balance",
+            bars: [],
+            creditsRemaining: 9,
+            usageMessages: ["Go usage unavailable: Temporary outage"],
+            preservesCachedBarsOnIncompleteRefresh: true,
+            isIncompleteRefresh: true,
+            fetchedAt: refreshedAt
+        )
+        let balanceOnlyService = UsageRefreshService(
+            providers: [StubUsageProvider(providerID: .openCodeZen, result: balanceOnly)],
+            initialResults: [cached]
+        )
+
+        let balanceOnlyRefreshed = await balanceOnlyService.refresh(configurations: [configuration])
+        XCTAssertTrue(balanceOnlyRefreshed)
+        let mergedBalanceOnly = try XCTUnwrap(balanceOnlyService.results.first)
+        XCTAssertEqual(mergedBalanceOnly.title, "OpenCode Go + Zen 2")
+        XCTAssertEqual(mergedBalanceOnly.bars, cachedBars)
+        XCTAssertEqual(mergedBalanceOnly.creditsRemaining, 9)
+        XCTAssertEqual(mergedBalanceOnly.usageMessages, balanceOnly.usageMessages)
+        XCTAssertEqual(mergedBalanceOnly.fetchedAt, refreshedAt)
+
+        let freshBars = [
+            UsageBar(stableKey: "go.weekly", label: "Weekly usage limit", used: 35, limit: 100),
+        ]
+        let goOnly = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode Go 2",
+            subtitle: "OpenCode Go usage",
+            bars: freshBars,
+            usageMessages: ["ZEN balance unavailable: Temporary outage"],
+            preservesCachedCreditsOnIncompleteRefresh: true,
+            isIncompleteRefresh: true,
+            fetchedAt: refreshedAt
+        )
+        let goOnlyService = UsageRefreshService(
+            providers: [StubUsageProvider(providerID: .openCodeZen, result: goOnly)],
+            initialResults: [cached]
+        )
+
+        let goOnlyRefreshed = await goOnlyService.refresh(configurations: [configuration])
+        XCTAssertTrue(goOnlyRefreshed)
+        let mergedGoOnly = try XCTUnwrap(goOnlyService.results.first)
+        XCTAssertEqual(mergedGoOnly.title, "OpenCode Go + Zen 2")
+        XCTAssertEqual(mergedGoOnly.bars, freshBars)
+        XCTAssertEqual(mergedGoOnly.creditsRemaining, 12)
+        XCTAssertEqual(mergedGoOnly.usageMessages, goOnly.usageMessages)
+        XCTAssertEqual(mergedGoOnly.fetchedAt, refreshedAt)
+    }
+
+    @MainActor
+    func testUsageRefreshServiceRetainsCachedOpenCodeTitleAfterTotalFailure() async throws {
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        configuration.accountLabel = "OpenCode ZEN 2"
+        let cachedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let cached = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode Go + Zen 2",
+            subtitle: "Go usage and ZEN credit balance",
+            bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage limit", used: 20, limit: 100)],
+            creditsRemaining: 12,
+            fetchedAt: cachedAt
+        )
+        let failure = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode ZEN 2",
+            subtitle: "Temporary dashboard outage",
+            bars: [],
+            preservesCachedBarsOnIncompleteRefresh: true,
+            preservesCachedCreditsOnIncompleteRefresh: true,
+            isIncompleteRefresh: true,
+            fetchedAt: Date(timeIntervalSince1970: 1_700_000_100)
+        )
+        let service = UsageRefreshService(
+            providers: [StubUsageProvider(providerID: .openCodeZen, result: failure)],
+            initialResults: [cached]
+        )
+
+        let refreshed = await service.refresh(configurations: [configuration])
+        XCTAssertTrue(refreshed)
+        let preserved = try XCTUnwrap(service.results.first)
+        XCTAssertEqual(preserved.title, "OpenCode Go + Zen 2")
+        XCTAssertEqual(preserved.bars, cached.bars)
+        XCTAssertEqual(preserved.creditsRemaining, cached.creditsRemaining)
+        XCTAssertEqual(preserved.subtitle, "Temporary dashboard outage. Showing last known data.")
+        XCTAssertEqual(preserved.fetchedAt, cachedAt)
+        XCTAssertTrue(preserved.isIncompleteRefresh)
     }
 
     func testUsageRefreshFetchRaceReturnsFastProviderResult() async {
