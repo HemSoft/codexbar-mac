@@ -4703,10 +4703,11 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(configuration.openCodeDisplayName(hasGoUsage: false, hasZenBalance: true), "OpenCode ZEN")
 
         configuration.accountLabel = "OpenCode ZEN 2"
-        XCTAssertEqual(configuration.openCodeDisplayName(hasGoUsage: true, hasZenBalance: false), "OpenCode Go")
+        XCTAssertEqual(configuration.openCodeDisplayName(hasGoUsage: true, hasZenBalance: false), "OpenCode Go 2")
+        XCTAssertEqual(configuration.openCodeDisplayName(hasGoUsage: true, hasZenBalance: true), "OpenCode Go + Zen 2")
 
         configuration.accountLabel = "OpenCode Go 2"
-        XCTAssertEqual(configuration.openCodeDisplayName(hasGoUsage: false, hasZenBalance: true), "OpenCode ZEN")
+        XCTAssertEqual(configuration.openCodeDisplayName(hasGoUsage: false, hasZenBalance: true), "OpenCode ZEN 2")
 
         configuration.accountLabel = "Team OpenCode"
         XCTAssertEqual(configuration.openCodeDisplayName(hasGoUsage: true, hasZenBalance: true), "Team OpenCode")
@@ -4723,10 +4724,13 @@ final class CodexBarMacTests: XCTestCase {
         )
         configurationStore.seedDefaultConfigurationsIfNeeded()
         let configuration = configurationStore.configuration(for: .openCodeZen)
+        var numberedConfiguration = configuration
+        numberedConfiguration.accountLabel = "OpenCode ZEN 2"
+        XCTAssertTrue(configurationStore.update(numberedConfiguration))
         let result = ProviderUsageResult(
             accountID: configuration.id,
             providerID: .openCodeZen,
-            title: "OpenCode Go + Zen",
+            title: "OpenCode Go + Zen 2",
             subtitle: "Go usage and ZEN credit balance",
             bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage limit", used: 20, limit: 100)],
             creditsRemaining: 12.25,
@@ -4740,9 +4744,9 @@ final class CodexBarMacTests: XCTestCase {
             usageAlertNotifier: StubUsageAlertNotifier()
         )
 
-        XCTAssertEqual(model.displayedResults.first?.title, "OpenCode Go + Zen")
+        XCTAssertEqual(model.displayedResults.first?.title, "OpenCode Go + Zen 2")
 
-        var customConfiguration = configuration
+        var customConfiguration = numberedConfiguration
         customConfiguration.accountLabel = "Team OpenCode"
         XCTAssertTrue(configurationStore.update(customConfiguration))
         XCTAssertEqual(model.displayedResults.first?.title, "Team OpenCode")

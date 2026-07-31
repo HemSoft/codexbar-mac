@@ -66,16 +66,19 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
             return label
         }
 
+        let accountSuffix = generatedOpenCodeAccountNumber.map { " \($0)" } ?? ""
+        let productName: String
         switch (hasGoUsage, hasZenBalance) {
         case (true, true):
-            return "OpenCode Go + Zen"
+            productName = "OpenCode Go + Zen"
         case (true, false):
-            return "OpenCode Go"
+            productName = "OpenCode Go"
         case (false, true):
-            return "OpenCode ZEN"
+            productName = "OpenCode ZEN"
         case (false, false):
-            return providerID.displayName
+            productName = providerID.displayName
         }
+        return productName + accountSuffix
     }
 
     public var hasCustomOpenCodeAccountLabel: Bool {
@@ -101,6 +104,24 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
             }
         }
         return true
+    }
+
+    private var generatedOpenCodeAccountNumber: Int? {
+        let label = accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard providerID == .openCodeZen else {
+            return nil
+        }
+
+        for base in ["OpenCode ZEN", "OpenCode Go", "OpenCode Go + Zen"] {
+            let prefix = "\(base) "
+            if label.hasPrefix(prefix) {
+                let suffix = String(label.dropFirst(prefix.count))
+                if let accountNumber = Int(suffix), accountNumber > 0, suffix == String(accountNumber) {
+                    return accountNumber
+                }
+            }
+        }
+        return nil
     }
 
     public func withNewAccountID() -> ProviderAccountConfiguration {
