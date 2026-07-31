@@ -15,6 +15,7 @@ enum CodexAccountIdentityValidation: Equatable {
 
 private enum SavedCodexAccountIdentity {
     case missing
+    case invalidCredential
     case verified(String)
     case unableToVerify
 }
@@ -713,7 +714,7 @@ public final class ProviderConfigurationStore: ObservableObject {
                 ) {
                 case .missing:
                     continue
-                case .unableToVerify:
+                case .invalidCredential, .unableToVerify:
                     return .unableToVerify
                 case .verified(let existingAccountID):
                     if existingAccountID == accountID {
@@ -739,34 +740,46 @@ public final class ProviderConfigurationStore: ObservableObject {
                 configuration.authMethod == .browserSession
                 && configuration.id == configuration.providerID.rawValue
             )
+        var encounteredInvalidCredential = false
 
         if prefersLocalCredentials {
-            switch localCredentials {
-            case .credentials(let credentials):
-                return Self.savedCodexAccountIdentity(from: credentials)
-            case .failure:
+            switch Self.savedCodexAccountIdentity(from: localCredentials) {
+            case .verified(let accountID):
+                return .verified(accountID)
+            case .unableToVerify:
                 return .unableToVerify
+            case .invalidCredential:
+                encounteredInvalidCredential = true
             case .missing:
                 break
             }
         }
 
         let keychainIdentity = try savedKeychainCodexAccountIdentity(for: configuration)
-        guard case .missing = keychainIdentity else {
-            return keychainIdentity
+        switch keychainIdentity {
+        case .verified(let accountID):
+            return .verified(accountID)
+        case .unableToVerify:
+            return .unableToVerify
+        case .invalidCredential:
+            encounteredInvalidCredential = true
+        case .missing:
+            break
         }
 
-        if configuration.authMethod == .browserSession {
-            switch localCredentials {
-            case .credentials(let credentials):
-                return Self.savedCodexAccountIdentity(from: credentials)
-            case .failure:
+        if configuration.authMethod == .browserSession && !prefersLocalCredentials {
+            switch Self.savedCodexAccountIdentity(from: localCredentials) {
+            case .verified(let accountID):
+                return .verified(accountID)
+            case .unableToVerify:
                 return .unableToVerify
+            case .invalidCredential:
+                encounteredInvalidCredential = true
             case .missing:
                 break
             }
         }
-        return .missing
+        return encounteredInvalidCredential ? .unableToVerify : .missing
     }
 
     private func savedKeychainCodexAccountIdentity(
@@ -778,9 +791,22 @@ public final class ProviderConfigurationStore: ObservableObject {
             return .missing
         }
         guard let credentials = CodexCredentialsParser.parse(secret) else {
-            return .unableToVerify
+            return .invalidCredential
         }
         return Self.savedCodexAccountIdentity(from: credentials)
+    }
+
+    private static func savedCodexAccountIdentity(
+        from readResult: CodexAuthFileReadResult
+    ) -> SavedCodexAccountIdentity {
+        switch readResult {
+        case .credentials(let credentials):
+            return savedCodexAccountIdentity(from: credentials)
+        case .missing:
+            return .missing
+        case .failure:
+            return .invalidCredential
+        }
     }
 
     private static func savedCodexAccountIdentity(
