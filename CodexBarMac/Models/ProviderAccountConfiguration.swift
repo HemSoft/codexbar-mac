@@ -62,7 +62,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         hasZenBalance: Bool
     ) -> String {
         let label = accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !hasCustomOpenCodeAccountLabel(label) else {
+        guard !hasCustomOpenCodeAccountLabel else {
             return label
         }
 
@@ -78,7 +78,8 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         }
     }
 
-    private func hasCustomOpenCodeAccountLabel(_ label: String) -> Bool {
+    public var hasCustomOpenCodeAccountLabel: Bool {
+        let label = accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !label.isEmpty else {
             return false
         }
@@ -86,7 +87,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
             return true
         }
 
-        for base in ["OpenCode ZEN", "OpenCode Go + Zen"] {
+        for base in ["OpenCode ZEN", "OpenCode Go", "OpenCode Go + Zen"] {
             if label == base {
                 return false
             }

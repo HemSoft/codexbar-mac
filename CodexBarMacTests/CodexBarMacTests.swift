@@ -4589,7 +4589,7 @@ final class CodexBarMacTests: XCTestCase {
         <script>
         window.data = {
           "monthlyUsage": {"resetInSec": 1814400, "usagePercent": 20},
-          "rollingUsage": {"usagePercent": 80, "resetInSec": 3600},
+          "rollingUsage": {"avgUsagePercent": 99, "usagePercent": 80, "resetInSec": 3600},
           "weeklyUsage": {"resetInSec": 129600, "usagePercent": 40}
         };
         </script>
@@ -4653,6 +4653,29 @@ final class CodexBarMacTests: XCTestCase {
         ])
         XCTAssertTrue(result.bars.allSatisfy { $0.projectionCurrent == nil })
         XCTAssertTrue(result.bars.allSatisfy { !$0.showProjectionOnCurrentBar })
+
+        let ambiguousReset = payload.replacingOccurrences(
+            of: "Resets in 1 hour 30 minutes",
+            with: "Resets in a few minutes"
+        )
+        XCTAssertNil(OpenCodeZenUsageProvider.parseGoUsage(
+            Data(ambiguousReset.utf8),
+            configuration: configuration,
+            fetchedAt: fetchedAt
+        ))
+
+        let nearReset = payload.replacingOccurrences(
+            of: "Resets in 1 hour 30 minutes",
+            with: "Resets in less than a minute"
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(OpenCodeZenUsageProvider.parseGoUsage(
+                Data(nearReset.utf8),
+                configuration: configuration,
+                fetchedAt: fetchedAt
+            )).bars.first?.resetsAt,
+            fetchedAt
+        )
     }
 
     func testOpenCodeGoParserRejectsPartialAndMalformedWindows() {
@@ -4682,8 +4705,47 @@ final class CodexBarMacTests: XCTestCase {
         configuration.accountLabel = "OpenCode ZEN 2"
         XCTAssertEqual(configuration.openCodeDisplayName(hasGoUsage: true, hasZenBalance: false), "OpenCode Go")
 
+        configuration.accountLabel = "OpenCode Go 2"
+        XCTAssertEqual(configuration.openCodeDisplayName(hasGoUsage: false, hasZenBalance: true), "OpenCode ZEN")
+
         configuration.accountLabel = "Team OpenCode"
         XCTAssertEqual(configuration.openCodeDisplayName(hasGoUsage: true, hasZenBalance: true), "Team OpenCode")
+    }
+
+    @MainActor
+    func testAppModelPreservesGeneratedOpenCodeProductTitle() {
+        let suiteName = "CodexBarMacTests.OpenCodeTitle.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        configurationStore.seedDefaultConfigurationsIfNeeded()
+        let configuration = configurationStore.configuration(for: .openCodeZen)
+        let result = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode Go + Zen",
+            subtitle: "Go usage and ZEN credit balance",
+            bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage limit", used: 20, limit: 100)],
+            creditsRemaining: 12.25,
+            fetchedAt: Date(timeIntervalSince1970: 1_784_980_800)
+        )
+        let model = AppModel(
+            refreshService: UsageRefreshService(providers: [], initialResults: [result]),
+            configurationStore: configurationStore,
+            historyStore: UsageHistoryStore(defaults: defaults),
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+
+        XCTAssertEqual(model.displayedResults.first?.title, "OpenCode Go + Zen")
+
+        var customConfiguration = configuration
+        customConfiguration.accountLabel = "Team OpenCode"
+        XCTAssertTrue(configurationStore.update(customConfiguration))
+        XCTAssertEqual(model.displayedResults.first?.title, "Team OpenCode")
     }
 
     func testOpenCodeProviderReturnsGoUsageAndZenBalanceTogether() async throws {
@@ -4746,18 +4808,11 @@ final class CodexBarMacTests: XCTestCase {
          "weeklyUsage":{"usagePercent":20,"resetInSec":600},
          "monthlyUsage":{"usagePercent":30,"resetInSec":900}}
         """
-        var malformedPage = "/go"
-
         MockURLProtocol.handler = { request in
             let path = try XCTUnwrap(request.url?.path)
-            let data: Data
-            if path.hasSuffix(malformedPage) {
-                data = Data("<html>malformed</html>".utf8)
-            } else if path.hasSuffix("/go") {
-                data = Data(goPayload.utf8)
-            } else {
-                data = Data("<html>balance:1225000000</html>".utf8)
-            }
+            let data = path.hasSuffix("/go")
+                ? Data("<html>malformed</html>".utf8)
+                : Data("<html>balance:1225000000</html>".utf8)
             return (
                 HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
                 data
@@ -4772,8 +4827,18 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(balanceOnly.usageMessages, [
             "Go usage unavailable: Could not parse all OpenCode Go usage windows.",
         ])
+        XCTAssertTrue(balanceOnly.isIncompleteRefresh)
 
-        malformedPage = "/billing"
+        MockURLProtocol.handler = { request in
+            let path = try XCTUnwrap(request.url?.path)
+            let data = path.hasSuffix("/billing")
+                ? Data("<html>malformed</html>".utf8)
+                : Data(goPayload.utf8)
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                data
+            )
+        }
         let goOnly = try await provider.fetchUsage(for: configuration)
         XCTAssertEqual(goOnly.title, "OpenCode Go")
         XCTAssertNil(goOnly.creditsRemaining)
@@ -4781,6 +4846,7 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(goOnly.usageMessages, [
             "ZEN balance unavailable: Could not parse OpenCode ZEN balance.",
         ])
+        XCTAssertTrue(goOnly.isIncompleteRefresh)
     }
 
     func testOpenCodeProviderReportsUnsubscribedAndOtherMemberStatesWithoutDroppingBalance() async throws {
@@ -4797,11 +4863,9 @@ final class CodexBarMacTests: XCTestCase {
             secretStore: secretStore,
             session: URLSession(configuration: urlSessionConfiguration)
         )
-        var goPage = #"<div data-slot="promo-description">Subscribe to Go</div>"#
-
         MockURLProtocol.handler = { request in
             let data = request.url?.path.hasSuffix("/go") == true
-                ? Data(goPage.utf8)
+                ? Data(#"<div data-slot="promo-description">Subscribe to Go</div>"#.utf8)
                 : Data("<html>balance:1225000000</html>".utf8)
             return (
                 HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -4815,7 +4879,15 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(unsubscribed.usageMessages, ["This workspace is not subscribed to OpenCode Go."])
         XCTAssertEqual(try XCTUnwrap(unsubscribed.creditsRemaining), 12.25, accuracy: 0.0001)
 
-        goPage = #"<div data-slot="other-message">OpenCode Go is owned by another member.</div>"#
+        MockURLProtocol.handler = { request in
+            let data = request.url?.path.hasSuffix("/go") == true
+                ? Data(#"<div data-slot="other-message">OpenCode Go is owned by another member.</div>"#.utf8)
+                : Data("<html>balance:1225000000</html>".utf8)
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                data
+            )
+        }
         let otherMember = try await provider.fetchUsage(for: configuration)
         XCTAssertEqual(otherMember.subtitle, "ZEN credit balance - Go owned by another member")
         XCTAssertEqual(otherMember.usageMessages, [

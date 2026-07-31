@@ -20,6 +20,11 @@ private enum OpenCodeGoPageOutcome {
     case failure(String)
 }
 
+private enum OpenCodeDashboardFetchOutcome {
+    case data(Data)
+    case failure(String)
+}
+
 public final class OpenCodeZenUsageProvider: UsageProvider {
     private let secretStore: any SecretStore
     private let session: URLSession
@@ -111,63 +116,79 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
     }
 
     private func fetchBalance(workspaceId: String, apiKey: String) async -> OpenCodeBalanceFetchOutcome {
-        do {
-            let (data, response) = try await session.data(for: makeDashboardRequest(workspaceId: workspaceId, apiKey: apiKey))
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return .failure("OpenCode ZEN balance returned an invalid response.")
+        let request = makeDashboardRequest(workspaceId: workspaceId, apiKey: apiKey)
+        switch await fetchDashboardData(
+            request,
+            invalidResponseMessage: "OpenCode ZEN balance returned an invalid response.",
+            authenticationMessage: "OpenCode ZEN rejected this dashboard authentication.",
+            rateLimitMessage: "OpenCode ZEN rate limit reached. Try again later.",
+            statusMessage: { "OpenCode ZEN dashboard returned HTTP \($0)." },
+            networkMessage: { "OpenCode ZEN balance could not be refreshed: \($0.localizedDescription)" }
+        ) {
+        case let .data(data):
+            if let text = String(data: data, encoding: .utf8), Self.looksLikeOpenAuthPage(text) {
+                let message = Self.looksLikeZenModelAPIKey(apiKey)
+                    ? "OpenCode ZEN API keys are valid for models, but OpenCode does not expose balance to API keys."
+                    : "OpenCode returned the sign-in page. Refresh the saved dashboard auth value."
+                return .failure(message)
             }
-
-            switch httpResponse.statusCode {
-            case 200..<300:
-                if let text = String(data: data, encoding: .utf8), Self.looksLikeOpenAuthPage(text) {
-                    let message = Self.looksLikeZenModelAPIKey(apiKey)
-                        ? "OpenCode ZEN API keys are valid for models, but OpenCode does not expose balance to API keys."
-                        : "OpenCode returned the sign-in page. Refresh the saved dashboard auth value."
-                    return .failure(message)
-                }
-                guard let balance = Self.parsedBalance(data) else {
-                    return .failure("Could not parse OpenCode ZEN balance.")
-                }
-                return .value(balance)
-            case 401, 403:
-                return .failure("OpenCode ZEN rejected this dashboard authentication.")
-            case 429:
-                return .failure("OpenCode ZEN rate limit reached. Try again later.")
-            default:
-                return .failure("OpenCode ZEN dashboard returned HTTP \(httpResponse.statusCode).")
+            guard let balance = Self.parsedBalance(data) else {
+                return .failure("Could not parse OpenCode ZEN balance.")
             }
-        } catch {
-            return .failure("OpenCode ZEN balance could not be refreshed: \(error.localizedDescription)")
+            return .value(balance)
+        case let .failure(message):
+            return .failure(message)
         }
     }
 
     private func fetchGoUsage(workspaceId: String, apiKey: String) async -> OpenCodeGoPageOutcome {
-        do {
-            let (data, response) = try await session.data(
-                for: makeGoDashboardRequest(workspaceId: workspaceId, apiKey: apiKey)
-            )
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return .failure("OpenCode Go usage returned an invalid response.")
+        let request = makeGoDashboardRequest(workspaceId: workspaceId, apiKey: apiKey)
+        switch await fetchDashboardData(
+            request,
+            invalidResponseMessage: "OpenCode Go usage returned an invalid response.",
+            authenticationMessage: "OpenCode Go rejected this dashboard authentication.",
+            rateLimitMessage: "OpenCode Go rate limit reached. Try again later.",
+            statusMessage: { "OpenCode Go dashboard returned HTTP \($0)." },
+            networkMessage: { "OpenCode Go usage could not be refreshed: \($0.localizedDescription)" }
+        ) {
+        case let .data(data):
+            guard let text = String(data: data, encoding: .utf8) else {
+                return .failure("Could not read the OpenCode Go dashboard response.")
             }
+            if Self.looksLikeOpenAuthPage(text) {
+                return .failure("OpenCode returned the sign-in page. Refresh the saved dashboard auth value.")
+            }
+            return Self.parseGoPage(text)
+        case let .failure(message):
+            return .failure(message)
+        }
+    }
 
+    private func fetchDashboardData(
+        _ request: URLRequest,
+        invalidResponseMessage: String,
+        authenticationMessage: String,
+        rateLimitMessage: String,
+        statusMessage: (Int) -> String,
+        networkMessage: (Error) -> String
+    ) async -> OpenCodeDashboardFetchOutcome {
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return .failure(invalidResponseMessage)
+            }
             switch httpResponse.statusCode {
             case 200..<300:
-                guard let text = String(data: data, encoding: .utf8) else {
-                    return .failure("Could not read the OpenCode Go dashboard response.")
-                }
-                if Self.looksLikeOpenAuthPage(text) {
-                    return .failure("OpenCode returned the sign-in page. Refresh the saved dashboard auth value.")
-                }
-                return Self.parseGoPage(text)
+                return .data(data)
             case 401, 403:
-                return .failure("OpenCode Go rejected this dashboard authentication.")
+                return .failure(authenticationMessage)
             case 429:
-                return .failure("OpenCode Go rate limit reached. Try again later.")
+                return .failure(rateLimitMessage)
             default:
-                return .failure("OpenCode Go dashboard returned HTTP \(httpResponse.statusCode).")
+                return .failure(statusMessage(httpResponse.statusCode))
             }
         } catch {
-            return .failure("OpenCode Go usage could not be refreshed: \(error.localizedDescription)")
+            return .failure(networkMessage(error))
         }
     }
 
@@ -242,15 +263,14 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
             credential = extractedCredential
         }
 
-        guard var normalizedCredential = CredentialNormalizer.normalizedBearerKey(from: credential) else {
+        guard let bearerKey = CredentialNormalizer.normalizedBearerKey(from: credential) else {
             return nil
         }
-        credential = normalizedCredential
+        credential = bearerKey
 
         for prefix in ["cookie:", "set-cookie:"] where credential.lowercased().hasPrefix(prefix) {
-            normalizedCredential = String(credential.dropFirst(prefix.count))
+            credential = String(credential.dropFirst(prefix.count))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            credential = normalizedCredential
             break
         }
 
@@ -345,6 +365,7 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
         return .failure("Could not parse all OpenCode Go usage windows.")
     }
 
+    // swiftlint:disable:next discouraged_optional_collection
     private static func parseHydrationGoWindows(_ text: String) -> [OpenCodeGoWindow]? {
         var windows: [OpenCodeGoWindow] = []
         for descriptor in goWindowDescriptors {
@@ -399,7 +420,7 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
 
     private static func numericField(named name: String, in text: String) -> Double? {
         let escapedName = NSRegularExpression.escapedPattern(for: name)
-        let pattern = #"(?:\\?")?"# + escapedName + #"(?:\\?")?\s*:\s*(-?\d+(?:\.\d+)?)"#
+        let pattern = #"(?<![A-Za-z0-9_])(?:\\?")?"# + escapedName + #"(?:\\?")?\s*:\s*(-?\d+(?:\.\d+)?)"#
         guard
             let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
             let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: text.utf16.count)),
@@ -411,6 +432,7 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
         return Double(text[range])
     }
 
+    // swiftlint:disable:next discouraged_optional_collection
     private static func parseRenderedGoWindows(_ text: String) -> [OpenCodeGoWindow]? {
         let markerPattern = #"data-slot\s*=\s*["']usage-item["']"#
         guard let regex = try? NSRegularExpression(pattern: markerPattern, options: [.caseInsensitive]) else {
@@ -504,12 +526,15 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
         if value.contains("few seconds") {
             return 5
         }
+        if value.contains("less than a minute") {
+            return 0
+        }
         let days = durationComponent(named: #"days?|d"#, in: value)
         let hours = durationComponent(named: #"hours?|hrs?|h"#, in: value)
         let minutes = durationComponent(named: #"minutes?|mins?|m"#, in: value)
         let duration = days * 86_400 + hours * 3_600 + minutes * 60
-        let recognizedUnitPattern = #"\b(?:days?|hours?|hrs?|minutes?|mins?)\b|\d+(?:\.\d+)?\s*[dhm]\b"#
-        return value.range(of: recognizedUnitPattern, options: .regularExpression) == nil ? nil : duration
+        let numericDurationPattern = #"\d+(?:\.\d+)?\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?|m)\b"#
+        return value.range(of: numericDurationPattern, options: .regularExpression) == nil ? nil : duration
     }
 
     private static func durationComponent(named unitPattern: String, in text: String) -> Double {
@@ -916,6 +941,7 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
             bars: usageBars,
             creditsRemaining: creditsRemaining,
             usageMessages: usageMessages,
+            isIncompleteRefresh: balanceFailure != nil || goFailure != nil,
             fetchedAt: fetchedAt
         )
     }
