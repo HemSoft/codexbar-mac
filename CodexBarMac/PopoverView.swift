@@ -39,17 +39,6 @@ struct DashboardView: View {
         model.configurationStore
     }
 
-    private var zoomActions: DashboardZoomActions {
-        let textSize = configurationStore.dashboardTextSize
-        return DashboardZoomActions(
-            canIncrease: textSize != .extraLarge,
-            canDecrease: textSize != .small,
-            increase: { configurationStore.updateDashboardTextSize(textSize.increased) },
-            decrease: { configurationStore.updateDashboardTextSize(textSize.decreased) },
-            reset: { configurationStore.updateDashboardTextSize(.standard) }
-        )
-    }
-
     var body: some View {
         let usageAlertsByAccountID = model.currentUsageAlertsByAccountID
         let scale = configurationStore.dashboardTextSize.scaleFactor
@@ -113,7 +102,6 @@ struct DashboardView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .font(.system(size: NSFont.systemFontSize * scale))
         .environment(\.dashboardTextScale, scale)
-        .focusedSceneValue(\.dashboardZoomActions, zoomActions)
         .preferredColorScheme(configurationStore.appAppearance.colorScheme)
         .confirmationDialog(
             "Reset unreadable usage history?",
@@ -167,6 +155,40 @@ struct DashboardView: View {
             .help("Refresh usage")
             .accessibilityLabel("Refresh usage")
             .disabled(model.isRefreshing)
+
+            Menu {
+                Button("Zoom In") {
+                    configurationStore.updateDashboardTextSize(
+                        configurationStore.dashboardTextSize.increased
+                    )
+                }
+                .keyboardShortcut("+", modifiers: .command)
+                .disabled(configurationStore.dashboardTextSize == .extraLarge)
+
+                Button("Zoom Out") {
+                    configurationStore.updateDashboardTextSize(
+                        configurationStore.dashboardTextSize.decreased
+                    )
+                }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(configurationStore.dashboardTextSize == .small)
+
+                Divider()
+
+                Button("Actual Size") {
+                    configurationStore.updateDashboardTextSize(.standard)
+                }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(configurationStore.dashboardTextSize == .standard)
+            } label: {
+                Image(systemName: "textformat.size")
+                    .frame(width: 32 * scale, height: 32 * scale)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Dashboard Text Size")
+            .accessibilityLabel("Dashboard Text Size")
 
             if presentation == .menuBar {
                 Button {
@@ -279,7 +301,7 @@ private struct MenuBarPanelConfigurator: NSViewRepresentable {
             }
 
             resizeObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didResizeNotification,
+                forName: NSWindow.didEndLiveResizeNotification,
                 object: window,
                 queue: .main
             ) { [weak self, weak window] _ in
@@ -337,6 +359,8 @@ private struct MenuBarPanelConfigurator: NSViewRepresentable {
             restoredWindow = nil
             configurationStore = nil
         }
+
+        deinit {}
     }
 }
 
@@ -347,4 +371,6 @@ private final class WindowProbeView: NSView {
         super.viewDidMoveToWindow()
         onWindowChange?(window)
     }
+
+    deinit {}
 }

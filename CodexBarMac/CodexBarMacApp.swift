@@ -17,9 +17,6 @@ struct CodexBarMacApp: App {
             MenuBarLabelContainer(model: model)
         }
         .menuBarExtraStyle(.window)
-        .commands {
-            DashboardZoomCommands()
-        }
 
         Window("CodexBar Dashboard", id: "dashboard") {
             DashboardView(
@@ -31,9 +28,6 @@ struct CodexBarMacApp: App {
         }
         .defaultSize(width: 360, height: 520)
         .windowResizability(.contentMinSize)
-        .commands {
-            DashboardZoomCommands()
-        }
 
         Settings {
             SettingsView(model: model)
