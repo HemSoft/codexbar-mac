@@ -18,6 +18,17 @@ struct CodexBarMacApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        Window("CodexBar Dashboard", id: "dashboard") {
+            DashboardView(
+                model: model,
+                updater: updaterController.updater,
+                presentation: .detached
+            )
+            .preferredColorScheme(model.configurationStore.appAppearance.colorScheme)
+        }
+        .defaultSize(width: 360, height: 520)
+        .windowResizability(.contentMinSize)
+
         Settings {
             SettingsView(model: model)
                 .preferredColorScheme(model.configurationStore.appAppearance.colorScheme)

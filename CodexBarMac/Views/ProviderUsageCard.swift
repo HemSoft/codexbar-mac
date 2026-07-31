@@ -8,6 +8,7 @@ struct ProviderUsageCard: View {
     let isHistoryEnabled: Bool
 
     @State private var isShowingHistory = false
+    @Environment(\.dashboardTextScale) private var dashboardTextScale
 
     init(
         result: ProviderUsageResult,
@@ -22,18 +23,18 @@ struct ProviderUsageCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12 * dashboardTextScale) {
             HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4 * dashboardTextScale) {
+                    HStack(alignment: .center, spacing: 8 * dashboardTextScale) {
                         ProviderLogoTile(providerID: result.providerID)
 
                         Text(result.title)
-                            .font(.headline)
+                            .dashboardFont(.headline)
                     }
 
                     Text(result.subtitle)
-                        .font(.subheadline)
+                        .dashboardFont(.subheadline)
                         .foregroundStyle(statusColor)
                 }
 
@@ -41,7 +42,7 @@ struct ProviderUsageCard: View {
 
                 Circle()
                     .fill(cardSeverity.tint)
-                    .frame(width: 10, height: 10)
+                    .frame(width: 10 * dashboardTextScale, height: 10 * dashboardTextScale)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(hiddenAlertAccessibilityLabel)
                     .accessibilityHidden(hiddenAlerts.isEmpty)
@@ -53,7 +54,7 @@ struct ProviderUsageCard: View {
 
             if let creditsRemaining = result.creditsRemaining, result.bars.isEmpty {
                 Text(Self.currencyFormatter.string(from: NSNumber(value: creditsRemaining)) ?? "$0.00")
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
+                    .dashboardFont(size: 34, weight: .semibold, design: .rounded)
                     .foregroundStyle(Color.primary)
                     .monospacedDigit()
                     .minimumScaleFactor(0.7)
@@ -61,18 +62,18 @@ struct ProviderUsageCard: View {
             }
 
             ForEach(result.bars) { bar in
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 6 * dashboardTextScale) {
                     HStack {
                         Text(bar.label)
                         Spacer()
                         Text(bar.usageText)
                             .foregroundStyle(.secondary)
                     }
-                    .font(.footnote)
+                    .dashboardFont(.footnote)
 
                     if let resetDescription = bar.localizedResetDescription() {
                         Text(resetDescription)
-                            .font(.caption2)
+                            .dashboardFont(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                     }
@@ -81,7 +82,7 @@ struct ProviderUsageCard: View {
 
                     if let projectionDescription = bar.projectionDescription() {
                         Text(projectionDescription)
-                            .font(.caption2)
+                            .dashboardFont(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
@@ -93,7 +94,7 @@ struct ProviderUsageCard: View {
                 Divider()
 
                 ForEach(result.monetaryMetrics) { metric in
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 6 * dashboardTextScale) {
                         HStack {
                             Text(metric.label)
                             Spacer()
@@ -101,11 +102,11 @@ struct ProviderUsageCard: View {
                                 .fontWeight(.semibold)
                                 .monospacedDigit()
                         }
-                        .font(.footnote)
+                        .dashboardFont(.footnote)
 
                         if let detail = metric.detail {
                             Text(detail)
-                                .font(.caption2)
+                                .dashboardFont(.caption2)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -116,7 +117,7 @@ struct ProviderUsageCard: View {
 
             ForEach(result.usageMessages, id: \.self) { message in
                 Label(message, systemImage: "info.circle")
-                    .font(.caption2)
+                    .dashboardFont(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(message)
@@ -136,7 +137,7 @@ struct ProviderUsageCard: View {
                 .help("Open detailed history")
             }
         }
-        .padding(12)
+        .padding(12 * dashboardTextScale)
         .background(
             Color(nsColor: .controlBackgroundColor),
             in: RoundedRectangle(cornerRadius: 8)
@@ -210,24 +211,25 @@ struct ProviderUsageCard: View {
 
 private struct UsageAlertSummaryView: View {
     let alerts: [UsageAlertDetail]
+    @Environment(\.dashboardTextScale) private var dashboardTextScale
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8 * dashboardTextScale) {
             ForEach(alerts) { alert in
-                HStack(alignment: .top, spacing: 8) {
+                HStack(alignment: .top, spacing: 8 * dashboardTextScale) {
                     Image(systemName: alert.kind.systemImageName)
-                        .font(.caption.weight(.semibold))
+                        .dashboardFont(.caption, weight: .semibold)
                         .foregroundStyle(alert.severity.tint)
-                        .frame(width: 16)
+                        .frame(width: 16 * dashboardTextScale)
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 2 * dashboardTextScale) {
                         Text(alert.title)
-                            .font(.caption.weight(.semibold))
+                            .dashboardFont(.caption, weight: .semibold)
                             .foregroundStyle(.primary)
                             .fixedSize(horizontal: false, vertical: true)
 
                         Text(alert.message)
-                            .font(.caption2)
+                            .dashboardFont(.caption2)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -248,37 +250,38 @@ private struct UsageAlertSummaryView: View {
 private struct UsageHistoryCompactView: View {
     let label: String
     let series: UsageHistorySeries
+    @Environment(\.dashboardTextScale) private var dashboardTextScale
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 12 * dashboardTextScale) {
             UsageTrendSparkline(series: series, tint: series.tint)
-                .frame(width: 88, height: 38)
+                .frame(width: 88 * dashboardTextScale, height: 38 * dashboardTextScale)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 2 * dashboardTextScale) {
                 Text(label)
-                    .font(.caption2.weight(.medium))
+                    .dashboardFont(.caption2, weight: .medium)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 6 * dashboardTextScale) {
                     Text(series.latestValueDescription)
-                        .font(.subheadline.weight(.semibold))
+                        .dashboardFont(.subheadline, weight: .semibold)
                         .foregroundStyle(.primary)
                         .monospacedDigit()
 
                     Text(series.changeDescription)
-                        .font(.caption.weight(.medium))
+                        .dashboardFont(.caption, weight: .medium)
                         .foregroundStyle(series.tint)
                         .lineLimit(1)
                 }
 
                 Text(series.rangeDescription)
-                    .font(.caption2)
+                    .dashboardFont(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
                 Text(series.sampleWindowDescription)
-                    .font(.caption2)
+                    .dashboardFont(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -370,6 +373,7 @@ private struct UsageTrendSparkline: View {
 
 private struct ProviderUsageHistoryDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dashboardTextScale) private var dashboardTextScale
 
     let result: ProviderUsageResult
     let seriesOptions: [UsageHistorySeriesOption]
@@ -387,7 +391,7 @@ private struct ProviderUsageHistoryDetailView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("History")
-                    .font(.title2.weight(.semibold))
+                    .dashboardFont(.title2, weight: .semibold)
 
                 Spacer()
 
@@ -396,12 +400,12 @@ private struct ProviderUsageHistoryDetailView: View {
                 }
                 .keyboardShortcut(.cancelAction)
             }
-            .padding(20)
+            .padding(20 * dashboardTextScale)
 
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 24 * dashboardTextScale) {
                     accountHeader
 
                     if seriesOptions.count > 1 {
@@ -428,7 +432,7 @@ private struct ProviderUsageHistoryDetailView: View {
                         recentSamplesSection
                     }
                 }
-                .padding(20)
+                .padding(20 * dashboardTextScale)
             }
         }
         .frame(minWidth: 620, idealWidth: 680, minHeight: 560, idealHeight: 640)
@@ -442,32 +446,32 @@ private struct ProviderUsageHistoryDetailView: View {
     }
 
     private var accountHeader: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 10 * dashboardTextScale) {
             ProviderLogoTile(providerID: result.providerID)
-                .frame(width: 30, height: 30)
+                .frame(width: 30 * dashboardTextScale, height: 30 * dashboardTextScale)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 2 * dashboardTextScale) {
                 Text(result.title)
-                    .font(.headline)
+                    .dashboardFont(.headline)
 
                 Text(series.sampleWindowDescription)
-                    .font(.caption)
+                    .dashboardFont(.caption)
                     .foregroundStyle(.secondary)
             }
         }
     }
 
     private var chartSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12 * dashboardTextScale) {
             HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 2 * dashboardTextScale) {
                     Text(displayedPoint.map { series.valueDescription(for: $0.value) } ?? series.latestValueDescription)
-                        .font(.system(size: 30, weight: .semibold, design: .rounded))
+                        .dashboardFont(size: 30, weight: .semibold, design: .rounded)
                         .monospacedDigit()
 
                     if let displayedPoint {
                         Text(UserFacingDateTimeFormatter.current.dateAndTime(displayedPoint.capturedAt))
-                            .font(.caption)
+                            .dashboardFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -475,7 +479,7 @@ private struct ProviderUsageHistoryDetailView: View {
                 Spacer()
 
                 Text(series.changeDescription)
-                    .font(.subheadline.weight(.semibold))
+                    .dashboardFont(.subheadline, weight: .semibold)
                     .foregroundStyle(series.tint)
             }
 
@@ -513,7 +517,7 @@ private struct ProviderUsageHistoryDetailView: View {
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                         .annotation(position: .top, alignment: .trailing) {
                             Text("100% limit")
-                                .font(.caption2)
+                                .dashboardFont(.caption2)
                                 .foregroundStyle(.secondary)
                         }
                 }
@@ -557,7 +561,7 @@ private struct ProviderUsageHistoryDetailView: View {
                 }
             }
             .chartXSelection(value: $selectedDate)
-            .frame(height: 260)
+            .frame(height: 260 * dashboardTextScale)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(result.title) history chart")
             .accessibilityValue(
@@ -567,18 +571,22 @@ private struct ProviderUsageHistoryDetailView: View {
 
             if series.points.count == 1 {
                 Text("More samples will appear after future refreshes.")
-                    .font(.footnote)
+                    .dashboardFont(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
     }
 
     private var statisticsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 14 * dashboardTextScale) {
             Text("Summary")
-                .font(.headline)
+                .dashboardFont(.headline)
 
-            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 14) {
+            Grid(
+                alignment: .leading,
+                horizontalSpacing: 24 * dashboardTextScale,
+                verticalSpacing: 14 * dashboardTextScale
+            ) {
                 GridRow {
                     HistoryMetricView(title: "Latest", value: series.latestValueDescription)
                     HistoryMetricView(title: "Change", value: series.changeDescription)
@@ -598,18 +606,18 @@ private struct ProviderUsageHistoryDetailView: View {
     private var recentSamplesSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Recent Samples")
-                .font(.headline)
-                .padding(.bottom, 8)
+                .dashboardFont(.headline)
+                .padding(.bottom, 8 * dashboardTextScale)
 
             ForEach(Array(series.points.suffix(20).reversed())) { point in
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 12 * dashboardTextScale) {
+                    VStack(alignment: .leading, spacing: 3 * dashboardTextScale) {
                         Text(series.valueDescription(for: point.value))
-                            .font(.body.weight(.semibold))
+                            .dashboardFont(.body, weight: .semibold)
                             .monospacedDigit()
 
                         Text(UserFacingDateTimeFormatter.current.dateAndTime(point.capturedAt))
-                            .font(.caption)
+                            .dashboardFont(.caption)
                             .foregroundStyle(.secondary)
                     }
 
@@ -617,10 +625,10 @@ private struct ProviderUsageHistoryDetailView: View {
 
                     Circle()
                         .fill(point.severity.tint)
-                        .frame(width: 9, height: 9)
+                        .frame(width: 9 * dashboardTextScale, height: 9 * dashboardTextScale)
                         .accessibilityHidden(true)
                 }
-                .padding(.vertical, 10)
+                .padding(.vertical, 10 * dashboardTextScale)
 
                 Divider()
             }
@@ -657,15 +665,16 @@ private struct ProviderUsageHistoryDetailView: View {
 private struct HistoryMetricView: View {
     let title: String
     let value: String
+    @Environment(\.dashboardTextScale) private var dashboardTextScale
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 3 * dashboardTextScale) {
             Text(title)
-                .font(.caption)
+                .dashboardFont(.caption)
                 .foregroundStyle(.secondary)
 
             Text(value)
-                .font(.subheadline.weight(.semibold))
+                .dashboardFont(.subheadline, weight: .semibold)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
@@ -689,6 +698,7 @@ private extension UsageHistorySeries {
 
 private struct ProviderLogoTile: View {
     let providerID: ProviderID
+    @Environment(\.dashboardTextScale) private var dashboardTextScale
 
     var body: some View {
         ZStack {
@@ -696,16 +706,17 @@ private struct ProviderLogoTile: View {
                 .fill(Color(nsColor: .quaternaryLabelColor).opacity(0.35))
 
             Image(systemName: providerID.symbolName)
-                .font(.system(size: 12, weight: .semibold))
+                .dashboardFont(size: 12, weight: .semibold)
                 .foregroundStyle(.primary)
         }
-        .frame(width: 24, height: 24)
+        .frame(width: 24 * dashboardTextScale, height: 24 * dashboardTextScale)
         .accessibilityHidden(true)
     }
 }
 
 private struct UsageProgressBar: View {
     let bar: UsageBar
+    @Environment(\.dashboardTextScale) private var dashboardTextScale
 
     var body: some View {
         GeometryReader { proxy in
@@ -728,7 +739,7 @@ private struct UsageProgressBar: View {
                     .frame(width: actualWidth)
             }
         }
-        .frame(height: 7)
+        .frame(height: 7 * dashboardTextScale)
         .accessibilityLabel("\(bar.label) \(bar.usageText)")
     }
 }

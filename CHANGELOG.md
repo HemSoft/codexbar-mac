@@ -34,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Manual or smart dashboard ordering, with smart mode prioritizing urgent usage, low balances, and projected limit exhaustion.
 - Per-account **Show History** settings hide compact sparklines without deleting saved usage samples.
 - Secure Sparkle 2 in-app updates for direct-download builds, with a visible **Check for Updates…** action, second-launch consent for automatic checks, and EdDSA verification of archives, feeds, and release notes.
+- Resizable menu-bar and standalone dashboard presentations with persisted dashboard text-size controls and standard macOS zoom shortcuts.
 
 ### Changed
 

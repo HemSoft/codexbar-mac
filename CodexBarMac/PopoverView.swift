@@ -1,14 +1,47 @@
+import AppKit
 import Sparkle
 import SwiftUI
+
+enum DashboardPresentation {
+    case menuBar
+    case detached
+}
 
 struct PopoverView: View {
     @ObservedObject var model: AppModel
     let updater: SPUUpdater
+
+    var body: some View {
+        DashboardView(model: model, updater: updater, presentation: .menuBar)
+            .frame(
+                minWidth: DashboardPanelSize.minimumSize.width,
+                idealWidth: model.configurationStore.menuBarDashboardSize.width,
+                minHeight: DashboardPanelSize.minimumSize.height,
+                idealHeight: model.configurationStore.menuBarDashboardSize.height
+            )
+            .background(
+                MenuBarPanelConfigurator(configurationStore: model.configurationStore)
+                    .frame(width: 0, height: 0)
+            )
+    }
+}
+
+struct DashboardView: View {
+    @ObservedObject var model: AppModel
+    let updater: SPUUpdater
+    let presentation: DashboardPresentation
+
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @State private var isConfirmingHistoryReset = false
+
+    private var configurationStore: ProviderConfigurationStore {
+        model.configurationStore
+    }
 
     var body: some View {
         let usageAlertsByAccountID = model.currentUsageAlertsByAccountID
+        let scale = configurationStore.dashboardTextSize.scaleFactor
 
         VStack(spacing: 0) {
             header
@@ -16,11 +49,11 @@ struct PopoverView: View {
             Divider()
 
             ScrollView {
-                LazyVStack(spacing: 10) {
+                LazyVStack(spacing: 10 * scale) {
                     if let historyError = model.historyStore.lastError {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 8 * scale) {
                             Label(historyError, systemImage: "exclamationmark.triangle.fill")
-                                .font(.footnote)
+                                .dashboardFont(.footnote)
                                 .foregroundStyle(.red)
                                 .accessibilityIdentifier("usage-history-persistence-error")
 
@@ -42,15 +75,15 @@ struct PopoverView: View {
                                 result: result,
                                 historyOptions: model.historyStore.historySeriesOptions(for: result),
                                 alerts: usageAlertsByAccountID[result.accountID] ?? [],
-                                isHistoryEnabled: model.configurationStore
+                                isHistoryEnabled: configurationStore
                                     .configuration(accountID: result.accountID)?
                                     .showsHistory ?? true
                             )
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 12 * scale)
+                .padding(.vertical, 10 * scale)
             }
 
             Divider()
@@ -59,12 +92,17 @@ struct PopoverView: View {
                 CheckForUpdatesButton(updater: updater)
                 Spacer()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 12 * scale)
+            .padding(.vertical, 8 * scale)
         }
-        .frame(minWidth: 340, idealWidth: 360, maxWidth: 390, minHeight: 300, maxHeight: 600)
+        .frame(
+            minWidth: DashboardPanelSize.minimumSize.width,
+            minHeight: DashboardPanelSize.minimumSize.height
+        )
         .background(Color(nsColor: .windowBackgroundColor))
-        .preferredColorScheme(model.configurationStore.appAppearance.colorScheme)
+        .font(.system(size: NSFont.systemFontSize * scale))
+        .environment(\.dashboardTextScale, scale)
+        .preferredColorScheme(configurationStore.appAppearance.colorScheme)
         .confirmationDialog(
             "Reset unreadable usage history?",
             isPresented: $isConfirmingHistoryReset,
@@ -77,19 +115,21 @@ struct PopoverView: View {
         } message: {
             Text("This permanently discards the unreadable history so new usage can be recorded.")
         }
-        .onChange(of: model.configurationStore.autoRefreshInterval) { _, _ in
+        .onChange(of: configurationStore.autoRefreshInterval) { _, _ in
             model.updateAutoRefresh()
         }
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
+        let scale = configurationStore.dashboardTextSize.scaleFactor
+
+        return HStack(spacing: 8 * scale) {
+            VStack(alignment: .leading, spacing: 2 * scale) {
                 Text("CodexBar")
-                    .font(.headline)
+                    .dashboardFont(.headline)
 
                 Text(model.lastRefreshedText)
-                    .font(.caption)
+                    .dashboardFont(.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -108,7 +148,7 @@ struct PopoverView: View {
                         Image(systemName: "arrow.clockwise")
                     }
                 }
-                .frame(width: 32, height: 32)
+                .frame(width: 32 * scale, height: 32 * scale)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
@@ -116,11 +156,59 @@ struct PopoverView: View {
             .accessibilityLabel("Refresh usage")
             .disabled(model.isRefreshing)
 
+            Menu {
+                Button("Zoom In") {
+                    configurationStore.updateDashboardTextSize(
+                        configurationStore.dashboardTextSize.increased
+                    )
+                }
+                .keyboardShortcut("+", modifiers: .command)
+                .disabled(configurationStore.dashboardTextSize == .extraLarge)
+
+                Button("Zoom Out") {
+                    configurationStore.updateDashboardTextSize(
+                        configurationStore.dashboardTextSize.decreased
+                    )
+                }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(configurationStore.dashboardTextSize == .small)
+
+                Divider()
+
+                Button("Actual Size") {
+                    configurationStore.updateDashboardTextSize(.standard)
+                }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(configurationStore.dashboardTextSize == .standard)
+            } label: {
+                Image(systemName: "textformat.size")
+                    .frame(width: 32 * scale, height: 32 * scale)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Dashboard Text Size")
+            .accessibilityLabel("Dashboard Text Size")
+
+            if presentation == .menuBar {
+                Button {
+                    openWindow(id: "dashboard")
+                } label: {
+                    Image(systemName: "rectangle.on.rectangle")
+                        .frame(width: 32 * scale, height: 32 * scale)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help("Open Dashboard Window")
+                .accessibilityLabel("Open Dashboard Window")
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+            }
+
             Button {
                 openSettings()
             } label: {
                 Image(systemName: "gearshape")
-                    .frame(width: 32, height: 32)
+                    .frame(width: 32 * scale, height: 32 * scale)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
@@ -131,32 +219,158 @@ struct PopoverView: View {
                 model.quit()
             } label: {
                 Image(systemName: "power")
-                    .frame(width: 32, height: 32)
+                    .frame(width: 32 * scale, height: 32 * scale)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .help("Quit CodexBar")
             .accessibilityLabel("Quit CodexBar")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12 * scale)
+        .padding(.vertical, 8 * scale)
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
+        let scale = configurationStore.dashboardTextSize.scaleFactor
+
+        return VStack(spacing: 8 * scale) {
             Image(systemName: "chart.bar.xaxis")
-                .font(.title2)
+                .dashboardFont(.title2)
                 .foregroundStyle(.secondary)
 
             Text("No providers to show")
-                .font(.headline)
+                .dashboardFont(.headline)
 
             Text("Enable providers in Settings to see usage cards here.")
-                .font(.subheadline)
+                .dashboardFont(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        .padding(.vertical, 24 * scale)
     }
+}
+
+private struct MenuBarPanelConfigurator: NSViewRepresentable {
+    @ObservedObject var configurationStore: ProviderConfigurationStore
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> WindowProbeView {
+        let view = WindowProbeView()
+        view.onWindowChange = { window in
+            context.coordinator.attach(to: window, configurationStore: configurationStore)
+        }
+        return view
+    }
+
+    func updateNSView(_ view: WindowProbeView, context: Context) {
+        view.onWindowChange = { window in
+            context.coordinator.attach(to: window, configurationStore: configurationStore)
+        }
+        context.coordinator.configure(configurationStore: configurationStore)
+    }
+
+    static func dismantleNSView(_ view: WindowProbeView, coordinator: Coordinator) {
+        view.onWindowChange = nil
+        coordinator.detach()
+    }
+
+    @MainActor
+    final class Coordinator {
+        private weak var window: NSWindow?
+        private var resizeObserver: NSObjectProtocol?
+        private var restoredWindow: NSWindow?
+        private weak var configurationStore: ProviderConfigurationStore?
+
+        func attach(to window: NSWindow?, configurationStore: ProviderConfigurationStore) {
+            guard self.window !== window else {
+                configure(configurationStore: configurationStore)
+                return
+            }
+
+            detach()
+            self.window = window
+            self.configurationStore = configurationStore
+            configure(configurationStore: configurationStore)
+
+            guard let window else {
+                return
+            }
+
+            resizeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didEndLiveResizeNotification,
+                object: window,
+                queue: .main
+            ) { [weak self, weak window] _ in
+                Task { @MainActor in
+                    guard let self, let window, let configurationStore = self.configurationStore else {
+                        return
+                    }
+
+                    let size = window.contentLayoutRect.size
+                    configurationStore.updateMenuBarDashboardSize(
+                        width: Double(size.width),
+                        height: Double(size.height)
+                    )
+                }
+            }
+        }
+
+        func configure(configurationStore: ProviderConfigurationStore) {
+            guard let window else {
+                return
+            }
+
+            window.styleMask.insert(.resizable)
+            window.contentMinSize = NSSize(
+                width: DashboardPanelSize.minimumSize.width,
+                height: DashboardPanelSize.minimumSize.height
+            )
+
+            if let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame {
+                window.contentMaxSize = NSSize(
+                    width: max(DashboardPanelSize.minimumSize.width, visibleFrame.width),
+                    height: max(DashboardPanelSize.minimumSize.height, visibleFrame.height)
+                )
+            }
+
+            guard restoredWindow !== window else {
+                return
+            }
+
+            let savedSize = configurationStore.menuBarDashboardSize
+            let maxSize = window.contentMaxSize
+            window.setContentSize(NSSize(
+                width: min(savedSize.width, maxSize.width),
+                height: min(savedSize.height, maxSize.height)
+            ))
+            restoredWindow = window
+        }
+
+        func detach() {
+            if let resizeObserver {
+                NotificationCenter.default.removeObserver(resizeObserver)
+            }
+            resizeObserver = nil
+            window = nil
+            restoredWindow = nil
+            configurationStore = nil
+        }
+
+        deinit {}
+    }
+}
+
+private final class WindowProbeView: NSView {
+    var onWindowChange: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowChange?(window)
+    }
+
+    deinit {}
 }

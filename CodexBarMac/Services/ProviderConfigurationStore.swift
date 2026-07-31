@@ -36,6 +36,8 @@ public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var appAppearance: AppAppearance
     @Published public private(set) var autoRefreshInterval: AutoRefreshInterval
     @Published public private(set) var dashboardOrderingMode: DashboardOrderingMode
+    @Published public private(set) var dashboardTextSize: DashboardTextSize
+    @Published public private(set) var menuBarDashboardSize: DashboardPanelSize
     @Published public private(set) var usageAlertSettings: UsageAlertSettings
     @Published public private(set) var usageAlertActiveIDs: Set<String>
     @Published public private(set) var isConfigurationRecoveryRequired: Bool
@@ -53,6 +55,9 @@ public final class ProviderConfigurationStore: ObservableObject {
     private let appAppearanceKey = DefaultsKey.appAppearance
     private let autoRefreshIntervalKey = DefaultsKey.autoRefreshInterval
     private let dashboardOrderingModeKey = DefaultsKey.dashboardOrderingMode
+    private let dashboardTextSizeKey = DefaultsKey.dashboardTextSize
+    private let menuBarDashboardWidthKey = DefaultsKey.menuBarDashboardWidth
+    private let menuBarDashboardHeightKey = DefaultsKey.menuBarDashboardHeight
     private let usageAlertSettingsKey = DefaultsKey.usageAlertSettings
     private let usageAlertActiveIDsKey = DefaultsKey.usageAlertActiveIDs
     private let configurationRecoveryCompletionPendingKey =
@@ -104,6 +109,8 @@ public final class ProviderConfigurationStore: ObservableObject {
         self.appAppearance = Self.loadAppAppearance(from: defaults)
         self.autoRefreshInterval = Self.loadAutoRefreshInterval(from: defaults)
         self.dashboardOrderingMode = Self.loadDashboardOrderingMode(from: defaults)
+        self.dashboardTextSize = Self.loadDashboardTextSize(from: defaults)
+        self.menuBarDashboardSize = Self.loadMenuBarDashboardSize(from: defaults)
         self.usageAlertSettings = Self.loadUsageAlertSettings(from: defaults)
         self.usageAlertActiveIDs = Self.loadUsageAlertActiveIDs(from: defaults)
         self.isConfigurationRecoveryRequired = configurationLoadResult.error != nil
@@ -500,6 +507,22 @@ public final class ProviderConfigurationStore: ObservableObject {
     public func updateDashboardOrderingMode(_ mode: DashboardOrderingMode) {
         dashboardOrderingMode = mode
         defaults.set(mode.rawValue, forKey: dashboardOrderingModeKey)
+    }
+
+    public func updateDashboardTextSize(_ textSize: DashboardTextSize) {
+        dashboardTextSize = textSize
+        defaults.set(textSize.rawValue, forKey: dashboardTextSizeKey)
+    }
+
+    public func updateMenuBarDashboardSize(width: Double, height: Double) {
+        let normalized = DashboardPanelSize.normalized(width: width, height: height)
+        guard normalized != menuBarDashboardSize else {
+            return
+        }
+
+        menuBarDashboardSize = normalized
+        defaults.set(Double(normalized.width), forKey: menuBarDashboardWidthKey)
+        defaults.set(Double(normalized.height), forKey: menuBarDashboardHeightKey)
     }
 
     public func updateUsageAlertSettings(_ settings: UsageAlertSettings) {
@@ -1157,6 +1180,9 @@ public final class ProviderConfigurationStore: ObservableObject {
         static let appAppearance = "appAppearance"
         static let autoRefreshInterval = "autoRefreshInterval"
         static let dashboardOrderingMode = "dashboardOrderingMode"
+        static let dashboardTextSize = "dashboardTextSize"
+        static let menuBarDashboardWidth = "menuBarDashboardWidth"
+        static let menuBarDashboardHeight = "menuBarDashboardHeight"
         static let usageAlertSettings = "usageAlertSettings"
         static let usageAlertActiveIDs = "usageAlertActiveIDs"
         static let configurationRecoveryCompletionPending =
@@ -1279,6 +1305,30 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
 
         return mode
+    }
+
+    private static func loadDashboardTextSize(from defaults: UserDefaults) -> DashboardTextSize {
+        guard
+            let rawValue = defaults.string(forKey: DefaultsKey.dashboardTextSize),
+            let textSize = DashboardTextSize(rawValue: rawValue)
+        else {
+            return .standard
+        }
+
+        return textSize
+    }
+
+    private static func loadMenuBarDashboardSize(from defaults: UserDefaults) -> DashboardPanelSize {
+        guard defaults.object(forKey: DefaultsKey.menuBarDashboardWidth) != nil,
+              defaults.object(forKey: DefaultsKey.menuBarDashboardHeight) != nil
+        else {
+            return .defaultSize
+        }
+
+        return DashboardPanelSize.normalized(
+            width: defaults.double(forKey: DefaultsKey.menuBarDashboardWidth),
+            height: defaults.double(forKey: DefaultsKey.menuBarDashboardHeight)
+        )
     }
 
     private func saveUsageAlertSettings() {
