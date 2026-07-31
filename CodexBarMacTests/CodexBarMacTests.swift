@@ -5104,6 +5104,50 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testDashboardTextSizeAndMenuBarSizePersistAcrossStoreInstances() {
+        let suiteName = "CodexBarMacTests.DashboardPresentation.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+        XCTAssertEqual(store.dashboardTextSize, .standard)
+        XCTAssertEqual(store.menuBarDashboardSize, .defaultSize)
+
+        store.updateDashboardTextSize(.extraLarge)
+        store.updateMenuBarDashboardSize(width: 780, height: 640)
+
+        let reloadedStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        XCTAssertEqual(reloadedStore.dashboardTextSize, .extraLarge)
+        XCTAssertEqual(reloadedStore.menuBarDashboardSize, DashboardPanelSize(width: 780, height: 640))
+    }
+
+    func testDashboardPresentationValuesStayWithinSupportedBounds() {
+        XCTAssertEqual(DashboardTextSize.small.decreased, .small)
+        XCTAssertEqual(DashboardTextSize.small.increased, .standard)
+        XCTAssertEqual(DashboardTextSize.standard.decreased, .small)
+        XCTAssertEqual(DashboardTextSize.large.increased, .extraLarge)
+        XCTAssertEqual(DashboardTextSize.extraLarge.increased, .extraLarge)
+
+        XCTAssertEqual(
+            DashboardPanelSize.normalized(width: 100, height: 100),
+            .minimumSize
+        )
+        XCTAssertEqual(
+            DashboardPanelSize.normalized(width: 10_000, height: 10_000),
+            .maximumPersistedSize
+        )
+        XCTAssertEqual(
+            DashboardPanelSize.normalized(width: .nan, height: 500),
+            .defaultSize
+        )
+    }
+
+    @MainActor
     func testProviderConfigurationStoreTreatsMissingGroupDataAsEmpty() throws {
         let suiteName = "CodexBarMacTests.GroupAbsent.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

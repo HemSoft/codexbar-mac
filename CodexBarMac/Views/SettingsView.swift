@@ -40,6 +40,12 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
 
+                    Picker("Dashboard Text Size", selection: dashboardTextSizeBinding) {
+                        ForEach(DashboardTextSize.allCases) { textSize in
+                            Text(textSize.displayName).tag(textSize)
+                        }
+                    }
+
                     Toggle("Launch at Login", isOn: launchAtLoginBinding)
 
                     if model.launchAtLoginManager.requiresApproval {
@@ -348,6 +354,13 @@ struct SettingsView: View {
         Binding(
             get: { configurationStore.dashboardOrderingMode },
             set: { configurationStore.updateDashboardOrderingMode($0) }
+        )
+    }
+
+    private var dashboardTextSizeBinding: Binding<DashboardTextSize> {
+        Binding(
+            get: { configurationStore.dashboardTextSize },
+            set: { configurationStore.updateDashboardTextSize($0) }
         )
     }
 
