@@ -1,13 +1,39 @@
 import Foundation
 import Darwin
 
+enum CodexAuthFileReadResult: Equatable {
+    case credentials(CodexCredentials)
+    case missing
+    case failure
+}
+
 public enum CodexAuthFileStore: Sendable {
     public static func defaultPath() -> String {
         LocalCredentialDiscovery.defaultCodexAuthPath()
     }
 
     public static func readCredentials(at path: String = defaultPath()) -> CodexCredentials? {
-        CodexCredentialsParser.parseAuthFile(at: path)
+        guard case .credentials(let credentials) = readResult(at: path) else {
+            return nil
+        }
+        return credentials
+    }
+
+    static func readResult(at path: String = defaultPath()) -> CodexAuthFileReadResult {
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: path))
+            guard
+                let contents = String(data: data, encoding: .utf8),
+                let credentials = CodexCredentialsParser.parse(contents)
+            else {
+                return .failure
+            }
+            return .credentials(credentials)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return .missing
+        } catch {
+            return .failure
+        }
     }
 
     public static func writeCredentials(_ credentials: CodexCredentials, at path: String = defaultPath()) throws {

@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- ChatGPT browser sign-in now rejects duplicate or unverifiable identities across
+  saved Codex accounts without changing existing account credentials or metadata.
 - Additional Codex and Claude browser accounts now use their account-specific
   saved credentials while the default account keeps preferring local CLI sign-in.
 - Claude usage now fills missing provider spend and limit values from compatible
