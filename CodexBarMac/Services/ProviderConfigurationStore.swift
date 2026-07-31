@@ -13,10 +13,16 @@ enum CodexAccountIdentityValidation: Equatable {
     case unableToVerify
 }
 
-private enum SavedCodexAccountIdentity {
+private enum SavedCodexCredentialIdentity {
     case missing
     case invalidCredential
     case verified(String)
+    case unableToVerify
+}
+
+private enum SavedCodexAccountIdentities {
+    case missing
+    case verified(Set<String>)
     case unableToVerify
 }
 
@@ -708,16 +714,16 @@ public final class ProviderConfigurationStore: ObservableObject {
         let localCredentials = readCodexAuthCredentials()
         for existing in otherConfigurations {
             do {
-                switch try savedCodexAccountIdentity(
+                switch try savedCodexAccountIdentities(
                     for: existing,
                     localCredentials: localCredentials
                 ) {
                 case .missing:
                     continue
-                case .invalidCredential, .unableToVerify:
+                case .unableToVerify:
                     return .unableToVerify
-                case .verified(let existingAccountID):
-                    if existingAccountID == accountID {
+                case .verified(let existingAccountIDs):
+                    if existingAccountIDs.contains(accountID) {
                         return .duplicate(accountName: existing.displayName)
                     }
                 }
@@ -730,61 +736,52 @@ public final class ProviderConfigurationStore: ObservableObject {
         return .available
     }
 
-    private func savedCodexAccountIdentity(
+    private func savedCodexAccountIdentities(
         for configuration: ProviderAccountConfiguration,
         localCredentials: CodexAuthFileReadResult
-    ) throws -> SavedCodexAccountIdentity {
+    ) throws -> SavedCodexAccountIdentities {
         let prefersLocalCredentials =
             configuration.authMethod == .codexAuthJSON
             || (
                 configuration.authMethod == .browserSession
                 && configuration.id == configuration.providerID.rawValue
             )
-        var encounteredInvalidCredential = false
+        var sourceIdentities: [SavedCodexCredentialIdentity] = []
 
         if prefersLocalCredentials {
-            switch Self.savedCodexAccountIdentity(from: localCredentials) {
-            case .verified(let accountID):
-                return .verified(accountID)
-            case .unableToVerify:
-                return .unableToVerify
-            case .invalidCredential:
-                encounteredInvalidCredential = true
-            case .missing:
-                break
-            }
+            sourceIdentities.append(Self.savedCodexCredentialIdentity(from: localCredentials))
         }
 
-        let keychainIdentity = try savedKeychainCodexAccountIdentity(for: configuration)
-        switch keychainIdentity {
-        case .verified(let accountID):
-            return .verified(accountID)
-        case .unableToVerify:
-            return .unableToVerify
-        case .invalidCredential:
-            encounteredInvalidCredential = true
-        case .missing:
-            break
-        }
+        sourceIdentities.append(try savedKeychainCodexCredentialIdentity(for: configuration))
 
         if configuration.authMethod == .browserSession && !prefersLocalCredentials {
-            switch Self.savedCodexAccountIdentity(from: localCredentials) {
+            sourceIdentities.append(Self.savedCodexCredentialIdentity(from: localCredentials))
+        }
+
+        var verifiedAccountIDs = Set<String>()
+        var encounteredInvalidCredential = false
+        for identity in sourceIdentities {
+            switch identity {
             case .verified(let accountID):
-                return .verified(accountID)
+                verifiedAccountIDs.insert(accountID)
             case .unableToVerify:
                 return .unableToVerify
             case .invalidCredential:
                 encounteredInvalidCredential = true
             case .missing:
-                break
+                continue
             }
+        }
+
+        if !verifiedAccountIDs.isEmpty {
+            return .verified(verifiedAccountIDs)
         }
         return encounteredInvalidCredential ? .unableToVerify : .missing
     }
 
-    private func savedKeychainCodexAccountIdentity(
+    private func savedKeychainCodexCredentialIdentity(
         for configuration: ProviderAccountConfiguration
-    ) throws -> SavedCodexAccountIdentity {
+    ) throws -> SavedCodexCredentialIdentity {
         guard let secret = try secretStore.readSecret(
             account: Self.keychainAccount(for: configuration)
         ) else {
@@ -793,15 +790,15 @@ public final class ProviderConfigurationStore: ObservableObject {
         guard let credentials = CodexCredentialsParser.parse(secret) else {
             return .invalidCredential
         }
-        return Self.savedCodexAccountIdentity(from: credentials)
+        return Self.savedCodexCredentialIdentity(from: credentials)
     }
 
-    private static func savedCodexAccountIdentity(
+    private static func savedCodexCredentialIdentity(
         from readResult: CodexAuthFileReadResult
-    ) -> SavedCodexAccountIdentity {
+    ) -> SavedCodexCredentialIdentity {
         switch readResult {
         case .credentials(let credentials):
-            return savedCodexAccountIdentity(from: credentials)
+            return savedCodexCredentialIdentity(from: credentials)
         case .missing:
             return .missing
         case .failure:
@@ -809,9 +806,9 @@ public final class ProviderConfigurationStore: ObservableObject {
         }
     }
 
-    private static func savedCodexAccountIdentity(
+    private static func savedCodexCredentialIdentity(
         from credentials: CodexCredentials
-    ) -> SavedCodexAccountIdentity {
+    ) -> SavedCodexCredentialIdentity {
         guard
             let accountID = credentials.accountID?
                 .trimmingCharacters(in: .whitespacesAndNewlines),

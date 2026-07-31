@@ -5473,6 +5473,128 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testCodexIdentityRejectsKeychainRuntimeFallbackBehindVerifiedLocalCredential() throws {
+        let suiteName = "CodexBarMacTests.CodexIdentity.VerifiedLocalFallback.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = TransactionalReplacementSecretStore()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) },
+            readCodexAuthCredentials: {
+                .credentials(
+                    CodexCredentials(accessToken: "local-token", accountID: "local-account")
+                )
+            }
+        )
+        var localPeer = store.addAccount(for: .codex)
+        localPeer.accountLabel = "Local peer"
+        localPeer.authMethod = .codexAuthJSON
+        XCTAssertTrue(store.update(localPeer))
+        let incomingAccount = store.addAccount(for: .codex)
+        try secretStore.saveSecret(
+            CodexCredentialsParser.storedCredential(
+                from: CodexCredentials(
+                    accessToken: "keychain-token",
+                    accountID: "keychain-account"
+                )
+            ),
+            account: ProviderConfigurationStore.keychainAccount(for: localPeer)
+        )
+
+        XCTAssertEqual(
+            store.validateCodexAccountIdentity("local-account", for: incomingAccount),
+            .duplicate(accountName: "Local peer")
+        )
+        XCTAssertEqual(
+            store.validateCodexAccountIdentity("keychain-account", for: incomingAccount),
+            .duplicate(accountName: "Local peer")
+        )
+    }
+
+    @MainActor
+    func testCodexIdentityRejectsLocalRuntimeFallbackBehindVerifiedBrowserCredential() throws {
+        let suiteName = "CodexBarMacTests.CodexIdentity.VerifiedKeychainFallback.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = TransactionalReplacementSecretStore()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) },
+            readCodexAuthCredentials: {
+                .credentials(
+                    CodexCredentials(accessToken: "local-token", accountID: "local-account")
+                )
+            }
+        )
+        let incomingAccount = store.addAccount(for: .codex)
+        var browserPeer = store.addAccount(for: .codex)
+        browserPeer.accountLabel = "Browser peer"
+        browserPeer.authMethod = .browserSession
+        XCTAssertTrue(store.update(browserPeer))
+        try secretStore.saveSecret(
+            CodexCredentialsParser.storedCredential(
+                from: CodexCredentials(
+                    accessToken: "keychain-token",
+                    accountID: "keychain-account"
+                )
+            ),
+            account: ProviderConfigurationStore.keychainAccount(for: browserPeer)
+        )
+
+        XCTAssertEqual(
+            store.validateCodexAccountIdentity("keychain-account", for: incomingAccount),
+            .duplicate(accountName: "Browser peer")
+        )
+        XCTAssertEqual(
+            store.validateCodexAccountIdentity("local-account", for: incomingAccount),
+            .duplicate(accountName: "Browser peer")
+        )
+    }
+
+    @MainActor
+    func testCodexIdentitylessPreferredCredentialFailsClosedWithVerifiedFallback() throws {
+        let suiteName = "CodexBarMacTests.CodexIdentity.IdentitylessPreferred.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = TransactionalReplacementSecretStore()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) },
+            readCodexAuthCredentials: {
+                .credentials(CodexCredentials(accessToken: "identityless-local-token"))
+            }
+        )
+        var localPeer = store.addAccount(for: .codex)
+        localPeer.authMethod = .codexAuthJSON
+        XCTAssertTrue(store.update(localPeer))
+        let incomingAccount = store.addAccount(for: .codex)
+        try secretStore.saveSecret(
+            CodexCredentialsParser.storedCredential(
+                from: CodexCredentials(
+                    accessToken: "keychain-token",
+                    accountID: "keychain-account"
+                )
+            ),
+            account: ProviderConfigurationStore.keychainAccount(for: localPeer)
+        )
+
+        XCTAssertEqual(
+            store.validateCodexAccountIdentity("new-account", for: incomingAccount),
+            .unableToVerify
+        )
+    }
+
+    @MainActor
     func testCodexDuplicateBrowserIdentityReportsOwnerAndDoesNotMutateAccounts() throws {
         let suiteName = "CodexBarMacTests.CodexIdentity.Duplicate.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
