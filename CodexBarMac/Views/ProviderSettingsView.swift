@@ -627,6 +627,22 @@ struct ProviderSettingsView: View {
                 return false
 #endif
             }
+            switch configurationStore.validateCodexAccountIdentity(
+                result.accountID,
+                for: configuration
+            ) {
+            case .available:
+                break
+            case .duplicate(let accountName):
+                codexAuthError = "That ChatGPT account is already connected as “\(accountName)”. "
+                    + "No saved account was changed. Try again with a different identity."
+                return
+            case .unableToVerify:
+                codexAuthError = "ChatGPT sign-in completed, but CodexBar could not safely verify it "
+                    + "against the other saved ChatGPT accounts. No saved account was changed. Try again."
+                return
+            }
+
             var updated = configuration
             updated.authMethod = .browserSession
             guard configurationStore.replaceCredential(result.storedCredential, for: updated) else {

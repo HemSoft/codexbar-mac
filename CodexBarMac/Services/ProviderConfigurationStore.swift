@@ -7,6 +7,12 @@ public enum SavedCredentialReadResult: Equatable, Sendable {
     case failure(String)
 }
 
+enum CodexAccountIdentityValidation: Equatable {
+    case available
+    case duplicate(accountName: String)
+    case unableToVerify
+}
+
 @MainActor
 public final class ProviderConfigurationStore: ObservableObject {
     @Published public private(set) var configurations: [ProviderAccountConfiguration]
@@ -664,6 +670,56 @@ public final class ProviderConfigurationStore: ObservableObject {
 
     public func hasSecret(for configuration: ProviderAccountConfiguration) -> Bool {
         secretAvailability[configuration.id] ?? false
+    }
+
+    func validateCodexAccountIdentity(
+        _ accountID: String?,
+        for configuration: ProviderAccountConfiguration
+    ) -> CodexAccountIdentityValidation {
+        guard configuration.providerID == .codex else {
+            return .unableToVerify
+        }
+
+        let otherConfigurations = configurations(for: .codex).filter {
+            $0.id != configuration.id
+        }
+        guard !otherConfigurations.isEmpty else {
+            return .available
+        }
+
+        guard
+            let accountID = accountID?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !accountID.isEmpty
+        else {
+            return .unableToVerify
+        }
+
+        for existing in otherConfigurations {
+            do {
+                guard let secret = try secretStore.readSecret(
+                    account: Self.keychainAccount(for: existing)
+                ) else {
+                    continue
+                }
+                guard
+                    let existingAccountID = CodexCredentialsParser.parse(secret)?
+                        .accountID?
+                        .trimmingCharacters(in: .whitespacesAndNewlines),
+                    !existingAccountID.isEmpty
+                else {
+                    return .unableToVerify
+                }
+
+                if existingAccountID == accountID {
+                    return .duplicate(accountName: existing.displayName)
+                }
+            } catch {
+                lastError = "Could not verify the saved ChatGPT accounts: \(error.localizedDescription)"
+                return .unableToVerify
+            }
+        }
+
+        return .available
     }
 
     public func credentialReadiness(for configuration: ProviderAccountConfiguration) -> CredentialReadiness {
