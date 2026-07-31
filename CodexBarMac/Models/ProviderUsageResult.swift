@@ -62,6 +62,8 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
     public let creditsRemaining: Double?
     public let monetaryMetrics: [ProviderMonetaryMetric]
     public let usageMessages: [String]
+    public let preservesCachedBarsOnIncompleteRefresh: Bool
+    public let preservesCachedCreditsOnIncompleteRefresh: Bool
     public let isIncompleteRefresh: Bool
     public let fetchedAt: Date
 
@@ -80,6 +82,8 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
         monetaryMetrics: [ProviderMonetaryMetric] = [],
         usageMessages: [String] = [],
         hasReachedSpendLimit: Bool = false,
+        preservesCachedBarsOnIncompleteRefresh: Bool = false,
+        preservesCachedCreditsOnIncompleteRefresh: Bool = false,
         isIncompleteRefresh: Bool = false,
         fetchedAt: Date
     ) {
@@ -92,6 +96,8 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
         self.monetaryMetrics = monetaryMetrics
         self.usageMessages = usageMessages
         self.forcedSpendLimitReached = hasReachedSpendLimit
+        self.preservesCachedBarsOnIncompleteRefresh = preservesCachedBarsOnIncompleteRefresh
+        self.preservesCachedCreditsOnIncompleteRefresh = preservesCachedCreditsOnIncompleteRefresh
         self.isIncompleteRefresh = isIncompleteRefresh
         self.fetchedAt = fetchedAt
     }

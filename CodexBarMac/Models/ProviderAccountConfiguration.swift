@@ -57,6 +57,73 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         return label.isEmpty ? providerID.displayName : label
     }
 
+    public func openCodeDisplayName(
+        hasGoUsage: Bool,
+        hasZenBalance: Bool
+    ) -> String {
+        let label = accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !hasCustomOpenCodeAccountLabel else {
+            return label
+        }
+
+        let accountSuffix = generatedOpenCodeAccountNumber.map { " \($0)" } ?? ""
+        let productName: String
+        switch (hasGoUsage, hasZenBalance) {
+        case (true, true):
+            productName = "OpenCode Go + Zen"
+        case (true, false):
+            productName = "OpenCode Go"
+        case (false, true):
+            productName = "OpenCode ZEN"
+        case (false, false):
+            productName = providerID.displayName
+        }
+        return productName + accountSuffix
+    }
+
+    public var hasCustomOpenCodeAccountLabel: Bool {
+        let label = accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else {
+            return false
+        }
+        guard providerID == .openCodeZen else {
+            return true
+        }
+
+        for base in ["OpenCode ZEN", "OpenCode Go", "OpenCode Go + Zen"] {
+            if label == base {
+                return false
+            }
+
+            let prefix = "\(base) "
+            if label.hasPrefix(prefix) {
+                let suffix = String(label.dropFirst(prefix.count))
+                if let accountNumber = Int(suffix), accountNumber > 0, suffix == String(accountNumber) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    private var generatedOpenCodeAccountNumber: Int? {
+        let label = accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard providerID == .openCodeZen else {
+            return nil
+        }
+
+        for base in ["OpenCode ZEN", "OpenCode Go", "OpenCode Go + Zen"] {
+            let prefix = "\(base) "
+            if label.hasPrefix(prefix) {
+                let suffix = String(label.dropFirst(prefix.count))
+                if let accountNumber = Int(suffix), accountNumber > 0, suffix == String(accountNumber) {
+                    return accountNumber
+                }
+            }
+        }
+        return nil
+    }
+
     public func withNewAccountID() -> ProviderAccountConfiguration {
         ProviderAccountConfiguration(
             id: "\(providerID.rawValue).\(UUID().uuidString)",

@@ -192,16 +192,40 @@ public final class UsageRefreshService: ObservableObject {
         let resultHasUsageData = result.creditsRemaining != nil
             || !result.bars.isEmpty
             || !result.monetaryMetrics.isEmpty
+        let hasComponentPreservation = result.preservesCachedBarsOnIncompleteRefresh
+            || result.preservesCachedCreditsOnIncompleteRefresh
         guard
             result.isIncompleteRefresh,
-            !resultHasUsageData,
-            let cachedResult,
-            cachedResult.creditsRemaining != nil
-                || !cachedResult.bars.isEmpty
-                || !cachedResult.monetaryMetrics.isEmpty
+            let cachedResult
         else {
             return result
         }
+
+        let preservesAllUsageData = !resultHasUsageData && (
+            !hasComponentPreservation
+                || result.preservesCachedBarsOnIncompleteRefresh
+                    && result.preservesCachedCreditsOnIncompleteRefresh
+        )
+        let restoresBars = (preservesAllUsageData || result.preservesCachedBarsOnIncompleteRefresh)
+            && result.bars.isEmpty
+            && !cachedResult.bars.isEmpty
+        let restoresCredits = (preservesAllUsageData || result.preservesCachedCreditsOnIncompleteRefresh)
+            && result.creditsRemaining == nil
+            && cachedResult.creditsRemaining != nil
+        let restoresMonetaryMetrics = preservesAllUsageData
+            && result.monetaryMetrics.isEmpty
+            && !cachedResult.monetaryMetrics.isEmpty
+        guard restoresBars || restoresCredits || restoresMonetaryMetrics else {
+            return result
+        }
+
+        let bars = restoresBars
+            ? cachedResult.bars
+            : result.bars
+        let creditsRemaining = restoresCredits
+            ? cachedResult.creditsRemaining
+            : result.creditsRemaining
+        let monetaryMetrics = restoresMonetaryMetrics ? cachedResult.monetaryMetrics : result.monetaryMetrics
 
         let subtitle: String
         if result.subtitle.localizedCaseInsensitiveContains("last known data") {
@@ -211,18 +235,36 @@ public final class UsageRefreshService: ObservableObject {
             subtitle = "\(result.subtitle)\(separator)Showing last known data."
         }
 
+        let title: String
+        if result.providerID == .openCodeZen {
+            let titleConfiguration = ProviderAccountConfiguration(
+                id: result.accountID,
+                providerID: .openCodeZen,
+                accountLabel: result.title,
+                authMethod: .browserSession
+            )
+            title = titleConfiguration.openCodeDisplayName(
+                hasGoUsage: !bars.isEmpty,
+                hasZenBalance: creditsRemaining != nil
+            )
+        } else {
+            title = result.title
+        }
+
         return ProviderUsageResult(
             accountID: result.accountID,
             providerID: result.providerID,
-            title: result.title,
+            title: title,
             subtitle: subtitle,
-            bars: cachedResult.bars,
-            creditsRemaining: cachedResult.creditsRemaining,
-            monetaryMetrics: cachedResult.monetaryMetrics,
-            usageMessages: cachedResult.usageMessages,
-            hasReachedSpendLimit: cachedResult.hasReachedSpendLimit,
+            bars: bars,
+            creditsRemaining: creditsRemaining,
+            monetaryMetrics: monetaryMetrics,
+            usageMessages: preservesAllUsageData ? cachedResult.usageMessages : result.usageMessages,
+            hasReachedSpendLimit: preservesAllUsageData
+                ? cachedResult.hasReachedSpendLimit
+                : result.hasReachedSpendLimit,
             isIncompleteRefresh: true,
-            fetchedAt: cachedResult.fetchedAt
+            fetchedAt: preservesAllUsageData ? cachedResult.fetchedAt : result.fetchedAt
         )
     }
 

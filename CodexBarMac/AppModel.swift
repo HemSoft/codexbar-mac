@@ -124,8 +124,14 @@ final class AppModel: ObservableObject {
         let alphabeticallyOrderedResults: [ProviderUsageResult] = refreshService.results
             .filter { enabledAccountIDs.contains($0.accountID) }
             .map { result in
-                guard let configuration = configurationByID[result.accountID],
-                      configuration.displayName != result.title else {
+                guard let configuration = configurationByID[result.accountID] else {
+                    return result
+                }
+                if result.providerID == .openCodeZen,
+                   !configuration.hasCustomOpenCodeAccountLabel {
+                    return result
+                }
+                guard configuration.displayName != result.title else {
                     return result
                 }
 
