@@ -5297,6 +5297,40 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
+    func testCodexBrowserIdentityRejectsNonDefaultBrowserPeerUsingLocalFallback() throws {
+        let suiteName = "CodexBarMacTests.CodexIdentity.BrowserLocalFallback.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let secretStore = TransactionalReplacementSecretStore()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: secretStore,
+            encodeConfigurations: { try JSONEncoder().encode($0) },
+            readCodexAuthCredentials: {
+                .credentials(
+                    CodexCredentials(accessToken: "local-token", accountID: "local-account")
+                )
+            }
+        )
+        let incomingAccount = store.addAccount(for: .codex)
+        var browserPeer = store.addAccount(for: .codex)
+        browserPeer.accountLabel = "Browser peer"
+        XCTAssertTrue(store.update(browserPeer))
+
+        XCTAssertNil(
+            try secretStore.readSecret(
+                account: ProviderConfigurationStore.keychainAccount(for: browserPeer)
+            )
+        )
+        XCTAssertEqual(
+            store.validateCodexAccountIdentity("local-account", for: incomingAccount),
+            .duplicate(accountName: "Browser peer")
+        )
+    }
+
+    @MainActor
     func testCodexMalformedLocalPeerCredentialDoesNotMutateAccounts() throws {
         let suiteName = "CodexBarMacTests.CodexIdentity.MalformedLocal.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
