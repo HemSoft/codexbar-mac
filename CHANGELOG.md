@@ -101,6 +101,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Developer Experience
 
+- The status-item right-click event bridge now makes its synchronous main-actor
+  isolation explicit and has focused event-routing coverage.
 - CI now pins `actions/checkout` v7.0.1 to its reviewed full commit SHA while retaining credential hardening.
 - Credential replacement test doubles now synchronize injected failures, saved-secret
   observations, and credential storage so detached availability checks cannot race them.
