@@ -264,8 +264,8 @@ public final class UsageRefreshService: ObservableObject {
             hasReachedSpendLimit: preservesAllUsageData
                 ? cachedResult.hasReachedSpendLimit
                 : result.hasReachedSpendLimit,
-            cacheIdentity: result.cacheIdentity,
-            cacheScope: result.cacheScope,
+            cacheIdentity: preservesAllUsageData ? cachedResult.cacheIdentity : result.cacheIdentity,
+            cacheScope: preservesAllUsageData ? cachedResult.cacheScope : result.cacheScope,
             allowsUnscopedCacheReuse: result.allowsUnscopedCacheReuse,
             isIncompleteRefresh: true,
             fetchedAt: preservesAllUsageData ? cachedResult.fetchedAt : result.fetchedAt
@@ -320,7 +320,6 @@ public final class UsageRefreshService: ObservableObject {
             cacheScope: configuration.providerID == .openCodeZen
                 ? OpenCodeZenUsageProvider.normalizedWorkspaceId(from: configuration.openCodeWorkspaceId)
                 : nil,
-            allowsUnscopedCacheReuse: true,
             isIncompleteRefresh: true,
             fetchedAt: Date()
         )

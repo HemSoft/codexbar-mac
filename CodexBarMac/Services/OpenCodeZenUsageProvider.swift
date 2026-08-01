@@ -44,7 +44,18 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
     }
 
     public func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
-        let storedSecret = try secretStore.readSecret(account: ProviderConfigurationStore.keychainAccount(for: configuration))
+        let storedSecret: String?
+        do {
+            storedSecret = try secretStore.readSecret(
+                account: ProviderConfigurationStore.keychainAccount(for: configuration)
+            )
+        } catch {
+            return failureResult(
+                "Refresh failed: \(error.localizedDescription)",
+                configuration: configuration,
+                allowsUnscopedCacheReuse: true
+            )
+        }
         guard let workspaceId = Self.normalizedWorkspaceId(from: configuration.openCodeWorkspaceId)
             ?? Self.workspaceId(fromCredentialPayload: storedSecret)
         else {
@@ -988,6 +999,7 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
     private func failureResult(
         _ message: String,
         configuration: ProviderAccountConfiguration,
+        allowsUnscopedCacheReuse: Bool = false,
         isIncompleteRefresh: Bool = true
     ) -> ProviderUsageResult {
         ProviderUsageResult(
@@ -997,6 +1009,7 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
             subtitle: message,
             bars: [],
             cacheScope: Self.normalizedWorkspaceId(from: configuration.openCodeWorkspaceId),
+            allowsUnscopedCacheReuse: allowsUnscopedCacheReuse,
             isIncompleteRefresh: isIncompleteRefresh,
             fetchedAt: Date()
         )

@@ -8465,9 +8465,9 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
-    func testOpenCodeCredentialReadFailureDoesNotReuseAnotherWorkspaceCache() async throws {
+    func testOpenCodeCredentialReadFailureReusesOnlyMatchingWorkspaceCache() async throws {
         var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
-        configuration.openCodeWorkspaceId = "wrk_new"
+        configuration.openCodeWorkspaceId = "wrk_old"
         let cached = ProviderUsageResult(
             accountID: configuration.id,
             providerID: .openCodeZen,
@@ -8486,10 +8486,48 @@ final class CodexBarMacTests: XCTestCase {
 
         _ = await service.refresh(configuration: configuration)
 
+        let preserved = try XCTUnwrap(service.results.first)
+        XCTAssertEqual(preserved.bars, cached.bars)
+        XCTAssertEqual(preserved.creditsRemaining, cached.creditsRemaining)
+        XCTAssertEqual(preserved.cacheIdentity, cached.cacheIdentity)
+        XCTAssertTrue(preserved.subtitle.contains("last known data"))
+
+        configuration.openCodeWorkspaceId = "wrk_new"
+        _ = await service.refresh(configuration: configuration)
+
         let failure = try XCTUnwrap(service.results.first)
         XCTAssertTrue(failure.bars.isEmpty)
         XCTAssertNil(failure.creditsRemaining)
         XCTAssertEqual(failure.cacheScope, "wrk_new")
+        XCTAssertFalse(failure.subtitle.contains("last known data"))
+    }
+
+    @MainActor
+    func testOpenCodeGenericFailureDoesNotUseWorkspaceOnlyCache() async throws {
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        configuration.openCodeWorkspaceId = "wrk_test"
+        let cached = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode Go + Zen",
+            subtitle: "Old credential data",
+            bars: [UsageBar(label: "Rolling", used: 25, limit: 100)],
+            creditsRemaining: 12.5,
+            cacheIdentity: "old-account-identity",
+            cacheScope: "wrk_test",
+            fetchedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let provider = SequencedUsageProvider(
+            providerID: .openCodeZen,
+            steps: [.failure("Request timed out")]
+        )
+        let service = UsageRefreshService(providers: [provider], initialResults: [cached])
+
+        _ = await service.refresh(configuration: configuration)
+
+        let failure = try XCTUnwrap(service.results.first)
+        XCTAssertTrue(failure.bars.isEmpty)
+        XCTAssertNil(failure.creditsRemaining)
         XCTAssertFalse(failure.subtitle.contains("last known data"))
     }
 
