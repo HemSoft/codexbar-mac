@@ -42,6 +42,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- OpenCode last-known usage now stays scoped to the workspace and dashboard
+  credential that produced it instead of carrying bars or balances across account changes.
 - ChatGPT browser sign-in now rejects duplicate or unverifiable identities across
   saved Codex accounts without changing existing account credentials or metadata.
 - Additional Codex and Claude browser accounts now use their account-specific

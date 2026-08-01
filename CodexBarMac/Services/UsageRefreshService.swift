@@ -196,7 +196,8 @@ public final class UsageRefreshService: ObservableObject {
             || result.preservesCachedCreditsOnIncompleteRefresh
         guard
             result.isIncompleteRefresh,
-            let cachedResult
+            let cachedResult,
+            canReuseCachedResult(cachedResult, for: result)
         else {
             return result
         }
@@ -263,9 +264,31 @@ public final class UsageRefreshService: ObservableObject {
             hasReachedSpendLimit: preservesAllUsageData
                 ? cachedResult.hasReachedSpendLimit
                 : result.hasReachedSpendLimit,
+            cacheIdentity: preservesAllUsageData ? cachedResult.cacheIdentity : result.cacheIdentity,
+            cacheScope: preservesAllUsageData ? cachedResult.cacheScope : result.cacheScope,
+            allowsUnscopedCacheReuse: result.allowsUnscopedCacheReuse,
             isIncompleteRefresh: true,
             fetchedAt: preservesAllUsageData ? cachedResult.fetchedAt : result.fetchedAt
         )
+    }
+
+    private nonisolated static func canReuseCachedResult(
+        _ cachedResult: ProviderUsageResult,
+        for result: ProviderUsageResult
+    ) -> Bool {
+        guard result.providerID == .openCodeZen else {
+            return true
+        }
+        guard let cacheIdentity = result.cacheIdentity else {
+            guard
+                result.allowsUnscopedCacheReuse,
+                let cacheScope = result.cacheScope
+            else {
+                return false
+            }
+            return cachedResult.cacheScope == cacheScope
+        }
+        return cachedResult.cacheIdentity == cacheIdentity
     }
 
     nonisolated static func fetchUsageWithTimeout(
@@ -294,6 +317,9 @@ public final class UsageRefreshService: ObservableObject {
             title: configuration.displayName,
             subtitle: "Refresh failed: \(error.localizedDescription)",
             bars: [],
+            cacheScope: configuration.providerID == .openCodeZen
+                ? OpenCodeZenUsageProvider.normalizedWorkspaceId(from: configuration.openCodeWorkspaceId)
+                : nil,
             isIncompleteRefresh: true,
             fetchedAt: Date()
         )
