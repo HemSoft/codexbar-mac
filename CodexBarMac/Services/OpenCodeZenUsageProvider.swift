@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 private struct OpenCodeGoWindow {
@@ -67,6 +68,11 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
             workspaceId: workspaceId,
             balanceAPIKey: balanceCredential,
             goAPIKey: goCredential,
+            cacheIdentity: Self.cacheIdentity(
+                workspaceId: workspaceId,
+                balanceCredential: balanceCredential,
+                goCredential: goCredential
+            ),
             configuration: configuration
         )
     }
@@ -101,6 +107,7 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
         workspaceId: String,
         balanceAPIKey: String,
         goAPIKey: String,
+        cacheIdentity: String,
         configuration: ProviderAccountConfiguration
     ) async -> ProviderUsageResult {
         let fetchedAt = Date()
@@ -111,8 +118,19 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
             balance: balance,
             goUsage: goUsage,
             configuration: configuration,
+            cacheIdentity: cacheIdentity,
+            cacheScope: workspaceId,
             fetchedAt: fetchedAt
         )
+    }
+
+    private static func cacheIdentity(
+        workspaceId: String,
+        balanceCredential: String,
+        goCredential: String
+    ) -> String {
+        let source = Data("\(workspaceId)\u{0}\(balanceCredential)\u{0}\(goCredential)".utf8)
+        return Data(SHA256.hash(data: source)).base64EncodedString()
     }
 
     private func fetchBalance(workspaceId: String, apiKey: String) async -> OpenCodeBalanceFetchOutcome {
@@ -837,6 +855,8 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
         balance: OpenCodeBalanceFetchOutcome,
         goUsage: OpenCodeGoPageOutcome,
         configuration: ProviderAccountConfiguration,
+        cacheIdentity: String,
+        cacheScope: String,
         fetchedAt: Date
     ) -> ProviderUsageResult {
         let creditsRemaining: Double?
@@ -907,6 +927,8 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
                 bars: [],
                 preservesCachedBarsOnIncompleteRefresh: true,
                 preservesCachedCreditsOnIncompleteRefresh: true,
+                cacheIdentity: cacheIdentity,
+                cacheScope: cacheScope,
                 isIncompleteRefresh: true,
                 fetchedAt: fetchedAt
             )
@@ -945,6 +967,8 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
             usageMessages: usageMessages,
             preservesCachedBarsOnIncompleteRefresh: goFailure != nil,
             preservesCachedCreditsOnIncompleteRefresh: balanceFailure != nil,
+            cacheIdentity: cacheIdentity,
+            cacheScope: cacheScope,
             isIncompleteRefresh: balanceFailure != nil || goFailure != nil,
             fetchedAt: fetchedAt
         )
@@ -972,6 +996,7 @@ public final class OpenCodeZenUsageProvider: UsageProvider {
             title: configuration.openCodeDisplayName(hasGoUsage: false, hasZenBalance: false),
             subtitle: message,
             bars: [],
+            cacheScope: Self.normalizedWorkspaceId(from: configuration.openCodeWorkspaceId),
             isIncompleteRefresh: isIncompleteRefresh,
             fetchedAt: Date()
         )

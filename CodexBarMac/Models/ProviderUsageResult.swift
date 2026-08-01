@@ -64,6 +64,9 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
     public let usageMessages: [String]
     public let preservesCachedBarsOnIncompleteRefresh: Bool
     public let preservesCachedCreditsOnIncompleteRefresh: Bool
+    public let cacheIdentity: String?
+    public let cacheScope: String?
+    public let allowsUnscopedCacheReuse: Bool
     public let isIncompleteRefresh: Bool
     public let fetchedAt: Date
 
@@ -84,6 +87,9 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
         hasReachedSpendLimit: Bool = false,
         preservesCachedBarsOnIncompleteRefresh: Bool = false,
         preservesCachedCreditsOnIncompleteRefresh: Bool = false,
+        cacheIdentity: String? = nil,
+        cacheScope: String? = nil,
+        allowsUnscopedCacheReuse: Bool = false,
         isIncompleteRefresh: Bool = false,
         fetchedAt: Date
     ) {
@@ -98,6 +104,9 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
         self.forcedSpendLimitReached = hasReachedSpendLimit
         self.preservesCachedBarsOnIncompleteRefresh = preservesCachedBarsOnIncompleteRefresh
         self.preservesCachedCreditsOnIncompleteRefresh = preservesCachedCreditsOnIncompleteRefresh
+        self.cacheIdentity = cacheIdentity
+        self.cacheScope = cacheScope
+        self.allowsUnscopedCacheReuse = allowsUnscopedCacheReuse
         self.isIncompleteRefresh = isIncompleteRefresh
         self.fetchedAt = fetchedAt
     }

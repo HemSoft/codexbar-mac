@@ -4791,6 +4791,9 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.used), [11.25, 22.5, 33.75])
         XCTAssertTrue(result.usageMessages.isEmpty)
         XCTAssertFalse(result.isIncompleteRefresh)
+        XCTAssertEqual(result.cacheScope, "wrk_redacted")
+        XCTAssertNotNil(result.cacheIdentity)
+        XCTAssertNotEqual(result.cacheIdentity, "redacted-dashboard-token")
     }
 
     func testOpenCodeProviderPreservesEachIndependentDashboardResult() async throws {
@@ -8253,6 +8256,8 @@ final class CodexBarMacTests: XCTestCase {
             subtitle: "Go usage and ZEN credit balance",
             bars: cachedBars,
             creditsRemaining: 12,
+            cacheIdentity: "unchanged-account",
+            cacheScope: "wrk_test",
             fetchedAt: cachedAt
         )
         let balanceOnly = ProviderUsageResult(
@@ -8264,6 +8269,8 @@ final class CodexBarMacTests: XCTestCase {
             creditsRemaining: 9,
             usageMessages: ["Go usage unavailable: Temporary outage"],
             preservesCachedBarsOnIncompleteRefresh: true,
+            cacheIdentity: "unchanged-account",
+            cacheScope: "wrk_test",
             isIncompleteRefresh: true,
             fetchedAt: refreshedAt
         )
@@ -8288,6 +8295,8 @@ final class CodexBarMacTests: XCTestCase {
             subtitle: "ZEN credit balance",
             bars: [],
             creditsRemaining: 12,
+            cacheIdentity: "unchanged-account",
+            cacheScope: "wrk_test",
             fetchedAt: cachedAt
         )
         let preGoService = UsageRefreshService(
@@ -8314,6 +8323,8 @@ final class CodexBarMacTests: XCTestCase {
             bars: freshBars,
             usageMessages: ["ZEN balance unavailable: Temporary outage"],
             preservesCachedCreditsOnIncompleteRefresh: true,
+            cacheIdentity: "unchanged-account",
+            cacheScope: "wrk_test",
             isIncompleteRefresh: true,
             fetchedAt: refreshedAt
         )
@@ -8344,6 +8355,8 @@ final class CodexBarMacTests: XCTestCase {
             subtitle: "Go usage and ZEN credit balance",
             bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage limit", used: 20, limit: 100)],
             creditsRemaining: 12,
+            cacheIdentity: "unchanged-account",
+            cacheScope: "wrk_test",
             fetchedAt: cachedAt
         )
         let failure = ProviderUsageResult(
@@ -8354,6 +8367,8 @@ final class CodexBarMacTests: XCTestCase {
             bars: [],
             preservesCachedBarsOnIncompleteRefresh: true,
             preservesCachedCreditsOnIncompleteRefresh: true,
+            cacheIdentity: "unchanged-account",
+            cacheScope: "wrk_test",
             isIncompleteRefresh: true,
             fetchedAt: Date(timeIntervalSince1970: 1_700_000_100)
         )
@@ -8371,6 +8386,111 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(preserved.subtitle, "Temporary dashboard outage. Showing last known data.")
         XCTAssertEqual(preserved.fetchedAt, cachedAt)
         XCTAssertTrue(preserved.isIncompleteRefresh)
+    }
+
+    @MainActor
+    func testUsageRefreshServiceRejectsCachedOpenCodeComponentsAfterIdentityChanges() async throws {
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        configuration.openCodeWorkspaceId = "wrk_new"
+        let cached = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode Go + Zen",
+            subtitle: "Old account data",
+            bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage limit", used: 20, limit: 100)],
+            creditsRemaining: 12,
+            cacheIdentity: "old-credential",
+            cacheScope: "wrk_old",
+            fetchedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let changedWorkspace = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode ZEN",
+            subtitle: "ZEN credit balance",
+            bars: [],
+            creditsRemaining: 9,
+            preservesCachedBarsOnIncompleteRefresh: true,
+            cacheIdentity: "new-credential",
+            cacheScope: "wrk_new",
+            isIncompleteRefresh: true,
+            fetchedAt: Date(timeIntervalSince1970: 1_700_000_100)
+        )
+        let workspaceService = UsageRefreshService(
+            providers: [StubUsageProvider(providerID: .openCodeZen, result: changedWorkspace)],
+            initialResults: [cached]
+        )
+
+        _ = await workspaceService.refresh(configuration: configuration)
+
+        let workspaceResult = try XCTUnwrap(workspaceService.results.first)
+        XCTAssertTrue(workspaceResult.bars.isEmpty)
+        XCTAssertEqual(workspaceResult.creditsRemaining, 9)
+        XCTAssertFalse(workspaceResult.subtitle.contains("last known data"))
+
+        let sameWorkspaceCache = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode Go + Zen",
+            subtitle: "Old credential data",
+            bars: cached.bars,
+            creditsRemaining: 12,
+            cacheIdentity: "old-credential",
+            cacheScope: "wrk_new",
+            fetchedAt: cached.fetchedAt
+        )
+        let changedCredential = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode Go",
+            subtitle: "OpenCode Go usage",
+            bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage limit", used: 40, limit: 100)],
+            preservesCachedCreditsOnIncompleteRefresh: true,
+            cacheIdentity: "new-credential",
+            cacheScope: "wrk_new",
+            isIncompleteRefresh: true,
+            fetchedAt: Date(timeIntervalSince1970: 1_700_000_100)
+        )
+        let credentialService = UsageRefreshService(
+            providers: [StubUsageProvider(providerID: .openCodeZen, result: changedCredential)],
+            initialResults: [sameWorkspaceCache]
+        )
+
+        _ = await credentialService.refresh(configuration: configuration)
+
+        let credentialResult = try XCTUnwrap(credentialService.results.first)
+        XCTAssertEqual(credentialResult.bars, changedCredential.bars)
+        XCTAssertNil(credentialResult.creditsRemaining)
+        XCTAssertFalse(credentialResult.subtitle.contains("last known data"))
+    }
+
+    @MainActor
+    func testOpenCodeCredentialReadFailureDoesNotReuseAnotherWorkspaceCache() async throws {
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        configuration.openCodeWorkspaceId = "wrk_new"
+        let cached = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: "OpenCode Go + Zen",
+            subtitle: "Old workspace data",
+            bars: [UsageBar(label: "Rolling", used: 25, limit: 100)],
+            creditsRemaining: 12.5,
+            cacheIdentity: "old-account-identity",
+            cacheScope: "wrk_old",
+            fetchedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let provider = OpenCodeZenUsageProvider(
+            secretStore: MutableReadSecretStore(result: .failure(.invalidSecretData))
+        )
+        let service = UsageRefreshService(providers: [provider], initialResults: [cached])
+
+        _ = await service.refresh(configuration: configuration)
+
+        let failure = try XCTUnwrap(service.results.first)
+        XCTAssertTrue(failure.bars.isEmpty)
+        XCTAssertNil(failure.creditsRemaining)
+        XCTAssertEqual(failure.cacheScope, "wrk_new")
+        XCTAssertFalse(failure.subtitle.contains("last known data"))
     }
 
     func testUsageRefreshFetchRaceReturnsFastProviderResult() async {
