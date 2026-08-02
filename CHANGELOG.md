@@ -39,6 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - The menu bar popover uses a narrower, content-friendlier frame, tighter card spacing, and a single compact header for refresh, settings, and quit actions.
+- The README provider table now documents OpenCode Go subscription usage alongside the independent ZEN credit balance.
 
 ### Fixed
 
