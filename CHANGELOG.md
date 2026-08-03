@@ -43,6 +43,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- ChatGPT, Claude, GitHub Copilot, and Cursor browser sign-in now stops safely
+  with a retryable error when secure OAuth state or PKCE generation is
+  unavailable.
 - Sparkle update installation now includes upstream hardening against symbolic
   links at delta-patch destination paths.
 - OpenCode last-known usage now stays scoped to the workspace and dashboard

@@ -1,6 +1,4 @@
-import CryptoKit
 import Foundation
-import Security
 
 public struct CodexWebAuthResult: Equatable, Sendable {
     public let accessToken: String
@@ -32,6 +30,7 @@ public final class CodexWebAuthService: Sendable {
         case missingAuthorizationCode
         case stateMismatch
         case callbackTimedOut
+        case secureRandomUnavailable
         case tokenExchangeFailed(String)
         case invalidTokenResponse
 
@@ -47,6 +46,8 @@ public final class CodexWebAuthService: Sendable {
                 "ChatGPT sign-in returned an unexpected state value."
             case .callbackTimedOut:
                 "ChatGPT sign-in did not return to the app. Try again and complete sign-in in the browser."
+            case .secureRandomUnavailable:
+                "ChatGPT sign-in could not start securely. Try again."
             case .tokenExchangeFailed(let message):
                 "ChatGPT token exchange failed: \(message)"
             case .invalidTokenResponse:
@@ -78,21 +79,30 @@ public final class CodexWebAuthService: Sendable {
     private static let originator = "codex_cli_rs"
     private let session: URLSession
     private let callbackTimeoutNanoseconds: UInt64
+    private let randomBytes: OAuthRandomness.Generator
 
     public init(
         session: URLSession = .shared,
-        callbackTimeoutNanoseconds: UInt64 = 180_000_000_000
+        callbackTimeoutNanoseconds: UInt64 = 180_000_000_000,
+        randomBytes: OAuthRandomByteGenerator? = nil
     ) {
         self.session = session
         self.callbackTimeoutNanoseconds = callbackTimeoutNanoseconds
+        self.randomBytes = randomBytes ?? OAuthRandomness.systemGenerator
     }
 
     @MainActor
     public func signIn(
         presentAuthorizationURL: @escaping @MainActor (URL) -> Bool
     ) async throws -> CodexWebAuthResult {
-        let state = Self.randomBase64URL(byteCount: 32)
-        let pkce = Self.makePKCEPair()
+        let state: String
+        let pkce: CodexPKCEPair
+        do {
+            state = try OAuthRandomness.base64URL(byteCount: 32, using: randomBytes)
+            pkce = try Self.makePKCEPair(randomBytes: randomBytes)
+        } catch {
+            throw AuthError.secureRandomUnavailable
+        }
         let callbackServer = try await LoopbackOAuthCallbackServer<AuthError>.start(
             preferredPorts: [1455, 1457],
             expectedState: state,
@@ -184,11 +194,13 @@ public final class CodexWebAuthService: Sendable {
         ])
     }
 
-    public static func makePKCEPair() -> CodexPKCEPair {
-        let verifier = randomBase64URL(byteCount: 64)
-        let digest = SHA256.hash(data: Data(verifier.utf8))
-        let challenge = Data(digest).base64URLEncodedString()
-        return CodexPKCEPair(codeVerifier: verifier, codeChallenge: challenge)
+    public static func makePKCEPair() throws -> CodexPKCEPair {
+        try makePKCEPair(randomBytes: OAuthRandomness.systemGenerator)
+    }
+
+    static func makePKCEPair(randomBytes: OAuthRandomness.Generator) throws -> CodexPKCEPair {
+        let pkce = try OAuthRandomness.pkce(using: randomBytes)
+        return CodexPKCEPair(codeVerifier: pkce.verifier, codeChallenge: pkce.challenge)
     }
 
     public static func accountID(from token: String) -> String? {
@@ -237,24 +249,10 @@ public final class CodexWebAuthService: Sendable {
         )
     }
 
-    private static func randomBase64URL(byteCount: Int) -> String {
-        var bytes = [UInt8](repeating: 0, count: byteCount)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        return Data(bytes).base64URLEncodedString()
-    }
 }
 
 private extension URLComponents {
     func queryItemValue(named name: String) -> String? {
         queryItems?.first { $0.name == name }?.value
-    }
-}
-
-private extension Data {
-    func base64URLEncodedString() -> String {
-        base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
     }
 }

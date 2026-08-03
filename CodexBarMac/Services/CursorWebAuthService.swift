@@ -1,6 +1,4 @@
-import CryptoKit
 import Foundation
-import Security
 #if canImport(AuthenticationServices) && canImport(AppKit)
 import AppKit
 import AuthenticationServices
@@ -40,6 +38,7 @@ public final class CursorWebAuthService: Sendable {
         case missingToken
         case couldNotStartBrowserSession
         case tokenPollingTimedOut
+        case secureRandomUnavailable
         case tokenPollFailed(String)
         case invalidTokenResponse
 
@@ -51,6 +50,8 @@ public final class CursorWebAuthService: Sendable {
                 "Could not open a private Cursor sign-in session."
             case .tokenPollingTimedOut:
                 "Cursor sign-in timed out. Try again and click Yes, Log In in the browser."
+            case .secureRandomUnavailable:
+                "Cursor sign-in could not start securely. Try again."
             case .tokenPollFailed(let message):
                 "Cursor sign-in failed: \(message)"
             case .invalidTokenResponse:
@@ -86,21 +87,29 @@ public final class CursorWebAuthService: Sendable {
     private let session: URLSession
     private let pollIntervalNanoseconds: UInt64
     private let maxPollAttempts: Int
+    private let randomBytes: OAuthRandomness.Generator
 
     public init(
         session: URLSession = .shared,
         pollIntervalNanoseconds: UInt64 = 2_000_000_000,
-        maxPollAttempts: Int = 90
+        maxPollAttempts: Int = 90,
+        randomBytes: OAuthRandomByteGenerator? = nil
     ) {
         self.session = session
         self.pollIntervalNanoseconds = pollIntervalNanoseconds
         self.maxPollAttempts = maxPollAttempts
+        self.randomBytes = randomBytes ?? OAuthRandomness.systemGenerator
     }
 
     @MainActor
     public func signIn(presentAuthorizationURL: @escaping @MainActor (URL) -> Bool) async throws -> CursorWebAuthResult {
         let requestID = UUID().uuidString.lowercased()
-        let pkce = Self.makePKCEPair()
+        let pkce: PKCEPair
+        do {
+            pkce = try Self.makePKCEPair(randomBytes: randomBytes)
+        } catch {
+            throw AuthError.secureRandomUnavailable
+        }
         guard presentAuthorizationURL(Self.authorizationURL(uuid: requestID, codeChallenge: pkce.codeChallenge)) else {
             throw AuthError.couldNotStartBrowserSession
         }
@@ -132,12 +141,15 @@ public final class CursorWebAuthService: Sendable {
         return request
     }
 
-    public static func makePKCEPair() -> PKCEPair {
-        let verifier = randomBase64URL(byteCount: 64)
-        let digest = SHA256.hash(data: Data(verifier.utf8))
+    public static func makePKCEPair() throws -> PKCEPair {
+        try makePKCEPair(randomBytes: OAuthRandomness.systemGenerator)
+    }
+
+    static func makePKCEPair(randomBytes: OAuthRandomness.Generator) throws -> PKCEPair {
+        let pkce = try OAuthRandomness.pkce(using: randomBytes)
         return PKCEPair(
-            codeVerifier: verifier,
-            codeChallenge: Data(digest).base64URLEncodedString()
+            codeVerifier: pkce.verifier,
+            codeChallenge: pkce.challenge
         )
     }
 
@@ -195,11 +207,6 @@ public final class CursorWebAuthService: Sendable {
         )
     }
 
-    private static func randomBase64URL(byteCount: Int) -> String {
-        var bytes = [UInt8](repeating: 0, count: byteCount)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        return Data(bytes).base64URLEncodedString()
-    }
 }
 
 #if canImport(AuthenticationServices) && canImport(AppKit)
@@ -290,14 +297,5 @@ struct CursorWebAuthenticationSessionGeneration {
         }
         activeSessionID = nil
         return true
-    }
-}
-
-private extension Data {
-    func base64URLEncodedString() -> String {
-        base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
     }
 }

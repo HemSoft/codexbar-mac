@@ -1,5 +1,50 @@
+import CryptoKit
 import Foundation
 import Network
+import Security
+
+public typealias OAuthRandomByteGenerator = @Sendable (Int) throws -> Data
+
+enum OAuthRandomness {
+    typealias Generator = OAuthRandomByteGenerator
+
+    static let systemGenerator: Generator = { byteCount in
+        try systemBytes(byteCount: byteCount)
+    }
+
+    enum RandomError: Error {
+        case unavailable
+    }
+
+    static func systemBytes(byteCount: Int) throws -> Data {
+        var bytes = [UInt8](repeating: 0, count: byteCount)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            throw RandomError.unavailable
+        }
+        return Data(bytes)
+    }
+
+    static func base64URL(byteCount: Int, using generator: Generator) throws -> String {
+        let bytes = try generator(byteCount)
+        guard bytes.count == byteCount else {
+            throw RandomError.unavailable
+        }
+        return base64URL(bytes)
+    }
+
+    static func pkce(using generator: Generator) throws -> (verifier: String, challenge: String) {
+        let verifier = try base64URL(byteCount: 64, using: generator)
+        let digest = SHA256.hash(data: Data(verifier.utf8))
+        return (verifier, base64URL(Data(digest)))
+    }
+
+    private static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
 
 enum OAuthFormEncoder {
     private static let allowedCharacters: CharacterSet = {
