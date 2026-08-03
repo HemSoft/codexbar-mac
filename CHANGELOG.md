@@ -43,6 +43,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Sparkle update installation now includes upstream hardening against symbolic
+  links at delta-patch destination paths.
 - OpenCode last-known usage now stays scoped to the workspace and dashboard
   credential that produced it instead of carrying bars or balances across account changes.
 - ChatGPT browser sign-in now rejects duplicate or unverifiable identities across
