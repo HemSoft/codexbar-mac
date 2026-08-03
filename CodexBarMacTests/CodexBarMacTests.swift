@@ -1,9 +1,14 @@
 import XCTest
+import CryptoKit
 import Darwin
 import Security
 @testable import CodexBarMac
 
 final class CodexBarMacTests: XCTestCase {
+    private enum RandomGeneratorTestError: Error {
+        case failed
+    }
+
     func testStatusBarRightClickRoutingConsumesOnlyClicksInsideMatchingButtonWindow() {
         XCTAssertEqual(
             StatusBarRightClickRoute.resolve(
@@ -882,6 +887,132 @@ final class CodexBarMacTests: XCTestCase {
             body,
             "grant_type=authorization_code&code=code%20value&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&client_id=app_EMoamEEZ73f0CkXaXp7hrann&code_verifier=verifier%20value"
         )
+    }
+
+    func testInjectedRandomBytesPreserveBase64URLAndPKCEBehavior() throws {
+        let bytes = Data(repeating: 0xFB, count: 64)
+        let expectedVerifier = bytes.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let digest = SHA256.hash(data: Data(expectedVerifier.utf8))
+        let expectedChallenge = Data(digest).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let generator: OAuthRandomness.Generator = { byteCount in
+            Data(repeating: 0xFB, count: byteCount)
+        }
+
+        let codex = try CodexWebAuthService.makePKCEPair(randomBytes: generator)
+        let claude = try ClaudeWebAuthService.makePKCEPair(randomBytes: generator)
+        let copilot = try CopilotWebAuthService.makePKCEPair(randomBytes: generator)
+        let cursor = try CursorWebAuthService.makePKCEPair(randomBytes: generator)
+
+        XCTAssertEqual(codex.codeVerifier, expectedVerifier)
+        XCTAssertEqual(codex.codeChallenge, expectedChallenge)
+        XCTAssertEqual(claude.codeVerifier, expectedVerifier)
+        XCTAssertEqual(claude.codeChallenge, expectedChallenge)
+        XCTAssertEqual(copilot.codeVerifier, expectedVerifier)
+        XCTAssertEqual(copilot.codeChallenge, expectedChallenge)
+        XCTAssertEqual(cursor.codeVerifier, expectedVerifier)
+        XCTAssertEqual(cursor.codeChallenge, expectedChallenge)
+    }
+
+    @MainActor
+    func testCodexSignInStopsBeforeBrowserWhenStateRandomnessFails() async {
+        let service = CodexWebAuthService(randomBytes: { _ in
+            throw RandomGeneratorTestError.failed
+        })
+        var didPresentBrowser = false
+
+        do {
+            _ = try await service.signIn { _ in
+                didPresentBrowser = true
+                return true
+            }
+            XCTFail("Expected ChatGPT sign-in to fail closed.")
+        } catch {
+            XCTAssertEqual(error as? CodexWebAuthService.AuthError, .secureRandomUnavailable)
+            XCTAssertEqual(error.localizedDescription, "ChatGPT sign-in could not start securely. Try again.")
+        }
+        XCTAssertFalse(didPresentBrowser)
+    }
+
+    @MainActor
+    func testClaudeSignInStopsBeforeBrowserWhenPKCERandomnessFails() async {
+        let service = ClaudeWebAuthService(randomBytes: { byteCount in
+            guard byteCount == 32 else {
+                throw RandomGeneratorTestError.failed
+            }
+            return Data(repeating: 0xAB, count: byteCount)
+        })
+        var didPresentBrowser = false
+
+        do {
+            _ = try await service.signIn { _ in
+                didPresentBrowser = true
+                return true
+            }
+            XCTFail("Expected Claude sign-in to fail closed.")
+        } catch {
+            XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .secureRandomUnavailable)
+            XCTAssertEqual(error.localizedDescription, "Claude sign-in could not start securely. Try again.")
+        }
+        XCTAssertFalse(didPresentBrowser)
+    }
+
+    @MainActor
+    func testCopilotSignInStopsBeforeBrowserWhenStateRandomnessFails() async {
+        let service = CopilotWebAuthService(randomBytes: { _ in
+            throw RandomGeneratorTestError.failed
+        })
+        let configuration = CopilotOAuthConfiguration(clientID: "client-id", clientSecret: "client-secret")
+        var didPresentBrowser = false
+
+        do {
+            _ = try await service.signIn(configuration: configuration) { _ in
+                didPresentBrowser = true
+                return true
+            }
+            XCTFail("Expected GitHub sign-in to fail closed.")
+        } catch {
+            XCTAssertEqual(error as? CopilotWebAuthService.AuthError, .secureRandomUnavailable)
+            XCTAssertEqual(error.localizedDescription, "GitHub sign-in could not start securely. Try again.")
+        }
+        XCTAssertFalse(didPresentBrowser)
+    }
+
+    @MainActor
+    func testCursorSignInStopsBeforeBrowserAndPollingWhenPKCERandomnessFails() async {
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        MockURLProtocol.handler = { _ in
+            XCTFail("Token polling must not start without a secure PKCE verifier.")
+            throw URLError(.badServerResponse)
+        }
+        defer { MockURLProtocol.handler = nil }
+        let service = CursorWebAuthService(
+            session: session,
+            pollIntervalNanoseconds: 1,
+            maxPollAttempts: 1,
+            randomBytes: { _ in throw RandomGeneratorTestError.failed }
+        )
+        var didPresentBrowser = false
+
+        do {
+            _ = try await service.signIn { _ in
+                didPresentBrowser = true
+                return true
+            }
+            XCTFail("Expected Cursor sign-in to fail closed.")
+        } catch {
+            XCTAssertEqual(error as? CursorWebAuthService.AuthError, .secureRandomUnavailable)
+            XCTAssertEqual(error.localizedDescription, "Cursor sign-in could not start securely. Try again.")
+        }
+        XCTAssertFalse(didPresentBrowser)
     }
 
     func testCodexWebAuthReadsNamespacedAccountID() {

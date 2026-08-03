@@ -1,6 +1,4 @@
-import CryptoKit
 import Foundation
-import Security
 
 public struct ClaudeWebAuthResult: Equatable, Sendable {
     public let credentials: ClaudeCredentials
@@ -17,6 +15,7 @@ public final class ClaudeWebAuthService: Sendable {
         case missingAuthorizationCode
         case stateMismatch
         case callbackTimedOut
+        case secureRandomUnavailable
         case tokenExchangeFailed(String)
         case invalidTokenResponse
 
@@ -32,6 +31,8 @@ public final class ClaudeWebAuthService: Sendable {
                 "Claude sign-in returned an unexpected state value."
             case .callbackTimedOut:
                 "Claude sign-in did not return to the app. Try again, and complete sign-in in the browser."
+            case .secureRandomUnavailable:
+                "Claude sign-in could not start securely. Try again."
             case .tokenExchangeFailed(let message):
                 "Claude token exchange failed: \(message)"
             case .invalidTokenResponse:
@@ -72,13 +73,16 @@ public final class ClaudeWebAuthService: Sendable {
     private static let requestedScope = "org:create_api_key user:profile user:inference user:sessions:claude_code"
     private let session: URLSession
     private let callbackTimeoutNanoseconds: UInt64
+    private let randomBytes: OAuthRandomness.Generator
 
     public init(
         session: URLSession = .shared,
-        callbackTimeoutNanoseconds: UInt64 = 180_000_000_000
+        callbackTimeoutNanoseconds: UInt64 = 180_000_000_000,
+        randomBytes: OAuthRandomByteGenerator? = nil
     ) {
         self.session = session
         self.callbackTimeoutNanoseconds = callbackTimeoutNanoseconds
+        self.randomBytes = randomBytes ?? OAuthRandomness.systemGenerator
     }
 
     @MainActor
@@ -87,8 +91,14 @@ public final class ClaudeWebAuthService: Sendable {
         reportStage: @escaping @MainActor (String) -> Void = { _ in }
     ) async throws -> ClaudeWebAuthResult {
         reportStage("Starting Claude sign-in...")
-        let state = Self.randomBase64URL(byteCount: 32)
-        let pkce = Self.makePKCEPair()
+        let state: String
+        let pkce: PKCEPair
+        do {
+            state = try OAuthRandomness.base64URL(byteCount: 32, using: randomBytes)
+            pkce = try Self.makePKCEPair(randomBytes: randomBytes)
+        } catch {
+            throw AuthError.secureRandomUnavailable
+        }
         reportStage("Starting local callback server...")
         let callbackServer = try await LoopbackOAuthCallbackServer<AuthError>.start(
             preferredPorts: [1461, 1462, 1463],
@@ -169,11 +179,13 @@ public final class ClaudeWebAuthService: Sendable {
         return (try? JSONEncoder().encode(body)) ?? Data()
     }
 
-    public static func makePKCEPair() -> PKCEPair {
-        let verifier = randomBase64URL(byteCount: 64)
-        let digest = SHA256.hash(data: Data(verifier.utf8))
-        let challenge = base64URLEncodedString(Data(digest))
-        return PKCEPair(codeVerifier: verifier, codeChallenge: challenge)
+    public static func makePKCEPair() throws -> PKCEPair {
+        try makePKCEPair(randomBytes: OAuthRandomness.systemGenerator)
+    }
+
+    static func makePKCEPair(randomBytes: OAuthRandomness.Generator) throws -> PKCEPair {
+        let pkce = try OAuthRandomness.pkce(using: randomBytes)
+        return PKCEPair(codeVerifier: pkce.verifier, codeChallenge: pkce.challenge)
     }
 
     private func exchangeCallbackForTokens(
@@ -248,18 +260,6 @@ public final class ClaudeWebAuthService: Sendable {
         ))
     }
 
-    private static func randomBase64URL(byteCount: Int) -> String {
-        var bytes = [UInt8](repeating: 0, count: byteCount)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        return base64URLEncodedString(Data(bytes))
-    }
-
-    private static func base64URLEncodedString(_ data: Data) -> String {
-        data.base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
 }
 
 private extension URLComponents {
