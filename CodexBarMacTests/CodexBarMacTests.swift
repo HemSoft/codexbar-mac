@@ -5,6 +5,8 @@ import Security
 @testable import CodexBarMac
 
 final class CodexBarMacTests: XCTestCase {
+    deinit {}
+
     private enum RandomGeneratorTestError: Error {
         case failed
     }
