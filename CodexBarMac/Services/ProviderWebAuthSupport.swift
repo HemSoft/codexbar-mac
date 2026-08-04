@@ -277,12 +277,6 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
 
     func cancel() {
         finishCallback(.failure(missingCodeError))
-        listener.cancel()
-        lock.lock()
-        let connections = Array(activeConnections.values)
-        activeConnections.removeAll()
-        lock.unlock()
-        connections.forEach { $0.cancel() }
     }
 
     private func startListening() async throws {
@@ -324,14 +318,18 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
             return
         }
         callbackFinished = true
-        if let continuation = callbackContinuation {
-            callbackContinuation = nil
-            lock.unlock()
-            continuation.resume(with: result)
-        } else {
+        let continuation = callbackContinuation
+        callbackContinuation = nil
+        if continuation == nil {
             pendingCallbackResult = result
-            lock.unlock()
         }
+        let connections = Array(activeConnections.values)
+        activeConnections.removeAll()
+        lock.unlock()
+
+        listener.cancel()
+        connections.forEach { $0.cancel() }
+        continuation?.resume(with: result)
     }
 
     private func handle(_ connection: NWConnection) {
