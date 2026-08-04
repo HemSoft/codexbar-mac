@@ -113,6 +113,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Developer Experience
 
+- Debug app and test builds now fail on first-party Swift compiler warnings,
+  keeping the CI build warning-free without applying the policy to Sparkle.
 - The status-item right-click event bridge now makes its synchronous main-actor
   isolation explicit and has focused event-routing coverage.
 - CI now pins `actions/checkout` v7.0.1 to its reviewed full commit SHA while retaining credential hardening.

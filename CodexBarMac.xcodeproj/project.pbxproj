@@ -659,6 +659,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SPARKLE_PUBLIC_ED_KEY = "pfIShU4dEXqPd5ObYNfDBiQWcXozk7estwzTnF9BamQ=";
 				SWIFT_VERSION = 6.0;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
 			};
 			name = Debug;
 		};
@@ -699,6 +700,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hemsoft.CodexBarMacTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
 				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CodexBarMac.app/Contents/MacOS/CodexBarMac";
 			};

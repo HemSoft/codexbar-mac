@@ -243,11 +243,6 @@ public final class ClaudeUsageProvider: UsageProvider {
                     result: failureResult("Could not securely save the renewed Claude credential. Sign in again.", configuration: configuration),
                     shouldTryFallbackCredential: true
                 )
-            case .unchanged:
-                return OAuthUsageOutcome(
-                    result: failureResult("Claude credential was rejected. Sign in again.", configuration: configuration),
-                    shouldTryFallbackCredential: true
-                )
             }
         case 401:
             return OAuthUsageOutcome(

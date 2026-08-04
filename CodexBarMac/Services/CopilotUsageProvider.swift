@@ -693,7 +693,7 @@ private final class CopilotCLITokenCache: @unchecked Sendable {
     }
 
     func invalidate(username: String) {
-        lock.withLock {
+        _ = lock.withLock {
             tokens.removeValue(forKey: username.lowercased())
         }
     }
