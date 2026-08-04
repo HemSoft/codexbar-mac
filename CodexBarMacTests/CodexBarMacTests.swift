@@ -1041,7 +1041,7 @@ final class CodexBarMacTests: XCTestCase {
                 try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
             }
 
-            let response = try await sendRawHTTPRequest(
+            let response = try await Self.sendRawHTTPRequest(
                 port: port,
                 chunks: [Data(request[..<splitOffset]), Data(request[splitOffset...])]
             )
@@ -1068,13 +1068,13 @@ final class CodexBarMacTests: XCTestCase {
             try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
         }
 
-        let response = try await sendRawHTTPRequest(
+        let response = try await Self.sendRawHTTPRequest(
             port: port,
             chunks: [Data(("GET /callback?" + String(repeating: "x", count: 128)).utf8)]
         )
 
         XCTAssertTrue(response.hasPrefix("HTTP/1.1 413 Payload Too Large"))
-        let validResponse = try await sendRawHTTPRequest(
+        let validResponse = try await Self.sendRawHTTPRequest(
             port: port,
             chunks: [validLoopbackCallbackRequest(code: "a")]
         )
@@ -1092,14 +1092,14 @@ final class CodexBarMacTests: XCTestCase {
             try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
         }
 
-        let response = try await sendRawHTTPRequest(
+        let response = try await Self.sendRawHTTPRequest(
             port: port,
             chunks: [Data("GET /callback?code=authorization-code".utf8)],
             finishWriting: true
         )
 
         XCTAssertTrue(response.hasPrefix("HTTP/1.1 400 Bad Request"))
-        let validResponse = try await sendRawHTTPRequest(
+        let validResponse = try await Self.sendRawHTTPRequest(
             port: port,
             chunks: [validLoopbackCallbackRequest()]
         )
@@ -1124,14 +1124,14 @@ final class CodexBarMacTests: XCTestCase {
         ]
 
         for request in invalidRequests {
-            let response = try await sendRawHTTPRequest(
+            let response = try await Self.sendRawHTTPRequest(
                 port: port,
                 chunks: [Data(request.utf8)]
             )
             XCTAssertTrue(response.hasPrefix("HTTP/1.1 400 Bad Request"))
         }
 
-        let validResponse = try await sendRawHTTPRequest(
+        let validResponse = try await Self.sendRawHTTPRequest(
             port: port,
             chunks: [validLoopbackCallbackRequest()]
         )
@@ -1154,7 +1154,7 @@ final class CodexBarMacTests: XCTestCase {
         }
 
         for _ in 0..<3 {
-            let response = try await sendRawHTTPRequest(
+            let response = try await Self.sendRawHTTPRequest(
                 port: port,
                 chunks: [Data("GET /callback?code=authorization-code&state=wrong-state HTTP/1.1\r\n\r\n".utf8)]
             )
@@ -1178,22 +1178,28 @@ final class CodexBarMacTests: XCTestCase {
         }
 
         for _ in 0..<2 {
-            let response = try await sendRawHTTPRequest(
+            let response = try await Self.sendRawHTTPRequest(
                 port: port,
                 chunks: [Data("GET /wrong-path HTTP/1.1\r\n\r\n".utf8)]
             )
             XCTAssertTrue(response.hasPrefix("HTTP/1.1 400 Bad Request"))
         }
 
-        callbackTask.cancel()
+        async let heldConnectionResponse = Self.sendRawHTTPRequest(
+            port: port,
+            chunks: [Data("GET /callback?code=incomplete".utf8)]
+        )
+        try await Task.sleep(nanoseconds: 50_000_000)
+        server.cancel()
+
         do {
             _ = try await callbackTask.value
             XCTFail("Expected cancellation to finish the pending callback task.")
-        } catch is CancellationError {
-            // Expected.
         } catch {
-            XCTFail("Expected CancellationError, got \(error).")
+            XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .missingAuthorizationCode)
         }
+        let closedConnectionResponse = try await heldConnectionResponse
+        XCTAssertTrue(closedConnectionResponse.isEmpty)
     }
 
     @MainActor
@@ -11765,7 +11771,7 @@ final class CodexBarMacTests: XCTestCase {
         Data("GET /callback?code=\(code)&state=expected-state HTTP/1.1\r\n\r\n".utf8)
     }
 
-    private func sendRawHTTPRequest(
+    private static func sendRawHTTPRequest(
         port: UInt16,
         chunks: [Data],
         finishWriting: Bool = false
