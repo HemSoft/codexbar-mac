@@ -1041,7 +1041,7 @@ final class CodexBarMacTests: XCTestCase {
                 try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
             }
 
-            let response = try await sendRawHTTPRequest(
+            let response = try await Self.sendRawHTTPRequest(
                 port: port,
                 chunks: [Data(request[..<splitOffset]), Data(request[splitOffset...])]
             )
@@ -1068,18 +1068,20 @@ final class CodexBarMacTests: XCTestCase {
             try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
         }
 
-        let response = try await sendRawHTTPRequest(
+        let response = try await Self.sendRawHTTPRequest(
             port: port,
             chunks: [Data(("GET /callback?" + String(repeating: "x", count: 128)).utf8)]
         )
 
         XCTAssertTrue(response.hasPrefix("HTTP/1.1 413 Payload Too Large"))
-        do {
-            _ = try await callbackTask.value
-            XCTFail("Expected an oversized callback request to fail.")
-        } catch {
-            XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .missingAuthorizationCode)
-        }
+        let validResponse = try await Self.sendRawHTTPRequest(
+            port: port,
+            chunks: [validLoopbackCallbackRequest(code: "a")]
+        )
+        let callbackURL = try await callbackTask.value
+
+        XCTAssertTrue(validResponse.hasPrefix("HTTP/1.1 200 OK"))
+        XCTAssertEqual(callbackURL.path, "/callback")
     }
 
     func testLoopbackOAuthCallbackServerRejectsPrematurelyClosedRequest() async throws {
@@ -1090,16 +1092,133 @@ final class CodexBarMacTests: XCTestCase {
             try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
         }
 
-        let response = try await sendRawHTTPRequest(
+        let response = try await Self.sendRawHTTPRequest(
             port: port,
             chunks: [Data("GET /callback?code=authorization-code".utf8)],
             finishWriting: true
         )
 
         XCTAssertTrue(response.hasPrefix("HTTP/1.1 400 Bad Request"))
+        let validResponse = try await Self.sendRawHTTPRequest(
+            port: port,
+            chunks: [validLoopbackCallbackRequest()]
+        )
+        let callbackURL = try await callbackTask.value
+
+        XCTAssertTrue(validResponse.hasPrefix("HTTP/1.1 200 OK"))
+        XCTAssertEqual(callbackURL.path, "/callback")
+    }
+
+    func testLoopbackOAuthCallbackServerIgnoresInvalidRequestsUntilValidCallback() async throws {
+        let port: UInt16 = 36_192
+        let server = try await makeLoopbackCallbackServer(preferredPorts: [port])
+        defer { server.cancel() }
+        let callbackTask = Task {
+            try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
+        }
+        let invalidRequests = [
+            "POST /callback?code=authorization-code&state=expected-state HTTP/1.1\r\n\r\n",
+            "GET /callback/stale?code=authorization-code&state=expected-state HTTP/1.1\r\n\r\n",
+            "GET /callback?code=authorization-code&state=wrong-state HTTP/1.1\r\n\r\n",
+            "GET /callback?state=expected-state HTTP/1.1\r\n\r\n",
+        ]
+
+        for request in invalidRequests {
+            let response = try await Self.sendRawHTTPRequest(
+                port: port,
+                chunks: [Data(request.utf8)]
+            )
+            XCTAssertTrue(response.hasPrefix("HTTP/1.1 400 Bad Request"))
+        }
+
+        let validResponse = try await Self.sendRawHTTPRequest(
+            port: port,
+            chunks: [validLoopbackCallbackRequest()]
+        )
+        let callbackURL = try await callbackTask.value
+
+        XCTAssertTrue(validResponse.hasPrefix("HTTP/1.1 200 OK"))
+        XCTAssertEqual(
+            URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?
+                .queryItemValue(named: "code"),
+            "authorization-code"
+        )
+    }
+
+    func testLoopbackOAuthCallbackServerInvalidTrafficDoesNotPreventTimeout() async throws {
+        let port: UInt16 = 36_193
+        let server = try await makeLoopbackCallbackServer(preferredPorts: [port])
+        defer { server.cancel() }
+
+        for _ in 0..<3 {
+            let response = try await Self.sendRawHTTPRequest(
+                port: port,
+                chunks: [Data("GET /callback?code=authorization-code&state=wrong-state HTTP/1.1\r\n\r\n".utf8)]
+            )
+            XCTAssertTrue(response.hasPrefix("HTTP/1.1 400 Bad Request"))
+        }
+
+        let callbackTask = Task {
+            try await server.waitForCallback(timeoutNanoseconds: 500_000_000)
+        }
         do {
             _ = try await callbackTask.value
-            XCTFail("Expected a prematurely closed callback request to fail.")
+            XCTFail("Expected invalid callback traffic to leave the configured timeout in effect.")
+        } catch {
+            XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .callbackTimedOut)
+        }
+    }
+
+    func testLoopbackOAuthCallbackServerInvalidTrafficDoesNotPreventCancellation() async throws {
+        let port: UInt16 = 36_194
+        let server = try await makeLoopbackCallbackServer(preferredPorts: [port])
+        defer { server.cancel() }
+        let callbackTask = Task {
+            try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
+        }
+
+        for _ in 0..<2 {
+            let response = try await Self.sendRawHTTPRequest(
+                port: port,
+                chunks: [Data("GET /wrong-path HTTP/1.1\r\n\r\n".utf8)]
+            )
+            XCTAssertTrue(response.hasPrefix("HTTP/1.1 400 Bad Request"))
+        }
+
+        async let heldConnectionResponse = Self.sendRawHTTPRequest(
+            port: port,
+            chunks: [Data("GET /callback?code=incomplete".utf8)]
+        )
+        try await Task.sleep(nanoseconds: 50_000_000)
+        server.cancel()
+
+        do {
+            _ = try await callbackTask.value
+            XCTFail("Expected cancellation to finish the pending callback task.")
+        } catch {
+            XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .missingAuthorizationCode)
+        }
+        let closedConnectionResponse = try await heldConnectionResponse
+        XCTAssertTrue(closedConnectionResponse.isEmpty)
+    }
+
+    func testLoopbackOAuthCallbackServerCompletesFailureForProviderDenial() async throws {
+        let port: UInt16 = 36_195
+        let server = try await makeLoopbackCallbackServer(preferredPorts: [port])
+        defer { server.cancel() }
+        let callbackTask = Task {
+            try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
+        }
+
+        let response = try await Self.sendRawHTTPRequest(
+            port: port,
+            chunks: [Data("GET /callback?error=access_denied&state=expected-state HTTP/1.1\r\n\r\n".utf8)]
+        )
+
+        XCTAssertTrue(response.hasPrefix("HTTP/1.1 400 Bad Request"))
+        do {
+            _ = try await callbackTask.value
+            XCTFail("Expected a provider denial to finish the pending callback with an error.")
         } catch {
             XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .missingAuthorizationCode)
         }
@@ -11670,7 +11789,11 @@ final class CodexBarMacTests: XCTestCase {
         )
     }
 
-    private func sendRawHTTPRequest(
+    private func validLoopbackCallbackRequest(code: String = "authorization-code") -> Data {
+        Data("GET /callback?code=\(code)&state=expected-state HTTP/1.1\r\n\r\n".utf8)
+    }
+
+    private static func sendRawHTTPRequest(
         port: UInt16,
         chunks: [Data],
         finishWriting: Bool = false
