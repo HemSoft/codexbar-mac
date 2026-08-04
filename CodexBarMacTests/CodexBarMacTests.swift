@@ -12099,7 +12099,7 @@ private final class TransactionalReplacementSecretStore: SecretStore, @unchecked
     }
 
     func markUnreadable(account: String) {
-        lock.withLock {
+        _ = lock.withLock {
             unreadableAccounts.insert(account)
         }
     }
