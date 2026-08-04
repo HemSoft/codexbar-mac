@@ -163,6 +163,7 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
     private var callbackContinuation: CheckedContinuation<URL, Error>?
     private var pendingCallbackResult: Result<URL, Error>?
     private var callbackFinished = false
+    private var activeConnections: [ObjectIdentifier: NWConnection] = [:]
 
     private init(
         port: UInt16,
@@ -275,7 +276,13 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
     }
 
     func cancel() {
+        finishCallback(.failure(missingCodeError))
         listener.cancel()
+        lock.lock()
+        let connections = Array(activeConnections.values)
+        activeConnections.removeAll()
+        lock.unlock()
+        connections.forEach { $0.cancel() }
     }
 
     private func startListening() async throws {
@@ -328,6 +335,14 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
     }
 
     private func handle(_ connection: NWConnection) {
+        lock.lock()
+        guard !callbackFinished else {
+            lock.unlock()
+            connection.cancel()
+            return
+        }
+        activeConnections[ObjectIdentifier(connection)] = connection
+        lock.unlock()
         connection.start(queue: queue)
         receiveRequest(from: connection, accumulatedData: Data())
     }
@@ -385,10 +400,19 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
         failureStatusLine: String = "HTTP/1.1 400 Bad Request"
     ) {
         let response = httpResponse(for: result, failureStatusLine: failureStatusLine)
-        connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
-            connection.cancel()
+        connection.send(content: Data(response.utf8), completion: .contentProcessed { [weak self] _ in
+            self?.finishConnection(connection)
+            if case .success = result {
+                self?.finishCallback(result)
+            }
         })
-        finishCallback(result)
+    }
+
+    private func finishConnection(_ connection: NWConnection) {
+        lock.lock()
+        activeConnections.removeValue(forKey: ObjectIdentifier(connection))
+        lock.unlock()
+        connection.cancel()
     }
 
     private func parseCallbackURL(from request: String) -> Result<URL, Error> {
@@ -401,15 +425,13 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
             return .failure(missingCodeError)
         }
 
-        let path = String(requestLine[requestLine.index(after: pathStart)..<pathEnd])
-        guard path.hasPrefix(callbackPath) else {
-            return .failure(missingCodeError)
-        }
-        guard let url = URL(string: "http://localhost:\(port)\(path)") else {
+        let requestTarget = String(requestLine[requestLine.index(after: pathStart)..<pathEnd])
+        guard let url = URL(string: "http://localhost:\(port)\(requestTarget)") else {
             return .failure(missingCodeError)
         }
         guard
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            components.path == callbackPath,
             components.queryItems?.first(where: { $0.name == "state" })?.value == expectedState
         else {
             return .failure(stateMismatchError)
