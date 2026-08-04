@@ -1149,9 +1149,6 @@ final class CodexBarMacTests: XCTestCase {
         let port: UInt16 = 36_193
         let server = try await makeLoopbackCallbackServer(preferredPorts: [port])
         defer { server.cancel() }
-        let callbackTask = Task {
-            try await server.waitForCallback(timeoutNanoseconds: 500_000_000)
-        }
 
         for _ in 0..<3 {
             let response = try await Self.sendRawHTTPRequest(
@@ -1161,6 +1158,9 @@ final class CodexBarMacTests: XCTestCase {
             XCTAssertTrue(response.hasPrefix("HTTP/1.1 400 Bad Request"))
         }
 
+        let callbackTask = Task {
+            try await server.waitForCallback(timeoutNanoseconds: 500_000_000)
+        }
         do {
             _ = try await callbackTask.value
             XCTFail("Expected invalid callback traffic to leave the configured timeout in effect.")
