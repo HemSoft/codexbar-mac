@@ -1202,6 +1202,28 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertTrue(closedConnectionResponse.isEmpty)
     }
 
+    func testLoopbackOAuthCallbackServerCompletesFailureForProviderDenial() async throws {
+        let port: UInt16 = 36_195
+        let server = try await makeLoopbackCallbackServer(preferredPorts: [port])
+        defer { server.cancel() }
+        let callbackTask = Task {
+            try await server.waitForCallback(timeoutNanoseconds: 2_000_000_000)
+        }
+
+        let response = try await Self.sendRawHTTPRequest(
+            port: port,
+            chunks: [Data("GET /callback?error=access_denied&state=expected-state HTTP/1.1\r\n\r\n".utf8)]
+        )
+
+        XCTAssertTrue(response.hasPrefix("HTTP/1.1 400 Bad Request"))
+        do {
+            _ = try await callbackTask.value
+            XCTFail("Expected a provider denial to finish the pending callback with an error.")
+        } catch {
+            XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .missingAuthorizationCode)
+        }
+    }
+
     @MainActor
     func testCodexBrowserSignInUsesLocalhostRedirectAndTimesOut() async throws {
         let service = CodexWebAuthService(callbackTimeoutNanoseconds: 10_000_000)

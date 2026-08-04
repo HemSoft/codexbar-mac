@@ -370,7 +370,12 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
             if let headerRange = requestData.range(of: Data("\r\n\r\n".utf8)) {
                 let headerData = requestData[..<headerRange.upperBound]
                 let request = String(data: headerData, encoding: .utf8) ?? ""
-                completeRequest(on: connection, result: parseCallbackURL(from: request))
+                let callback = parseCallbackURL(from: request)
+                completeRequest(
+                    on: connection,
+                    result: callback.result,
+                    finishesCallback: callback.finishesCallback
+                )
                 return
             }
 
@@ -395,12 +400,13 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
     private func completeRequest(
         on connection: NWConnection,
         result: Result<URL, Error>,
+        finishesCallback: Bool = false,
         failureStatusLine: String = "HTTP/1.1 400 Bad Request"
     ) {
         let response = httpResponse(for: result, failureStatusLine: failureStatusLine)
         connection.send(content: Data(response.utf8), completion: .contentProcessed { [weak self] _ in
             self?.finishConnection(connection)
-            if case .success = result {
+            if finishesCallback {
                 self?.finishCallback(result)
             }
         })
@@ -413,31 +419,38 @@ final class LoopbackOAuthCallbackServer<AuthError: LocalizedError & Sendable>: @
         connection.cancel()
     }
 
-    private func parseCallbackURL(from request: String) -> Result<URL, Error> {
+    private func parseCallbackURL(
+        from request: String
+    ) -> (result: Result<URL, Error>, finishesCallback: Bool) {
         guard
             let requestLine = request.components(separatedBy: "\r\n").first,
             requestLine.hasPrefix("GET "),
             let pathStart = requestLine.firstIndex(of: " "),
             let pathEnd = requestLine[requestLine.index(after: pathStart)...].firstIndex(of: " ")
         else {
-            return .failure(missingCodeError)
+            return (.failure(missingCodeError), false)
         }
 
         let requestTarget = String(requestLine[requestLine.index(after: pathStart)..<pathEnd])
         guard let url = URL(string: "http://localhost:\(port)\(requestTarget)") else {
-            return .failure(missingCodeError)
+            return (.failure(missingCodeError), false)
+        }
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return (.failure(missingCodeError), false)
+        }
+        guard components.path == callbackPath else {
+            return (.failure(missingCodeError), false)
         }
         guard
-            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-            components.path == callbackPath,
             components.queryItems?.first(where: { $0.name == "state" })?.value == expectedState
         else {
-            return .failure(stateMismatchError)
+            return (.failure(stateMismatchError), false)
         }
-        guard components.queryItems?.first(where: { $0.name == "code" })?.value?.isEmpty == false else {
-            return .failure(missingCodeError)
+        if components.queryItems?.first(where: { $0.name == "code" })?.value?.isEmpty == false {
+            return (.success(url), true)
         }
-        return .success(url)
+        let providerError = components.queryItems?.first(where: { $0.name == "error" })?.value
+        return (.failure(missingCodeError), providerError?.isEmpty == false)
     }
 
     private func httpResponse(
