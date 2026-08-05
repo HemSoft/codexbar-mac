@@ -12075,12 +12075,12 @@ final class CodexBarMacTests: XCTestCase {
 
     private static let syntheticOAuthCode = "redacted-authorization-code"
 
-    private static func deterministicOAuthRandomBytes(_ byteCount: Int) throws -> Data {
+    private static func deterministicOAuthRandomBytes(_ byteCount: Int) -> Data {
         Data((0..<byteCount).map { UInt8($0 % 251) })
     }
 
     private static func deterministicOAuthValue(byteCount: Int) -> String {
-        Data((0..<byteCount).map { UInt8($0 % 251) })
+        deterministicOAuthRandomBytes(byteCount)
             .base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
@@ -12090,9 +12090,12 @@ final class CodexBarMacTests: XCTestCase {
     private static func formValues(from data: Data?) throws -> [String: String] {
         let body = try XCTUnwrap(data.flatMap { String(data: $0, encoding: .utf8) })
         let components = try XCTUnwrap(URLComponents(string: "?\(body)"))
-        return Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+        let pairs = (components.queryItems ?? []).compactMap { item in
             item.value.map { (item.name, $0) }
-        })
+        }
+        let values = Dictionary(pairs) { first, _ in first }
+        XCTAssertEqual(values.count, pairs.count, "Form body contains duplicate keys.")
+        return values
     }
 
     private static func oauthCallbackTask(
@@ -12132,11 +12135,14 @@ final class CodexBarMacTests: XCTestCase {
     }
 
     @MainActor
-    private func performCodexTokenExchange(
+    private func performTokenExchange<ExchangeResult>(
+        expectedEndpoint: URL,
         statusCode: Int = 200,
         responseBody: Data,
-        inspectRequest: @escaping (URLRequest, URL) throws -> Void = { _, _ in }
-    ) async throws -> CodexWebAuthResult {
+        inspectRequest: @escaping (URLRequest, URL) throws -> Void,
+        missingCallbackMessage: String,
+        signIn: (URLSession, @escaping @MainActor (URL) -> Bool) async throws -> ExchangeResult
+    ) async throws -> ExchangeResult {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -12148,7 +12154,7 @@ final class CodexBarMacTests: XCTestCase {
         var presentedAuthorizationURL: URL?
         MockURLProtocol.handler = { request in
             let authorizationURL = try XCTUnwrap(presentedAuthorizationURL)
-            XCTAssertEqual(request.url, CodexWebAuthService.tokenEndpoint)
+            XCTAssertEqual(request.url, expectedEndpoint)
             try inspectRequest(request, authorizationURL)
             return (
                 HTTPURLResponse(
@@ -12161,15 +12167,10 @@ final class CodexBarMacTests: XCTestCase {
             )
         }
 
-        let service = CodexWebAuthService(
-            session: session,
-            callbackTimeoutNanoseconds: 2_000_000_000,
-            randomBytes: Self.deterministicOAuthRandomBytes
-        )
         var callbackTask: Task<Void, Error>?
-        let result: Result<CodexWebAuthResult, Error>
+        let result: Result<ExchangeResult, Error>
         do {
-            result = .success(try await service.signIn { authorizationURL in
+            result = .success(try await signIn(session) { authorizationURL in
                 presentedAuthorizationURL = authorizationURL
                 callbackTask = Self.oauthCallbackTask(for: authorizationURL)
                 return callbackTask != nil
@@ -12180,9 +12181,31 @@ final class CodexBarMacTests: XCTestCase {
         if let callbackTask {
             try await callbackTask.value
         } else {
-            XCTFail("Expected a deterministic ChatGPT loopback callback task.")
+            XCTFail(missingCallbackMessage)
         }
         return try result.get()
+    }
+
+    @MainActor
+    private func performCodexTokenExchange(
+        statusCode: Int = 200,
+        responseBody: Data,
+        inspectRequest: @escaping (URLRequest, URL) throws -> Void = { _, _ in }
+    ) async throws -> CodexWebAuthResult {
+        try await performTokenExchange(
+            expectedEndpoint: CodexWebAuthService.tokenEndpoint,
+            statusCode: statusCode,
+            responseBody: responseBody,
+            inspectRequest: inspectRequest,
+            missingCallbackMessage: "Expected a deterministic ChatGPT loopback callback task."
+        ) { session, presentAuthorizationURL in
+            let service = CodexWebAuthService(
+                session: session,
+                callbackTimeoutNanoseconds: 2_000_000_000,
+                randomBytes: Self.deterministicOAuthRandomBytes
+            )
+            return try await service.signIn(presentAuthorizationURL: presentAuthorizationURL)
+        }
     }
 
     @MainActor
@@ -12191,52 +12214,20 @@ final class CodexBarMacTests: XCTestCase {
         responseBody: Data,
         inspectRequest: @escaping (URLRequest, URL) throws -> Void = { _, _ in }
     ) async throws -> ClaudeWebAuthResult {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MockURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        defer {
-            MockURLProtocol.handler = nil
-            session.invalidateAndCancel()
-        }
-
-        var presentedAuthorizationURL: URL?
-        MockURLProtocol.handler = { request in
-            let authorizationURL = try XCTUnwrap(presentedAuthorizationURL)
-            XCTAssertEqual(request.url?.absoluteString, "https://platform.claude.com/v1/oauth/token")
-            try inspectRequest(request, authorizationURL)
-            return (
-                HTTPURLResponse(
-                    url: try XCTUnwrap(request.url),
-                    statusCode: statusCode,
-                    httpVersion: nil,
-                    headerFields: nil
-                )!,
-                responseBody
+        try await performTokenExchange(
+            expectedEndpoint: URL(string: "https://platform.claude.com/v1/oauth/token")!,
+            statusCode: statusCode,
+            responseBody: responseBody,
+            inspectRequest: inspectRequest,
+            missingCallbackMessage: "Expected a deterministic Claude loopback callback task."
+        ) { session, presentAuthorizationURL in
+            let service = ClaudeWebAuthService(
+                session: session,
+                callbackTimeoutNanoseconds: 2_000_000_000,
+                randomBytes: Self.deterministicOAuthRandomBytes
             )
+            return try await service.signIn(presentAuthorizationURL: presentAuthorizationURL)
         }
-
-        let service = ClaudeWebAuthService(
-            session: session,
-            callbackTimeoutNanoseconds: 2_000_000_000,
-            randomBytes: Self.deterministicOAuthRandomBytes
-        )
-        var callbackTask: Task<Void, Error>?
-        let result: Result<ClaudeWebAuthResult, Error>
-        do {
-            result = .success(try await service.signIn { authorizationURL in
-                presentedAuthorizationURL = authorizationURL
-                callbackTask = Self.oauthCallbackTask(for: authorizationURL)
-                return callbackTask != nil
-            })
-        } catch {
-            result = .failure(error)
-        }
-        if let callbackTask {
-            try await callbackTask.value
-        } else {
-            XCTFail("Expected a deterministic Claude loopback callback task.")
-        }
-        return try result.get()
     }
 
     @MainActor
@@ -12245,57 +12236,26 @@ final class CodexBarMacTests: XCTestCase {
         responseBody: Data,
         inspectRequest: @escaping (URLRequest, URL) throws -> Void = { _, _ in }
     ) async throws -> CopilotWebAuthResult {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [MockURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        defer {
-            MockURLProtocol.handler = nil
-            session.invalidateAndCancel()
-        }
-
-        var presentedAuthorizationURL: URL?
-        MockURLProtocol.handler = { request in
-            let authorizationURL = try XCTUnwrap(presentedAuthorizationURL)
-            XCTAssertEqual(request.url, CopilotWebAuthService.tokenEndpoint)
-            try inspectRequest(request, authorizationURL)
-            return (
-                HTTPURLResponse(
-                    url: try XCTUnwrap(request.url),
-                    statusCode: statusCode,
-                    httpVersion: nil,
-                    headerFields: nil
-                )!,
-                responseBody
+        try await performTokenExchange(
+            expectedEndpoint: CopilotWebAuthService.tokenEndpoint,
+            statusCode: statusCode,
+            responseBody: responseBody,
+            inspectRequest: inspectRequest,
+            missingCallbackMessage: "Expected a deterministic GitHub loopback callback task."
+        ) { session, presentAuthorizationURL in
+            let service = CopilotWebAuthService(
+                session: session,
+                callbackTimeoutNanoseconds: 2_000_000_000,
+                randomBytes: Self.deterministicOAuthRandomBytes
             )
-        }
-
-        let service = CopilotWebAuthService(
-            session: session,
-            callbackTimeoutNanoseconds: 2_000_000_000,
-            randomBytes: Self.deterministicOAuthRandomBytes
-        )
-        var callbackTask: Task<Void, Error>?
-        let result: Result<CopilotWebAuthResult, Error>
-        do {
-            result = .success(try await service.signIn(
+            return try await service.signIn(
                 configuration: CopilotOAuthConfiguration(
                     clientID: "redacted-client-id",
                     clientSecret: "redacted-client-secret"
-                )
-            ) { authorizationURL in
-                presentedAuthorizationURL = authorizationURL
-                callbackTask = Self.oauthCallbackTask(for: authorizationURL)
-                return callbackTask != nil
-            })
-        } catch {
-            result = .failure(error)
+                ),
+                presentAuthorizationURL: presentAuthorizationURL
+            )
         }
-        if let callbackTask {
-            try await callbackTask.value
-        } else {
-            XCTFail("Expected a deterministic GitHub loopback callback task.")
-        }
-        return try result.get()
     }
 
     private func makeLoopbackCallbackServer(
