@@ -867,4 +867,3 @@ final class APIKeyAndCursorProviderTests: XCTestCase {
     }
 
 }
-

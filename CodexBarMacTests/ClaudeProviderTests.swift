@@ -1351,4 +1351,3 @@ final class ClaudeProviderTests: XCTestCase {
     }
 
 }
-

@@ -317,4 +317,3 @@ final class CopilotTokenResolverCounter: @unchecked Sendable {
         }
     }
 }
-

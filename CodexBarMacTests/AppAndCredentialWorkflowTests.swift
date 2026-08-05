@@ -400,4 +400,3 @@ final class AppAndCredentialWorkflowTests: XCTestCase {
     }
 
 }
-

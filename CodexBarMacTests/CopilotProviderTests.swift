@@ -1305,4 +1305,3 @@ final class CopilotProviderTests: XCTestCase {
     }
 
 }
-
