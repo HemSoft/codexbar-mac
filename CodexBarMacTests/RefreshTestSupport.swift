@@ -67,10 +67,14 @@ actor BlockingUsageProvider: UsageProvider {
         )
     }
 
-    func waitUntilStarted() async {
-        while !started {
-            await Task.yield()
+    func waitUntilStarted() async -> Bool {
+        for _ in 0..<200 {
+            if started {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
         }
+        return started
     }
 
     func waitUntilCancellationObserved() async -> Bool {
@@ -102,4 +106,3 @@ final class StubUsageAlertNotifier: UsageAlertNotifying {
 
     func deliver(_ notification: UsageAlertNotification) async throws {}
 }
-

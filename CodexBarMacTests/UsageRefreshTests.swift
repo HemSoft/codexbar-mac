@@ -352,7 +352,8 @@ final class UsageRefreshTests: XCTestCase {
             )
         }
 
-        await provider.waitUntilStarted()
+        let didStart = await provider.waitUntilStarted()
+        XCTAssertTrue(didStart)
         let result = await refreshTask.value
         let cancellationObserved = await provider.waitUntilCancellationObserved()
 
@@ -371,7 +372,8 @@ final class UsageRefreshTests: XCTestCase {
             )
         }
 
-        await provider.waitUntilStarted()
+        let didStart = await provider.waitUntilStarted()
+        XCTAssertTrue(didStart)
         refreshTask.cancel()
         let result = await refreshTask.value
         let cancellationObserved = await provider.waitUntilCancellationObserved()

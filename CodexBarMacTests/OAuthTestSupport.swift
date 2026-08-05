@@ -67,6 +67,18 @@ func oauthCallbackTask(
     }
 }
 
+final class PresentedAuthorizationURLBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: URL?
+
+    deinit {}
+
+    var value: URL? {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
+    }
+}
+
 @MainActor
 func performTokenExchange<ExchangeResult>(
     expectedEndpoint: URL,
@@ -84,9 +96,9 @@ func performTokenExchange<ExchangeResult>(
         session.invalidateAndCancel()
     }
 
-    var presentedAuthorizationURL: URL?
+    let presentedAuthorizationURL = PresentedAuthorizationURLBox()
     MockURLProtocol.handler = { request in
-        let authorizationURL = try XCTUnwrap(presentedAuthorizationURL)
+        let authorizationURL = try XCTUnwrap(presentedAuthorizationURL.value)
         XCTAssertEqual(request.url, expectedEndpoint)
         try inspectRequest(request, authorizationURL)
         return (
@@ -104,7 +116,7 @@ func performTokenExchange<ExchangeResult>(
     let result: Result<ExchangeResult, Error>
     do {
         result = .success(try await signIn(session) { authorizationURL in
-            presentedAuthorizationURL = authorizationURL
+            presentedAuthorizationURL.value = authorizationURL
             callbackTask = oauthCallbackTask(for: authorizationURL)
             return callbackTask != nil
         })

@@ -103,6 +103,8 @@ final class TransactionalReplacementSecretStore: SecretStore, @unchecked Sendabl
     private var storedSavedCredentials: [String] = []
     private var shouldFailNextSaveAfterWriting = false
 
+    deinit {}
+
     var savedCredentials: [String] {
         lock.withLock { storedSavedCredentials }
     }
@@ -191,6 +193,8 @@ final class FailingCredentialCompensationSecretStore: SecretStore, @unchecked Se
 }
 
 final class FailingSecretStore: SecretStore, @unchecked Sendable {
+    deinit {}
+
     func readSecret(account: String) throws -> String? {
         nil
     }
@@ -209,6 +213,8 @@ final class MutableReadSecretStore: SecretStore, @unchecked Sendable {
     init(result: Result<String?, KeychainError>) {
         self.result = result
     }
+
+    deinit {}
 
     func setResult(_ result: Result<String?, KeychainError>) {
         lock.withLock {
@@ -238,7 +244,15 @@ final class SelectiveDeletionSecretStore: SecretStore, @unchecked Sendable {
         }
     }
 
-    var failingAccounts = Set<String>()
+    private let lock = NSLock()
+    private var storedFailingAccounts = Set<String>()
+
+    deinit {}
+
+    var failingAccounts: Set<String> {
+        get { lock.withLock { storedFailingAccounts } }
+        set { lock.withLock { storedFailingAccounts = newValue } }
+    }
 
     func readSecret(account: String) throws -> String? {
         nil
@@ -247,7 +261,7 @@ final class SelectiveDeletionSecretStore: SecretStore, @unchecked Sendable {
     func saveSecret(_ secret: String, account: String) throws {}
 
     func deleteSecret(account: String) throws {
-        if failingAccounts.contains(account) {
+        if lock.withLock({ storedFailingAccounts.contains(account) }) {
             throw DeletionError(account: account)
         }
     }
@@ -255,6 +269,8 @@ final class SelectiveDeletionSecretStore: SecretStore, @unchecked Sendable {
 
 final class FailingPermissionsFileManager: FileManager, @unchecked Sendable {
     private(set) var recordedAttributes: [FileAttributeKey: Any]?
+
+    deinit {}
 
     override func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
         recordedAttributes = attributes
@@ -266,6 +282,8 @@ final class CopilotResolvedUsernameBox: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: String?
     private var wasSet = false
+
+    deinit {}
 
     var wasCalled: Bool {
         lock.withLock { wasSet }
@@ -286,6 +304,8 @@ final class CopilotTokenResolverCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
 
+    deinit {}
+
     var callCount: Int {
         lock.withLock { count }
     }
@@ -297,5 +317,4 @@ final class CopilotTokenResolverCounter: @unchecked Sendable {
         }
     }
 }
-
 
