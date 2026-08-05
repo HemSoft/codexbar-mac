@@ -74,7 +74,22 @@
 		100000000000000000000044 /* DashboardOrderingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000046 /* DashboardOrderingMode.swift */; };
 		100000000000000000000045 /* DashboardUsageSorter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000047 /* DashboardUsageSorter.swift */; };
 		100000000000000000000046 /* CopilotWebAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000048 /* CopilotWebAuthService.swift */; };
-		100000000000000000000025 /* CodexBarMacTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000028 /* CodexBarMacTests.swift */; };
+		A10000000000000000000001 /* AppAndCredentialWorkflowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* AppAndCredentialWorkflowTests.swift */; };
+		A10000000000000000000002 /* CodexProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* CodexProviderTests.swift */; };
+		A10000000000000000000003 /* ClaudeProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* ClaudeProviderTests.swift */; };
+		A10000000000000000000004 /* CopilotProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* CopilotProviderTests.swift */; };
+		A10000000000000000000005 /* APIKeyAndCursorProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* APIKeyAndCursorProviderTests.swift */; };
+		A10000000000000000000006 /* OpenCodeProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* OpenCodeProviderTests.swift */; };
+		A10000000000000000000007 /* ConfigurationPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* ConfigurationPersistenceTests.swift */; };
+		A10000000000000000000008 /* UsageAlertTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* UsageAlertTests.swift */; };
+		A10000000000000000000009 /* UsageRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* UsageRefreshTests.swift */; };
+		A1000000000000000000000A /* DashboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* DashboardTests.swift */; };
+		A1000000000000000000000B /* GeminiProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* GeminiProviderTests.swift */; };
+		A1000000000000000000000C /* UsageHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* UsageHistoryTests.swift */; };
+		A1000000000000000000000D /* OAuthTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* OAuthTestSupport.swift */; };
+		A1000000000000000000000E /* RefreshTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* RefreshTestSupport.swift */; };
+		A1000000000000000000000F /* CredentialTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* CredentialTestSupport.swift */; };
+		A10000000000000000000010 /* NetworkTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* NetworkTestSupport.swift */; };
 		100000000000000000000047 /* CheckForUpdatesButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000049 /* CheckForUpdatesButton.swift */; };
 		100000000000000000000048 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E00000000000000000000001 /* Sparkle */; };
 		100000000000000000000049 /* DashboardTextSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000004A /* DashboardTextSize.swift */; };
@@ -153,7 +168,22 @@
 		20000000000000000000004A /* DashboardTextSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardTextSize.swift; sourceTree = "<group>"; };
 		200000000000000000000049 /* CheckForUpdatesButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckForUpdatesButton.swift; sourceTree = "<group>"; };
 		200000000000000000000027 /* CodexBarMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		200000000000000000000028 /* CodexBarMacTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarMacTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000001 /* AppAndCredentialWorkflowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAndCredentialWorkflowTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* CodexProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexProviderTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* ClaudeProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeProviderTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* CopilotProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotProviderTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* APIKeyAndCursorProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyAndCursorProviderTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* OpenCodeProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeProviderTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* ConfigurationPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationPersistenceTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000008 /* UsageAlertTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageAlertTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000009 /* UsageRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageRefreshTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000000A /* DashboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000000B /* GeminiProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiProviderTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000000C /* UsageHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageHistoryTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000000D /* OAuthTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthTestSupport.swift; sourceTree = "<group>"; };
+		A2000000000000000000000E /* RefreshTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshTestSupport.swift; sourceTree = "<group>"; };
+		A2000000000000000000000F /* CredentialTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialTestSupport.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* NetworkTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkTestSupport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -323,7 +353,22 @@
 		700000000000000000000009 /* CodexBarMacTests */ = {
 			isa = PBXGroup;
 			children = (
-				200000000000000000000028 /* CodexBarMacTests.swift */,
+				A20000000000000000000001 /* AppAndCredentialWorkflowTests.swift */,
+				A20000000000000000000002 /* CodexProviderTests.swift */,
+				A20000000000000000000003 /* ClaudeProviderTests.swift */,
+				A20000000000000000000004 /* CopilotProviderTests.swift */,
+				A20000000000000000000005 /* APIKeyAndCursorProviderTests.swift */,
+				A20000000000000000000006 /* OpenCodeProviderTests.swift */,
+				A20000000000000000000007 /* ConfigurationPersistenceTests.swift */,
+				A20000000000000000000008 /* UsageAlertTests.swift */,
+				A20000000000000000000009 /* UsageRefreshTests.swift */,
+				A2000000000000000000000A /* DashboardTests.swift */,
+				A2000000000000000000000B /* GeminiProviderTests.swift */,
+				A2000000000000000000000C /* UsageHistoryTests.swift */,
+				A2000000000000000000000D /* OAuthTestSupport.swift */,
+				A2000000000000000000000E /* RefreshTestSupport.swift */,
+				A2000000000000000000000F /* CredentialTestSupport.swift */,
+				A20000000000000000000010 /* NetworkTestSupport.swift */,
 			);
 			path = CodexBarMacTests;
 			sourceTree = "<group>";
@@ -425,7 +470,22 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				100000000000000000000025 /* CodexBarMacTests.swift in Sources */,
+				A10000000000000000000001 /* AppAndCredentialWorkflowTests.swift in Sources */,
+				A10000000000000000000002 /* CodexProviderTests.swift in Sources */,
+				A10000000000000000000003 /* ClaudeProviderTests.swift in Sources */,
+				A10000000000000000000004 /* CopilotProviderTests.swift in Sources */,
+				A10000000000000000000005 /* APIKeyAndCursorProviderTests.swift in Sources */,
+				A10000000000000000000006 /* OpenCodeProviderTests.swift in Sources */,
+				A10000000000000000000007 /* ConfigurationPersistenceTests.swift in Sources */,
+				A10000000000000000000008 /* UsageAlertTests.swift in Sources */,
+				A10000000000000000000009 /* UsageRefreshTests.swift in Sources */,
+				A1000000000000000000000A /* DashboardTests.swift in Sources */,
+				A1000000000000000000000B /* GeminiProviderTests.swift in Sources */,
+				A1000000000000000000000C /* UsageHistoryTests.swift in Sources */,
+				A1000000000000000000000D /* OAuthTestSupport.swift in Sources */,
+				A1000000000000000000000E /* RefreshTestSupport.swift in Sources */,
+				A1000000000000000000000F /* CredentialTestSupport.swift in Sources */,
+				A10000000000000000000010 /* NetworkTestSupport.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

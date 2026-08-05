@@ -113,6 +113,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Developer Experience
 
+- The Mac XCTest suite is split into domain-focused test classes with narrowly
+  scoped shared support, preserving the existing 344-test regression inventory.
 - Deterministic loopback OAuth tests now execute ChatGPT, Claude, and GitHub
   Copilot token exchanges through success, malformed, missing-token, and
   sanitized provider-error responses without opening a browser or using live credentials.
