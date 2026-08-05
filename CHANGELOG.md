@@ -113,6 +113,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Developer Experience
 
+- Deterministic loopback OAuth tests now execute ChatGPT, Claude, and GitHub
+  Copilot token exchanges through success, malformed, missing-token, and
+  sanitized provider-error responses without opening a browser or using live credentials.
 - Debug app and test builds now fail on first-party Swift compiler warnings,
   keeping the CI build warning-free without applying the policy to Sparkle.
 - The status-item right-click event bridge now makes its synchronous main-actor

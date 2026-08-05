@@ -1246,6 +1246,106 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(URL(string: redirectURI)?.host, "localhost")
     }
 
+    @MainActor
+    func testCodexBrowserSignInExchangesCallbackForCredentials() async throws {
+        let header = #"{"alg":"none"}"#.base64URLEncodedForTest()
+        let payload = #"{"https://api.openai.com/auth":{"chatgpt_account_id":"acct_synthetic"}}"#
+            .base64URLEncodedForTest()
+        let idToken = "\(header).\(payload).redacted-signature"
+        let responseBody = try JSONSerialization.data(withJSONObject: [
+            "access_token": "redacted-access-token",
+            "refresh_token": "redacted-refresh-token",
+            "id_token": idToken,
+            "expires_at": 2_000_003_600,
+        ])
+
+        let result = try await performCodexTokenExchange(responseBody: responseBody) { request, authorizationURL in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "Content-Type"),
+                "application/x-www-form-urlencoded"
+            )
+            let authorization = try XCTUnwrap(
+                URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false)
+            )
+            let redirectURI = try XCTUnwrap(authorization.queryItemValue(named: "redirect_uri"))
+            XCTAssertEqual(authorization.queryItemValue(named: "state"), Self.deterministicOAuthValue(byteCount: 32))
+            XCTAssertEqual(URL(string: redirectURI)?.path, "/auth/callback")
+
+            let body = try Self.formValues(from: requestBodyData(from: request))
+            XCTAssertEqual(body["grant_type"], "authorization_code")
+            XCTAssertEqual(body["code"], Self.syntheticOAuthCode)
+            XCTAssertEqual(body["redirect_uri"], redirectURI)
+            XCTAssertEqual(body["client_id"], CodexWebAuthService.clientID)
+            XCTAssertEqual(body["code_verifier"], Self.deterministicOAuthValue(byteCount: 64))
+        }
+
+        XCTAssertEqual(result.accessToken, "redacted-access-token")
+        XCTAssertEqual(result.refreshToken, "redacted-refresh-token")
+        XCTAssertEqual(result.idToken, idToken)
+        XCTAssertEqual(result.accountID, "acct_synthetic")
+        XCTAssertEqual(result.expiresAt, 2_000_003_600)
+    }
+
+    @MainActor
+    func testCodexBrowserSignInSanitizesNonSuccessTokenResponse() async throws {
+        let responseBody = Data(
+            #"{"error":"invalid_grant","error_description":"redacted-authorization-code redacted-access-token untrusted detail"}"#.utf8
+        )
+
+        do {
+            _ = try await performCodexTokenExchange(statusCode: 400, responseBody: responseBody)
+            XCTFail("Expected a rejected ChatGPT token exchange.")
+        } catch {
+            XCTAssertEqual(
+                error as? CodexWebAuthService.AuthError,
+                .tokenExchangeFailed("HTTP 400 (invalid_grant)")
+            )
+            XCTAssertFalse(error.localizedDescription.contains(Self.syntheticOAuthCode))
+            XCTAssertFalse(error.localizedDescription.contains("redacted-access-token"))
+            XCTAssertFalse(error.localizedDescription.contains("untrusted detail"))
+        }
+    }
+
+    @MainActor
+    func testCodexBrowserSignInRejectsMalformedSuccessResponse() async throws {
+        do {
+            _ = try await performCodexTokenExchange(responseBody: Data(#"{"access_token":42}"#.utf8))
+            XCTFail("Expected a malformed ChatGPT token response to fail.")
+        } catch {
+            XCTAssertEqual(error as? CodexWebAuthService.AuthError, .invalidTokenResponse)
+        }
+    }
+
+    @MainActor
+    func testCodexBrowserSignInRejectsSuccessResponseWithoutAccessToken() async throws {
+        do {
+            _ = try await performCodexTokenExchange(
+                responseBody: Data(#"{"refresh_token":"redacted-refresh-token"}"#.utf8)
+            )
+            XCTFail("Expected a ChatGPT token response without an access token to fail.")
+        } catch {
+            XCTAssertEqual(error as? CodexWebAuthService.AuthError, .invalidTokenResponse)
+            XCTAssertFalse(error.localizedDescription.contains("redacted-refresh-token"))
+        }
+    }
+
+    @MainActor
+    func testCodexBrowserSignInRejectsOAuthErrorPayloadWithoutSurfacingDetails() async throws {
+        let responseBody = Data(
+            #"{"error":"access_denied","error_description":"redacted-authorization-code untrusted denial"}"#.utf8
+        )
+
+        do {
+            _ = try await performCodexTokenExchange(responseBody: responseBody)
+            XCTFail("Expected an OAuth error payload to fail ChatGPT sign-in.")
+        } catch {
+            XCTAssertEqual(error as? CodexWebAuthService.AuthError, .invalidTokenResponse)
+            XCTAssertFalse(error.localizedDescription.contains(Self.syntheticOAuthCode))
+            XCTAssertFalse(error.localizedDescription.contains("untrusted denial"))
+        }
+    }
+
     func testCodexUsageProviderFallsBackToSavedKeychainCredentialWithoutAuthFile() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let secretStore = InMemorySecretStore()
@@ -2146,6 +2246,108 @@ final class CodexBarMacTests: XCTestCase {
         XCTAssertEqual(URL(string: redirectURI)?.host, "localhost")
     }
 
+    @MainActor
+    func testClaudeBrowserSignInExchangesCallbackForCredentials() async throws {
+        let responseBody = try JSONSerialization.data(withJSONObject: [
+            "access_token": "redacted-access-token",
+            "refresh_token": "redacted-refresh-token",
+            "expires_at": 4_000_003_600_000,
+            "subscription_type": "synthetic_subscription",
+            "rate_limit_tier": "synthetic_tier",
+        ])
+
+        let result = try await performClaudeTokenExchange(responseBody: responseBody) { request, authorizationURL in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+            let authorization = try XCTUnwrap(
+                URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false)
+            )
+            let redirectURI = try XCTUnwrap(authorization.queryItemValue(named: "redirect_uri"))
+            let state = try XCTUnwrap(authorization.queryItemValue(named: "state"))
+            XCTAssertEqual(state, Self.deterministicOAuthValue(byteCount: 32))
+            XCTAssertEqual(URL(string: redirectURI)?.path, "/callback")
+
+            let requestData = try XCTUnwrap(requestBodyData(from: request))
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: requestData) as? [String: String])
+            XCTAssertEqual(body["grant_type"], "authorization_code")
+            XCTAssertEqual(body["code"], Self.syntheticOAuthCode)
+            XCTAssertEqual(body["redirect_uri"], redirectURI)
+            XCTAssertEqual(body["client_id"], "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
+            XCTAssertEqual(body["code_verifier"], Self.deterministicOAuthValue(byteCount: 64))
+            XCTAssertEqual(body["state"], state)
+        }
+
+        XCTAssertEqual(result.credentials.accessToken, "redacted-access-token")
+        XCTAssertEqual(result.credentials.refreshToken, "redacted-refresh-token")
+        XCTAssertEqual(result.credentials.expiresAt, 4_000_003_600_000)
+        XCTAssertEqual(result.credentials.subscriptionType, "synthetic_subscription")
+        XCTAssertEqual(result.credentials.rateLimitTier, "synthetic_tier")
+    }
+
+    @MainActor
+    func testClaudeBrowserSignInSanitizesNonSuccessTokenResponse() async throws {
+        let responseBody = Data(
+            #"{"error":"invalid_grant","error_description":"redacted-authorization-code redacted-access-token untrusted detail"}"#.utf8
+        )
+
+        do {
+            _ = try await performClaudeTokenExchange(statusCode: 400, responseBody: responseBody)
+            XCTFail("Expected a rejected Claude token exchange.")
+        } catch {
+            XCTAssertEqual(
+                error as? ClaudeWebAuthService.AuthError,
+                .tokenExchangeFailed("HTTP 400 (invalid_grant)")
+            )
+            XCTAssertFalse(error.localizedDescription.contains(Self.syntheticOAuthCode))
+            XCTAssertFalse(error.localizedDescription.contains("redacted-access-token"))
+            XCTAssertFalse(error.localizedDescription.contains("untrusted detail"))
+        }
+    }
+
+    @MainActor
+    func testClaudeBrowserSignInRejectsMalformedSuccessResponse() async throws {
+        do {
+            _ = try await performClaudeTokenExchange(responseBody: Data(#"{"access_token":42}"#.utf8))
+            XCTFail("Expected a malformed Claude token response to fail.")
+        } catch {
+            XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .invalidTokenResponse)
+        }
+    }
+
+    @MainActor
+    func testClaudeBrowserSignInRejectsSuccessResponseWithoutAccessToken() async throws {
+        do {
+            _ = try await performClaudeTokenExchange(
+                responseBody: Data(#"{"refresh_token":"redacted-refresh-token"}"#.utf8)
+            )
+            XCTFail("Expected a Claude token response without an access token to fail.")
+        } catch {
+            XCTAssertEqual(error as? ClaudeWebAuthService.AuthError, .invalidTokenResponse)
+            XCTAssertFalse(error.localizedDescription.contains("redacted-refresh-token"))
+        }
+    }
+
+    @MainActor
+    func testClaudeBrowserSignInSurfacesOnlySafeOAuthErrorCode() async throws {
+        let responseBody = Data(
+            #"{"error":"access_denied","error_description":"redacted-authorization-code untrusted denial"}"#.utf8
+        )
+
+        do {
+            _ = try await performClaudeTokenExchange(responseBody: responseBody)
+            XCTFail("Expected an OAuth error payload to fail Claude sign-in.")
+        } catch {
+            XCTAssertEqual(
+                error as? ClaudeWebAuthService.AuthError,
+                .tokenExchangeFailed("access_denied")
+            )
+            XCTAssertFalse(error.localizedDescription.contains(Self.syntheticOAuthCode))
+            XCTAssertFalse(error.localizedDescription.contains("untrusted denial"))
+        }
+    }
+
     func testTokenEndpointErrorFormatterRedactsUntrustedDetails() {
         let body = Data(#"{"error":"invalid_grant","error_description":"authorization code=secret-code client_id=secret-client"}"#.utf8)
 
@@ -2793,6 +2995,108 @@ final class CodexBarMacTests: XCTestCase {
         )
         let redirectURI = try XCTUnwrap(components.queryItemValue(named: "redirect_uri"))
         XCTAssertEqual(URL(string: redirectURI)?.host, "127.0.0.1")
+    }
+
+    @MainActor
+    func testCopilotBrowserSignInExchangesCallbackForCredentials() async throws {
+        let responseBody = Data(
+            #"{"access_token":"redacted-access-token","refresh_token":"redacted-refresh-token","expires_in":3600,"refresh_token_expires_in":7200}"#.utf8
+        )
+        let startedAt = Int64(Date().timeIntervalSince1970)
+
+        let result = try await performCopilotTokenExchange(responseBody: responseBody) { request, authorizationURL in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "Content-Type"),
+                "application/x-www-form-urlencoded"
+            )
+            let authorization = try XCTUnwrap(
+                URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false)
+            )
+            let redirectURI = try XCTUnwrap(authorization.queryItemValue(named: "redirect_uri"))
+            XCTAssertEqual(authorization.queryItemValue(named: "client_id"), "redacted-client-id")
+            XCTAssertEqual(authorization.queryItemValue(named: "state"), Self.deterministicOAuthValue(byteCount: 32))
+            XCTAssertEqual(URL(string: redirectURI)?.host, "127.0.0.1")
+            XCTAssertEqual(URL(string: redirectURI)?.path, "/callback")
+
+            let body = try Self.formValues(from: requestBodyData(from: request))
+            XCTAssertEqual(body["client_id"], "redacted-client-id")
+            XCTAssertEqual(body["client_secret"], "redacted-client-secret")
+            XCTAssertEqual(body["code"], Self.syntheticOAuthCode)
+            XCTAssertEqual(body["redirect_uri"], redirectURI)
+            XCTAssertEqual(body["code_verifier"], Self.deterministicOAuthValue(byteCount: 64))
+        }
+
+        let completedAt = Int64(Date().timeIntervalSince1970)
+        XCTAssertEqual(result.accessToken, "redacted-access-token")
+        XCTAssertEqual(result.refreshToken, "redacted-refresh-token")
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(result.expiresAt), startedAt + 3_599)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(result.expiresAt), completedAt + 3_600)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(result.refreshTokenExpiresAt), startedAt + 7_199)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(result.refreshTokenExpiresAt), completedAt + 7_200)
+    }
+
+    @MainActor
+    func testCopilotBrowserSignInSanitizesNonSuccessTokenResponse() async throws {
+        let responseBody = Data(
+            #"{"error":"invalid_grant","error_description":"redacted-authorization-code redacted-access-token untrusted detail"}"#.utf8
+        )
+
+        do {
+            _ = try await performCopilotTokenExchange(statusCode: 400, responseBody: responseBody)
+            XCTFail("Expected a rejected GitHub token exchange.")
+        } catch {
+            XCTAssertEqual(
+                error as? CopilotWebAuthService.AuthError,
+                .tokenExchangeFailed("HTTP 400 (invalid_grant)")
+            )
+            XCTAssertFalse(error.localizedDescription.contains(Self.syntheticOAuthCode))
+            XCTAssertFalse(error.localizedDescription.contains("redacted-access-token"))
+            XCTAssertFalse(error.localizedDescription.contains("untrusted detail"))
+        }
+    }
+
+    @MainActor
+    func testCopilotBrowserSignInRejectsMalformedSuccessResponse() async throws {
+        do {
+            _ = try await performCopilotTokenExchange(responseBody: Data(#"{"access_token":42}"#.utf8))
+            XCTFail("Expected a malformed GitHub token response to fail.")
+        } catch {
+            XCTAssertEqual(error as? CopilotWebAuthService.AuthError, .invalidTokenResponse)
+        }
+    }
+
+    @MainActor
+    func testCopilotBrowserSignInRejectsSuccessResponseWithoutAccessToken() async throws {
+        do {
+            _ = try await performCopilotTokenExchange(
+                responseBody: Data(#"{"refresh_token":"redacted-refresh-token"}"#.utf8)
+            )
+            XCTFail("Expected a GitHub token response without an access token to fail.")
+        } catch {
+            XCTAssertEqual(error as? CopilotWebAuthService.AuthError, .invalidTokenResponse)
+            XCTAssertFalse(error.localizedDescription.contains("redacted-refresh-token"))
+        }
+    }
+
+    @MainActor
+    func testCopilotBrowserSignInSurfacesOnlySafeOAuthErrorCode() async throws {
+        let responseBody = Data(
+            #"{"error":"access_denied","error_description":"redacted-authorization-code untrusted denial"}"#.utf8
+        )
+
+        do {
+            _ = try await performCopilotTokenExchange(responseBody: responseBody)
+            XCTFail("Expected an OAuth error payload to fail GitHub sign-in.")
+        } catch {
+            XCTAssertEqual(
+                error as? CopilotWebAuthService.AuthError,
+                .tokenExchangeFailed("access_denied")
+            )
+            XCTAssertFalse(error.localizedDescription.contains(Self.syntheticOAuthCode))
+            XCTAssertFalse(error.localizedDescription.contains("untrusted denial"))
+        }
     }
 
     func testCopilotOAuthRequestBodiesUseFormEncoding() {
@@ -11767,6 +12071,231 @@ final class CodexBarMacTests: XCTestCase {
         let series = store.historySeries(for: spentOnly)
         XCTAssertFalse(series.isBalance)
         XCTAssertTrue(series.points.isEmpty)
+    }
+
+    private static let syntheticOAuthCode = "redacted-authorization-code"
+
+    private static func deterministicOAuthRandomBytes(_ byteCount: Int) throws -> Data {
+        Data((0..<byteCount).map { UInt8($0 % 251) })
+    }
+
+    private static func deterministicOAuthValue(byteCount: Int) -> String {
+        Data((0..<byteCount).map { UInt8($0 % 251) })
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func formValues(from data: Data?) throws -> [String: String] {
+        let body = try XCTUnwrap(data.flatMap { String(data: $0, encoding: .utf8) })
+        let components = try XCTUnwrap(URLComponents(string: "?\(body)"))
+        return Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+    }
+
+    private static func oauthCallbackTask(
+        for authorizationURL: URL,
+        code: String = syntheticOAuthCode
+    ) -> Task<Void, Error>? {
+        guard
+            let authorizationComponents = URLComponents(
+                url: authorizationURL,
+                resolvingAgainstBaseURL: false
+            ),
+            let redirectURI = authorizationComponents.queryItemValue(named: "redirect_uri"),
+            let state = authorizationComponents.queryItemValue(named: "state"),
+            var callbackComponents = URLComponents(string: redirectURI)
+        else {
+            return nil
+        }
+        callbackComponents.queryItems = [
+            URLQueryItem(name: "code", value: code),
+            URLQueryItem(name: "state", value: state),
+        ]
+        guard let callbackURL = callbackComponents.url else {
+            return nil
+        }
+
+        return Task.detached {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 2
+            configuration.timeoutIntervalForResource = 2
+            let callbackSession = URLSession(configuration: configuration)
+            defer { callbackSession.invalidateAndCancel() }
+            let (_, response) = try await callbackSession.data(from: callbackURL)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                throw URLError(.badServerResponse)
+            }
+        }
+    }
+
+    @MainActor
+    private func performCodexTokenExchange(
+        statusCode: Int = 200,
+        responseBody: Data,
+        inspectRequest: @escaping (URLRequest, URL) throws -> Void = { _, _ in }
+    ) async throws -> CodexWebAuthResult {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer {
+            MockURLProtocol.handler = nil
+            session.invalidateAndCancel()
+        }
+
+        var presentedAuthorizationURL: URL?
+        MockURLProtocol.handler = { request in
+            let authorizationURL = try XCTUnwrap(presentedAuthorizationURL)
+            XCTAssertEqual(request.url, CodexWebAuthService.tokenEndpoint)
+            try inspectRequest(request, authorizationURL)
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: statusCode,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                responseBody
+            )
+        }
+
+        let service = CodexWebAuthService(
+            session: session,
+            callbackTimeoutNanoseconds: 2_000_000_000,
+            randomBytes: Self.deterministicOAuthRandomBytes
+        )
+        var callbackTask: Task<Void, Error>?
+        let result: Result<CodexWebAuthResult, Error>
+        do {
+            result = .success(try await service.signIn { authorizationURL in
+                presentedAuthorizationURL = authorizationURL
+                callbackTask = Self.oauthCallbackTask(for: authorizationURL)
+                return callbackTask != nil
+            })
+        } catch {
+            result = .failure(error)
+        }
+        if let callbackTask {
+            try await callbackTask.value
+        } else {
+            XCTFail("Expected a deterministic ChatGPT loopback callback task.")
+        }
+        return try result.get()
+    }
+
+    @MainActor
+    private func performClaudeTokenExchange(
+        statusCode: Int = 200,
+        responseBody: Data,
+        inspectRequest: @escaping (URLRequest, URL) throws -> Void = { _, _ in }
+    ) async throws -> ClaudeWebAuthResult {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer {
+            MockURLProtocol.handler = nil
+            session.invalidateAndCancel()
+        }
+
+        var presentedAuthorizationURL: URL?
+        MockURLProtocol.handler = { request in
+            let authorizationURL = try XCTUnwrap(presentedAuthorizationURL)
+            XCTAssertEqual(request.url?.absoluteString, "https://platform.claude.com/v1/oauth/token")
+            try inspectRequest(request, authorizationURL)
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: statusCode,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                responseBody
+            )
+        }
+
+        let service = ClaudeWebAuthService(
+            session: session,
+            callbackTimeoutNanoseconds: 2_000_000_000,
+            randomBytes: Self.deterministicOAuthRandomBytes
+        )
+        var callbackTask: Task<Void, Error>?
+        let result: Result<ClaudeWebAuthResult, Error>
+        do {
+            result = .success(try await service.signIn { authorizationURL in
+                presentedAuthorizationURL = authorizationURL
+                callbackTask = Self.oauthCallbackTask(for: authorizationURL)
+                return callbackTask != nil
+            })
+        } catch {
+            result = .failure(error)
+        }
+        if let callbackTask {
+            try await callbackTask.value
+        } else {
+            XCTFail("Expected a deterministic Claude loopback callback task.")
+        }
+        return try result.get()
+    }
+
+    @MainActor
+    private func performCopilotTokenExchange(
+        statusCode: Int = 200,
+        responseBody: Data,
+        inspectRequest: @escaping (URLRequest, URL) throws -> Void = { _, _ in }
+    ) async throws -> CopilotWebAuthResult {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer {
+            MockURLProtocol.handler = nil
+            session.invalidateAndCancel()
+        }
+
+        var presentedAuthorizationURL: URL?
+        MockURLProtocol.handler = { request in
+            let authorizationURL = try XCTUnwrap(presentedAuthorizationURL)
+            XCTAssertEqual(request.url, CopilotWebAuthService.tokenEndpoint)
+            try inspectRequest(request, authorizationURL)
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: statusCode,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                responseBody
+            )
+        }
+
+        let service = CopilotWebAuthService(
+            session: session,
+            callbackTimeoutNanoseconds: 2_000_000_000,
+            randomBytes: Self.deterministicOAuthRandomBytes
+        )
+        var callbackTask: Task<Void, Error>?
+        let result: Result<CopilotWebAuthResult, Error>
+        do {
+            result = .success(try await service.signIn(
+                configuration: CopilotOAuthConfiguration(
+                    clientID: "redacted-client-id",
+                    clientSecret: "redacted-client-secret"
+                )
+            ) { authorizationURL in
+                presentedAuthorizationURL = authorizationURL
+                callbackTask = Self.oauthCallbackTask(for: authorizationURL)
+                return callbackTask != nil
+            })
+        } catch {
+            result = .failure(error)
+        }
+        if let callbackTask {
+            try await callbackTask.value
+        } else {
+            XCTFail("Expected a deterministic GitHub loopback callback task.")
+        }
+        return try result.get()
     }
 
     private func makeLoopbackCallbackServer(
