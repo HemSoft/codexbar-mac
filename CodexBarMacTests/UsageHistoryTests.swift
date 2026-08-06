@@ -224,7 +224,8 @@ final class UsageHistoryTests: XCTestCase {
         XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), originalHistoryData)
 
         model.completeConfigurationRecoveryIfPossible()
-        await model.handleAccountsChanged()
+        model.invalidateAccounts()
+        await model.refreshAfterAccountChange()
 
         XCTAssertTrue(model.historyStore.snapshots.isEmpty)
         XCTAssertEqual(
@@ -275,7 +276,8 @@ final class UsageHistoryTests: XCTestCase {
         XCTAssertEqual(model.historyStore.snapshots.map(\.accountID), [restoredConfiguration.id])
         XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), originalHistoryData)
 
-        await model.handleAccountsChanged()
+        model.invalidateAccounts()
+        await model.refreshAfterAccountChange()
 
         XCTAssertEqual(model.historyStore.snapshots.map(\.accountID), [restoredConfiguration.id])
         XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), originalHistoryData)

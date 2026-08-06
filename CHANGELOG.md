@@ -43,6 +43,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Refreshes that finish after an account is removed, disabled, or given new
+  credentials or routing settings no longer restore stale usage, errors,
+  history, or alerts.
 - Browser sign-in now ignores malformed, stale, and unrelated local callback
   requests until the expected ChatGPT, Claude, or GitHub Copilot redirect arrives.
 - ChatGPT, Claude, GitHub Copilot, and Cursor browser sign-in now stops safely
@@ -113,8 +116,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Developer Experience
 
+- Gated provider test doubles now suspend in-flight refreshes deterministically,
+  covering batch and single-account completions after account changes.
 - The Mac XCTest suite is split into domain-focused test classes with narrowly
-  scoped shared support, preserving the existing 344-test regression inventory.
+  scoped shared support, preserving the existing 347-test regression inventory.
 - Deterministic loopback OAuth tests now execute ChatGPT, Claude, and GitHub
   Copilot token exchanges through success, malformed, missing-token, and
   sanitized provider-error responses without opening a browser or using live credentials.

@@ -88,6 +88,73 @@ actor BlockingUsageProvider: UsageProvider {
     }
 }
 
+actor GatedUsageProvider: UsageProvider {
+    enum Outcome: Sendable {
+        case failure(String)
+        case result(ProviderUsageResult)
+    }
+
+    nonisolated let providerID: ProviderID
+    private let outcome: Outcome
+    private var startedCount = 0
+    private var completedCount = 0
+    private var isReleased = false
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    init(providerID: ProviderID, outcome: Outcome) {
+        self.providerID = providerID
+        self.outcome = outcome
+    }
+
+    func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
+        startedCount += 1
+        defer {
+            completedCount += 1
+        }
+        if !isReleased {
+            await withCheckedContinuation { continuation in
+                releaseContinuations.append(continuation)
+            }
+        }
+
+        switch outcome {
+        case .failure(let message):
+            throw SequencedUsageProviderError(message: message)
+        case .result(let result):
+            return result
+        }
+    }
+
+    func waitUntilStarted(count: Int = 1) async -> Bool {
+        for _ in 0..<200 {
+            if startedCount >= count {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return startedCount >= count
+    }
+
+    func waitUntilCompleted(count: Int = 1) async -> Bool {
+        for _ in 0..<200 {
+            if completedCount >= count {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return completedCount >= count
+    }
+
+    func release() {
+        isReleased = true
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+}
+
 struct SequencedUsageProviderError: LocalizedError {
     let message: String
 

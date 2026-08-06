@@ -142,11 +142,17 @@ struct SettingsView: View {
                                 ProviderSettingsView(
                                     configurationStore: configurationStore,
                                     accountID: configuration.id,
-                                    onAccountsChanged: {
-                                        await model.handleAccountsChanged()
+                                    onAccountsInvalidated: {
+                                        model.invalidateAccounts()
                                     },
-                                    onCredentialsChanged: {
-                                        await model.handleAccountsChanged()
+                                    onAccountRefreshRequested: {
+                                        await model.refreshAfterAccountChange()
+                                    },
+                                    onCredentialInvalidated: {
+                                        model.invalidateCredential(forAccountID: configuration.id)
+                                    },
+                                    onCredentialRefreshRequested: {
+                                        await model.refreshAfterCredentialChange()
                                     },
                                     onAccountRefresh: { configuration in
                                         await model.refreshAccount(configuration)
@@ -162,9 +168,11 @@ struct SettingsView: View {
                             Spacer()
 
                             Button(role: .destructive) {
-                                configurationStore.removeAccount(configuration)
-                                Task {
-                                    await model.handleAccountsChanged()
+                                if configurationStore.removeAccounts([configuration]) {
+                                    model.invalidateAccounts()
+                                    Task {
+                                        await model.refreshAfterAccountChange()
+                                    }
                                 }
                             } label: {
                                 Image(systemName: "trash")
@@ -178,9 +186,12 @@ struct SettingsView: View {
                     Menu {
                         ForEach(ProviderID.allCases) { providerID in
                             Button {
-                                _ = configurationStore.addAccount(for: providerID)
-                                Task {
-                                    await model.handleAccountsChanged()
+                                let addedConfiguration = configurationStore.addAccount(for: providerID)
+                                if configurationStore.configuration(accountID: addedConfiguration.id) != nil {
+                                    model.invalidateAccounts()
+                                    Task {
+                                        await model.refreshAfterAccountChange()
+                                    }
                                 }
                             } label: {
                                 Label(providerID.displayName, systemImage: providerID.settingsIconName)
@@ -250,10 +261,11 @@ struct SettingsView: View {
                         return
                     }
 
+                    model.invalidateAccounts()
                     Task {
                         await model.discoverLocalCredentials()
                         model.completeConfigurationRecoveryIfPossible()
-                        await model.handleAccountsChanged()
+                        await model.refreshAfterAccountChange()
                     }
                 }
             } message: {
@@ -276,7 +288,7 @@ struct SettingsView: View {
                     Task {
                         await model.discoverLocalCredentials()
                         model.completeConfigurationRecoveryIfPossible()
-                        await model.handleAccountsChanged()
+                        await model.refreshAfterAccountChange()
                     }
                 }
             } message: {
@@ -289,7 +301,9 @@ struct SettingsView: View {
         .onAppear {
             model.launchAtLoginManager.refreshFromSystem()
             Task {
-                await model.discoverLocalCredentials()
+                if await model.discoverLocalCredentials() {
+                    await model.refreshAfterAccountChange()
+                }
                 await syncUsageAlertAuthorizationState()
             }
         }
@@ -435,8 +449,9 @@ struct SettingsView: View {
 
     private func resetAccounts() {
         if configurationStore.removeAccounts(configurationStore.configurations) {
+            model.invalidateAccounts()
             Task {
-                await model.handleAccountsChanged()
+                await model.refreshAfterAccountChange()
             }
         }
     }
@@ -463,8 +478,9 @@ struct SettingsView: View {
                     return
                 }
 
+                model.invalidateAccounts()
                 Task {
-                    await model.handleAccountsChanged()
+                    await model.refreshAfterAccountChange()
                 }
             }
         )
