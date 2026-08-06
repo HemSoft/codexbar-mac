@@ -67,7 +67,8 @@ enum CredentialMutationFlow {
 struct ProviderSettingsView: View {
     @ObservedObject var configurationStore: ProviderConfigurationStore
     let accountID: String
-    var onAccountsChanged: @MainActor () async -> Void = {}
+    var onAccountsInvalidated: @MainActor () -> Void = {}
+    var onAccountRefreshRequested: @MainActor () async -> Void = {}
     var onCredentialInvalidated: @MainActor () -> Void = {}
     var onCredentialRefreshRequested: @MainActor () async -> Void = {}
     var onAccountRefresh: @MainActor (ProviderAccountConfiguration) async -> ProviderUsageResult? = { _ in nil }
@@ -102,14 +103,16 @@ struct ProviderSettingsView: View {
     init(
         configurationStore: ProviderConfigurationStore,
         accountID: String,
-        onAccountsChanged: @escaping @MainActor () async -> Void = {},
+        onAccountsInvalidated: @escaping @MainActor () -> Void = {},
+        onAccountRefreshRequested: @escaping @MainActor () async -> Void = {},
         onCredentialInvalidated: @escaping @MainActor () -> Void = {},
         onCredentialRefreshRequested: @escaping @MainActor () async -> Void = {},
         onAccountRefresh: @escaping @MainActor (ProviderAccountConfiguration) async -> ProviderUsageResult? = { _ in nil }
     ) {
         self.configurationStore = configurationStore
         self.accountID = accountID
-        self.onAccountsChanged = onAccountsChanged
+        self.onAccountsInvalidated = onAccountsInvalidated
+        self.onAccountRefreshRequested = onAccountRefreshRequested
         self.onCredentialInvalidated = onCredentialInvalidated
         self.onCredentialRefreshRequested = onCredentialRefreshRequested
         self.onAccountRefresh = onAccountRefresh
@@ -245,8 +248,9 @@ struct ProviderSettingsView: View {
                 return
             }
 
+            onAccountsInvalidated()
             Task {
-                await onAccountsChanged()
+                await onAccountRefreshRequested()
             }
         }
         .onChange(of: copilotAllotmentText) { _, newValue in

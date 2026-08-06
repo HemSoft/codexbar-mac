@@ -186,10 +186,14 @@ final class AppModel: ObservableObject {
         }.value
 
         configurationStore.applyLocalCredentialDiscoveries(discovery)
-        return refreshInputsChanged(
+        let didChangeRefreshInputs = refreshInputsChanged(
             from: previousConfigurations,
             to: configurationStore.enabledConfigurations
         )
+        if didChangeRefreshInputs {
+            invalidateAccounts()
+        }
+        return didChangeRefreshInputs
     }
 
     func refresh() async {
@@ -248,8 +252,11 @@ final class AppModel: ObservableObject {
         )
     }
 
-    func handleAccountsChanged() async {
+    func invalidateAccounts() {
         refreshService.updateCurrentConfigurations(configurationStore.configurations)
+    }
+
+    func refreshAfterAccountChange() async {
         updateAutoRefresh()
         await refresh()
     }
