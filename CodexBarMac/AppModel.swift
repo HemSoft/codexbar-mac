@@ -190,12 +190,18 @@ final class AppModel: ObservableObject {
         await refresh()
     }
 
-    func discoverLocalCredentials() async {
+    @discardableResult
+    func discoverLocalCredentials() async -> Bool {
+        let previousConfigurations = configurationStore.enabledConfigurations
         let discovery = await Task.detached(priority: .utility) {
             LocalCredentialDiscovery.discover()
         }.value
 
         configurationStore.applyLocalCredentialDiscoveries(discovery)
+        return refreshInputsChanged(
+            from: previousConfigurations,
+            to: configurationStore.enabledConfigurations
+        )
     }
 
     func refresh() async {
@@ -261,9 +267,13 @@ final class AppModel: ObservableObject {
     }
 
     func handleCredentialsChanged(accountID: String) async {
+        invalidateCredential(forAccountID: accountID)
+        await refresh()
+    }
+
+    func invalidateCredential(forAccountID accountID: String) {
         refreshService.updateCurrentConfigurations(configurationStore.configurations)
         refreshService.invalidateCredential(forAccountID: accountID)
-        await refresh()
     }
 
     func completeConfigurationRecoveryIfPossible() {
@@ -289,7 +299,17 @@ final class AppModel: ObservableObject {
         else {
             return nil
         }
-        return await refreshService.refresh(configuration: currentConfiguration)
+        guard let result = await refreshService.refresh(configuration: currentConfiguration) else {
+            return nil
+        }
+
+        lastRefreshedAt = Date()
+        recordUsageHistory()
+        await processUsageAlerts(
+            results: alertEligibleResults(),
+            preserving: refreshService.incompleteRefreshAccountIDs
+        )
+        return result
     }
 
     func quit() {
@@ -307,6 +327,34 @@ final class AppModel: ObservableObject {
 
     private func recordUsageHistory() {
         historyStore.record(results: alertEligibleResults())
+    }
+
+    private func refreshInputsChanged(
+        from previousConfigurations: [ProviderAccountConfiguration],
+        to currentConfigurations: [ProviderAccountConfiguration]
+    ) -> Bool {
+        let previousByID = previousConfigurations.reduce(
+            into: [String: ProviderAccountConfiguration]()
+        ) { configurationsByID, configuration in
+            configurationsByID[configuration.id] = configuration
+        }
+        let currentByID = currentConfigurations.reduce(
+            into: [String: ProviderAccountConfiguration]()
+        ) { configurationsByID, configuration in
+            configurationsByID[configuration.id] = configuration
+        }
+        guard previousByID.keys == currentByID.keys else {
+            return true
+        }
+        return previousByID.contains { accountID, previousConfiguration in
+            guard let currentConfiguration = currentByID[accountID] else {
+                return true
+            }
+            return !refreshService.hasSameRefreshInputs(
+                previousConfiguration,
+                currentConfiguration
+            )
+        }
     }
 
     private func processUsageAlerts(

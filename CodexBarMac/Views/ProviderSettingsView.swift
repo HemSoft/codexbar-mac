@@ -69,6 +69,7 @@ struct ProviderSettingsView: View {
     let accountID: String
     var onAccountsChanged: @MainActor () async -> Void = {}
     var onCredentialsChanged: @MainActor () async -> Void = {}
+    var onCredentialInvalidated: @MainActor () -> Void = {}
     var onAccountRefresh: @MainActor (ProviderAccountConfiguration) async -> ProviderUsageResult? = { _ in nil }
 
     @State private var configuration: ProviderAccountConfiguration
@@ -103,12 +104,14 @@ struct ProviderSettingsView: View {
         accountID: String,
         onAccountsChanged: @escaping @MainActor () async -> Void = {},
         onCredentialsChanged: @escaping @MainActor () async -> Void = {},
+        onCredentialInvalidated: @escaping @MainActor () -> Void = {},
         onAccountRefresh: @escaping @MainActor (ProviderAccountConfiguration) async -> ProviderUsageResult? = { _ in nil }
     ) {
         self.configurationStore = configurationStore
         self.accountID = accountID
         self.onAccountsChanged = onAccountsChanged
         self.onCredentialsChanged = onCredentialsChanged
+        self.onCredentialInvalidated = onCredentialInvalidated
         self.onAccountRefresh = onAccountRefresh
         self._configuration = State(
             initialValue: configurationStore.configuration(accountID: accountID)
@@ -823,6 +826,7 @@ struct ProviderSettingsView: View {
             return
         }
 
+        onCredentialInvalidated()
         secret = ""
         let workspaceConfigured = !configuration.openCodeWorkspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         openCodeCredentialMessage = workspaceConfigured
@@ -866,7 +870,6 @@ struct ProviderSettingsView: View {
 
         guard let result = await onAccountRefresh(configuration) else {
             openCodeCredentialMessage = "Refresh finished. Check the dashboard."
-            await onCredentialsChanged()
             return
         }
 
@@ -877,7 +880,6 @@ struct ProviderSettingsView: View {
             openCodeCredentialMessage = result.subtitle
         }
 
-        await onCredentialsChanged()
     }
 
     @MainActor

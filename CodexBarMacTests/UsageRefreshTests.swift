@@ -692,6 +692,7 @@ final class UsageRefreshTests: XCTestCase {
         for path in RefreshTestPath.allCases {
             for providerOutcome in RefreshTestProviderOutcome.allCases {
                 for mutation in RefreshTestMutation.allCases {
+                    let assertionLabel = "\(path.rawValue)-\(providerOutcome.rawValue)-\(mutation.rawValue)"
                     let configuration = ProviderAccountConfiguration(
                         id: "codex.\(path.rawValue).\(providerOutcome.rawValue).\(mutation.rawValue)",
                         providerID: .codex,
@@ -729,7 +730,7 @@ final class UsageRefreshTests: XCTestCase {
                         initialResults: [cached]
                     )
                     service.updateCurrentConfigurations([configuration])
-                    XCTAssertEqual(service.results, [cached], mutation.rawValue)
+                    XCTAssertEqual(service.results, [cached], assertionLabel)
 
                     let refresh = Task { @MainActor in
                         switch path {
@@ -745,7 +746,7 @@ final class UsageRefreshTests: XCTestCase {
                     }
 
                     let didStart = await provider.waitUntilStarted()
-                    XCTAssertTrue(didStart, mutation.rawValue)
+                    XCTAssertTrue(didStart, assertionLabel)
                     switch mutation {
                     case .remove:
                         service.updateCurrentConfigurations([])
@@ -768,10 +769,10 @@ final class UsageRefreshTests: XCTestCase {
                     }
 
                     if mutation == .presentation {
-                        XCTAssertEqual(service.results, [cached], mutation.rawValue)
+                        XCTAssertEqual(service.results, [cached], assertionLabel)
                     } else {
-                        XCTAssertTrue(service.results.isEmpty, mutation.rawValue)
-                        XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty, mutation.rawValue)
+                        XCTAssertTrue(service.results.isEmpty, assertionLabel)
+                        XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty, assertionLabel)
                     }
 
                     await provider.release()
@@ -780,31 +781,31 @@ final class UsageRefreshTests: XCTestCase {
                     if mutation == .presentation {
                         switch invocation {
                         case .batch(let completed):
-                            XCTAssertTrue(completed, providerOutcome.rawValue)
+                            XCTAssertTrue(completed, assertionLabel)
                         case .single(let returned):
-                            XCTAssertNotNil(returned, providerOutcome.rawValue)
+                            XCTAssertNotNil(returned, assertionLabel)
                         }
 
-                        let stored = try XCTUnwrap(service.results.first)
+                        let stored = try XCTUnwrap(service.results.first, assertionLabel)
                         switch providerOutcome {
                         case .success:
-                            XCTAssertEqual(stored, fresh, path.rawValue)
-                            XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty)
+                            XCTAssertEqual(stored, fresh, assertionLabel)
+                            XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty, assertionLabel)
                         case .failure:
-                            XCTAssertEqual(stored.bars, cached.bars, path.rawValue)
-                            XCTAssertTrue(stored.subtitle.contains("Suspended failure"), path.rawValue)
-                            XCTAssertTrue(stored.isIncompleteRefresh, path.rawValue)
-                            XCTAssertEqual(service.incompleteRefreshAccountIDs, [configuration.id])
+                            XCTAssertEqual(stored.bars, cached.bars, assertionLabel)
+                            XCTAssertTrue(stored.subtitle.contains("Suspended failure"), assertionLabel)
+                            XCTAssertTrue(stored.isIncompleteRefresh, assertionLabel)
+                            XCTAssertEqual(service.incompleteRefreshAccountIDs, [configuration.id], assertionLabel)
                         }
                     } else {
                         switch invocation {
                         case .batch(let completed):
-                            XCTAssertFalse(completed, "\(providerOutcome.rawValue)-\(mutation.rawValue)")
+                            XCTAssertFalse(completed, assertionLabel)
                         case .single(let returned):
-                            XCTAssertNil(returned, "\(providerOutcome.rawValue)-\(mutation.rawValue)")
+                            XCTAssertNil(returned, assertionLabel)
                         }
-                        XCTAssertTrue(service.results.isEmpty, mutation.rawValue)
-                        XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty, mutation.rawValue)
+                        XCTAssertTrue(service.results.isEmpty, assertionLabel)
+                        XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty, assertionLabel)
                     }
                 }
             }

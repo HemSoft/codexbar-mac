@@ -187,9 +187,11 @@ public final class UsageRefreshService: ObservableObject {
         let hadCurrentConfigurationSnapshot = hasCurrentConfigurationSnapshot
         hasCurrentConfigurationSnapshot = true
         let enabledConfigurations = configurations.filter(\.isEnabled)
-        let nextConfigurations = Dictionary(
-            uniqueKeysWithValues: enabledConfigurations.map { ($0.id, $0) }
-        )
+        let nextConfigurations = enabledConfigurations.reduce(
+            into: [String: ProviderAccountConfiguration]()
+        ) { configurationsByID, configuration in
+            configurationsByID[configuration.id] = configuration
+        }
         let accountIDs = Set(currentConfigurationsByAccountID.keys)
             .union(nextConfigurations.keys)
         var invalidatedAccountIDs = Set<String>()
@@ -470,6 +472,11 @@ public final class UsageRefreshService: ObservableObject {
     }
 }
 
+/// Refresh-relevant subset of `ProviderAccountConfiguration`.
+///
+/// Evaluate every new provider-routing field for inclusion here. Presentation-only
+/// fields such as `accountLabel`, `groupID`, and `showsHistory` stay omitted. Update
+/// `testRefreshInputsDistinguishRoutingChangesFromPresentationChanges` with this list.
 private struct RefreshInputs: Equatable {
     let providerID: ProviderID
     let authMethod: ProviderAuthMethod

@@ -148,6 +148,9 @@ struct SettingsView: View {
                                     onCredentialsChanged: {
                                         await model.handleCredentialsChanged(accountID: configuration.id)
                                     },
+                                    onCredentialInvalidated: {
+                                        model.invalidateCredential(forAccountID: configuration.id)
+                                    },
                                     onAccountRefresh: { configuration in
                                         await model.refreshAccount(configuration)
                                     }
@@ -289,7 +292,9 @@ struct SettingsView: View {
         .onAppear {
             model.launchAtLoginManager.refreshFromSystem()
             Task {
-                await model.discoverLocalCredentials()
+                if await model.discoverLocalCredentials() {
+                    await model.handleAccountsChanged()
+                }
                 await syncUsageAlertAuthorizationState()
             }
         }
