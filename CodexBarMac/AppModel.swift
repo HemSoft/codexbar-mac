@@ -60,18 +60,6 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        configurationStore.$configurations
-            .dropFirst()
-            .sink { [weak self] configurations in
-                guard let self,
-                      !self.configurationStore.isConfigurationRecoveryRequired
-                else {
-                    return
-                }
-                self.refreshService.updateCurrentConfigurations(configurations)
-            }
-            .store(in: &cancellables)
-
         historyStore.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()

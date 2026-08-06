@@ -96,10 +96,10 @@ actor GatedUsageProvider: UsageProvider {
 
     nonisolated let providerID: ProviderID
     private let outcome: Outcome
-    private var started = false
-    private var completed = false
+    private var startedCount = 0
+    private var completedCount = 0
     private var isReleased = false
-    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
 
     init(providerID: ProviderID, outcome: Outcome) {
         self.providerID = providerID
@@ -107,13 +107,13 @@ actor GatedUsageProvider: UsageProvider {
     }
 
     func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
-        started = true
+        startedCount += 1
         defer {
-            completed = true
+            completedCount += 1
         }
         if !isReleased {
             await withCheckedContinuation { continuation in
-                releaseContinuation = continuation
+                releaseContinuations.append(continuation)
             }
         }
 
@@ -125,30 +125,33 @@ actor GatedUsageProvider: UsageProvider {
         }
     }
 
-    func waitUntilStarted() async -> Bool {
+    func waitUntilStarted(count: Int = 1) async -> Bool {
         for _ in 0..<200 {
-            if started {
+            if startedCount >= count {
                 return true
             }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        return started
+        return startedCount >= count
     }
 
-    func waitUntilCompleted() async -> Bool {
+    func waitUntilCompleted(count: Int = 1) async -> Bool {
         for _ in 0..<200 {
-            if completed {
+            if completedCount >= count {
                 return true
             }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        return completed
+        return completedCount >= count
     }
 
     func release() {
         isReleased = true
-        releaseContinuation?.resume()
-        releaseContinuation = nil
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
     }
 }
 
