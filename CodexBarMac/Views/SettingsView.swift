@@ -146,7 +146,7 @@ struct SettingsView: View {
                                         await model.handleAccountsChanged()
                                     },
                                     onCredentialsChanged: {
-                                        await model.handleAccountsChanged()
+                                        await model.handleCredentialsChanged(accountID: configuration.id)
                                     },
                                     onAccountRefresh: { configuration in
                                         await model.refreshAccount(configuration)

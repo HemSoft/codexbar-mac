@@ -626,4 +626,277 @@ final class UsageRefreshTests: XCTestCase {
         XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty)
     }
 
+    @MainActor
+    func testRefreshInputsDistinguishRoutingChangesFromPresentationChanges() {
+        let original = ProviderAccountConfiguration(
+            id: "copilot.refresh-inputs",
+            providerID: .copilot,
+            accountLabel: "Original",
+            groupID: "personal",
+            showsHistory: true,
+            authMethod: .oauth,
+            oauthClientID: "client-one",
+            copilotAccountScope: .organization,
+            githubOrganization: "org-one",
+            githubEnterprise: "enterprise-one",
+            githubCLIUsername: "user-one",
+            copilotTotalAllotment: 1_000,
+            openCodeWorkspaceId: "workspace-one"
+        )
+        let service = UsageRefreshService(providers: [])
+
+        var presentationOnly = original
+        presentationOnly.accountLabel = "Renamed"
+        presentationOnly.groupID = "work"
+        presentationOnly.showsHistory = false
+        XCTAssertTrue(service.hasSameRefreshInputs(original, presentationOnly))
+
+        var inputChanges: [ProviderAccountConfiguration] = []
+        inputChanges.append(ProviderAccountConfiguration(
+            id: original.id,
+            providerID: .codex,
+            authMethod: original.authMethod
+        ))
+        var authMethod = original
+        authMethod.authMethod = .browserSession
+        inputChanges.append(authMethod)
+        var oauthClientID = original
+        oauthClientID.oauthClientID = "client-two"
+        inputChanges.append(oauthClientID)
+        var scope = original
+        scope.copilotAccountScope = .personal
+        inputChanges.append(scope)
+        var organization = original
+        organization.githubOrganization = "org-two"
+        inputChanges.append(organization)
+        var enterprise = original
+        enterprise.githubEnterprise = "enterprise-two"
+        inputChanges.append(enterprise)
+        var cliUsername = original
+        cliUsername.githubCLIUsername = "user-two"
+        inputChanges.append(cliUsername)
+        var allotment = original
+        allotment.copilotTotalAllotment = 2_000
+        inputChanges.append(allotment)
+        var workspace = original
+        workspace.openCodeWorkspaceId = "workspace-two"
+        inputChanges.append(workspace)
+
+        for changed in inputChanges {
+            XCTAssertFalse(service.hasSameRefreshInputs(original, changed))
+        }
+    }
+
+    @MainActor
+    func testGatedBatchAndSingleCompletionsRespectAccountInvalidation() async throws {
+        for path in RefreshTestPath.allCases {
+            for providerOutcome in RefreshTestProviderOutcome.allCases {
+                for mutation in RefreshTestMutation.allCases {
+                    let configuration = ProviderAccountConfiguration(
+                        id: "codex.\(path.rawValue).\(providerOutcome.rawValue).\(mutation.rawValue)",
+                        providerID: .codex,
+                        accountLabel: "Original Codex",
+                        groupID: "personal",
+                        showsHistory: true,
+                        authMethod: .browserSession,
+                        oauthClientID: "client-one"
+                    )
+                    let cached = ProviderUsageResult(
+                        accountID: configuration.id,
+                        providerID: .codex,
+                        title: configuration.displayName,
+                        subtitle: "Cached usage",
+                        bars: [UsageBar(label: "Weekly", used: 10, limit: 100)],
+                        fetchedAt: Date(timeIntervalSince1970: 1_700_000_000)
+                    )
+                    let fresh = ProviderUsageResult(
+                        accountID: configuration.id,
+                        providerID: .codex,
+                        title: configuration.displayName,
+                        subtitle: "Fresh usage",
+                        bars: [UsageBar(label: "Weekly", used: 20, limit: 100)],
+                        fetchedAt: Date(timeIntervalSince1970: 2_000_000_000)
+                    )
+                    let outcome: GatedUsageProvider.Outcome = switch providerOutcome {
+                    case .success:
+                        .result(fresh)
+                    case .failure:
+                        .failure("Suspended failure")
+                    }
+                    let provider = GatedUsageProvider(providerID: .codex, outcome: outcome)
+                    let service = UsageRefreshService(
+                        providers: [provider],
+                        initialResults: [cached]
+                    )
+                    service.updateCurrentConfigurations([configuration])
+                    XCTAssertEqual(service.results, [cached], mutation.rawValue)
+
+                    let refresh = Task { @MainActor in
+                        switch path {
+                        case .batch:
+                            return RefreshTestInvocation.batch(
+                                await service.refresh(configurations: [configuration])
+                            )
+                        case .single:
+                            return RefreshTestInvocation.single(
+                                await service.refresh(configuration: configuration)
+                            )
+                        }
+                    }
+
+                    let didStart = await provider.waitUntilStarted()
+                    XCTAssertTrue(didStart, mutation.rawValue)
+                    switch mutation {
+                    case .remove:
+                        service.updateCurrentConfigurations([])
+                    case .disable:
+                        var changed = configuration
+                        changed.isEnabled = false
+                        service.updateCurrentConfigurations([changed])
+                    case .credential:
+                        service.invalidateCredential(forAccountID: configuration.id)
+                    case .refreshInput:
+                        var changed = configuration
+                        changed.oauthClientID = "client-two"
+                        service.updateCurrentConfigurations([changed])
+                    case .presentation:
+                        var changed = configuration
+                        changed.accountLabel = "Renamed Codex"
+                        changed.groupID = "work"
+                        changed.showsHistory = false
+                        service.updateCurrentConfigurations([changed])
+                    }
+
+                    if mutation == .presentation {
+                        XCTAssertEqual(service.results, [cached], mutation.rawValue)
+                    } else {
+                        XCTAssertTrue(service.results.isEmpty, mutation.rawValue)
+                        XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty, mutation.rawValue)
+                    }
+
+                    await provider.release()
+                    let invocation = await refresh.value
+
+                    if mutation == .presentation {
+                        switch invocation {
+                        case .batch(let completed):
+                            XCTAssertTrue(completed, providerOutcome.rawValue)
+                        case .single(let returned):
+                            XCTAssertNotNil(returned, providerOutcome.rawValue)
+                        }
+
+                        let stored = try XCTUnwrap(service.results.first)
+                        switch providerOutcome {
+                        case .success:
+                            XCTAssertEqual(stored, fresh, path.rawValue)
+                            XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty)
+                        case .failure:
+                            XCTAssertEqual(stored.bars, cached.bars, path.rawValue)
+                            XCTAssertTrue(stored.subtitle.contains("Suspended failure"), path.rawValue)
+                            XCTAssertTrue(stored.isIncompleteRefresh, path.rawValue)
+                            XCTAssertEqual(service.incompleteRefreshAccountIDs, [configuration.id])
+                        }
+                    } else {
+                        switch invocation {
+                        case .batch(let completed):
+                            XCTAssertFalse(completed, "\(providerOutcome.rawValue)-\(mutation.rawValue)")
+                        case .single(let returned):
+                            XCTAssertNil(returned, "\(providerOutcome.rawValue)-\(mutation.rawValue)")
+                        }
+                        XCTAssertTrue(service.results.isEmpty, mutation.rawValue)
+                        XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty, mutation.rawValue)
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testBatchRevalidatesEarlyCompletionsBeforeApplyingTheBatch() async {
+        let completedConfiguration = ProviderAccountConfiguration(
+            id: "codex.completed-early",
+            providerID: .codex,
+            accountLabel: "Old Codex",
+            authMethod: .browserSession,
+            oauthClientID: "client-one"
+        )
+        let pendingConfiguration = ProviderAccountConfiguration(
+            id: "cursor.pending",
+            providerID: .cursor,
+            accountLabel: "Cursor",
+            authMethod: .browserSession
+        )
+        let completedResult = ProviderUsageResult(
+            accountID: completedConfiguration.id,
+            providerID: .codex,
+            title: completedConfiguration.displayName,
+            subtitle: "Obsolete early completion",
+            bars: [],
+            fetchedAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+        let pendingResult = ProviderUsageResult(
+            accountID: pendingConfiguration.id,
+            providerID: .cursor,
+            title: pendingConfiguration.displayName,
+            subtitle: "Current completion",
+            bars: [],
+            fetchedAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+        let completedProvider = GatedUsageProvider(
+            providerID: .codex,
+            outcome: .result(completedResult)
+        )
+        let pendingProvider = GatedUsageProvider(
+            providerID: .cursor,
+            outcome: .result(pendingResult)
+        )
+        let service = UsageRefreshService(providers: [completedProvider, pendingProvider])
+        service.updateCurrentConfigurations([completedConfiguration, pendingConfiguration])
+
+        let refresh = Task { @MainActor in
+            await service.refresh(configurations: [completedConfiguration, pendingConfiguration])
+        }
+        let completedDidStart = await completedProvider.waitUntilStarted()
+        let pendingDidStart = await pendingProvider.waitUntilStarted()
+        XCTAssertTrue(completedDidStart)
+        XCTAssertTrue(pendingDidStart)
+
+        await completedProvider.release()
+        let completedBeforeMutation = await completedProvider.waitUntilCompleted()
+        XCTAssertTrue(completedBeforeMutation)
+
+        var changedConfiguration = completedConfiguration
+        changedConfiguration.oauthClientID = "client-two"
+        service.updateCurrentConfigurations([changedConfiguration, pendingConfiguration])
+        await pendingProvider.release()
+
+        let completed = await refresh.value
+        XCTAssertFalse(completed)
+        XCTAssertEqual(service.results, [pendingResult])
+        XCTAssertTrue(service.incompleteRefreshAccountIDs.isEmpty)
+    }
+
+}
+
+private enum RefreshTestPath: String, CaseIterable {
+    case batch
+    case single
+}
+
+private enum RefreshTestProviderOutcome: String, CaseIterable {
+    case success
+    case failure
+}
+
+private enum RefreshTestMutation: String, CaseIterable {
+    case remove
+    case disable
+    case credential
+    case refreshInput
+    case presentation
+}
+
+private enum RefreshTestInvocation {
+    case batch(Bool)
+    case single(ProviderUsageResult?)
 }

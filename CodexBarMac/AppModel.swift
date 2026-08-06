@@ -31,6 +31,9 @@ final class AppModel: ObservableObject {
         self.isAwaitingConfigurationRecoveryCompletion =
             configurationStore.isConfigurationRecoveryCompletionPending
         configurationStore.seedDefaultConfigurationsIfNeeded()
+        if !configurationStore.isConfigurationRecoveryRequired {
+            refreshService.updateCurrentConfigurations(configurationStore.configurations)
+        }
 
         refreshService.objectWillChange
             .sink { [weak self] _ in
@@ -54,6 +57,18 @@ final class AppModel: ObservableObject {
         configurationStore.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        configurationStore.$configurations
+            .dropFirst()
+            .sink { [weak self] configurations in
+                guard let self,
+                      !self.configurationStore.isConfigurationRecoveryRequired
+                else {
+                    return
+                }
+                self.refreshService.updateCurrentConfigurations(configurations)
             }
             .store(in: &cancellables)
 
@@ -184,6 +199,7 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() async {
+        refreshService.updateCurrentConfigurations(configurationStore.configurations)
         if refreshService.isRefreshing {
             pendingRefresh = true
             return
@@ -239,7 +255,14 @@ final class AppModel: ObservableObject {
     }
 
     func handleAccountsChanged() async {
+        refreshService.updateCurrentConfigurations(configurationStore.configurations)
         updateAutoRefresh()
+        await refresh()
+    }
+
+    func handleCredentialsChanged(accountID: String) async {
+        refreshService.updateCurrentConfigurations(configurationStore.configurations)
+        refreshService.invalidateCredential(forAccountID: accountID)
         await refresh()
     }
 
@@ -251,13 +274,22 @@ final class AppModel: ObservableObject {
         }
 
         isAwaitingConfigurationRecoveryCompletion = false
+        refreshService.updateCurrentConfigurations(configurationStore.configurations)
         historyStore.removeSnapshotsForMissingAccounts(
             validAccountIDs: Set(configurationStore.configurations.map(\.id))
         )
     }
 
     func refreshAccount(_ configuration: ProviderAccountConfiguration) async -> ProviderUsageResult? {
-        await refreshService.refresh(configuration: configuration)
+        refreshService.updateCurrentConfigurations(configurationStore.configurations)
+        guard
+            let currentConfiguration = configurationStore.configuration(accountID: configuration.id),
+            currentConfiguration.isEnabled,
+            refreshService.hasSameRefreshInputs(configuration, currentConfiguration)
+        else {
+            return nil
+        }
+        return await refreshService.refresh(configuration: currentConfiguration)
     }
 
     func quit() {

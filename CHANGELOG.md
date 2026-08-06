@@ -43,6 +43,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Refreshes that finish after an account is removed, disabled, or given new
+  credentials or routing settings no longer restore stale usage, errors,
+  history, or alerts.
 - Browser sign-in now ignores malformed, stale, and unrelated local callback
   requests until the expected ChatGPT, Claude, or GitHub Copilot redirect arrives.
 - ChatGPT, Claude, GitHub Copilot, and Cursor browser sign-in now stops safely

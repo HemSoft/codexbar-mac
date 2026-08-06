@@ -9,6 +9,10 @@ public final class UsageRefreshService: ObservableObject {
 
     private let providers: [any UsageProvider]
     private var autoRefreshTask: Task<Void, Never>?
+    private var hasCurrentConfigurationSnapshot = false
+    private var currentConfigurationsByAccountID: [String: ProviderAccountConfiguration] = [:]
+    private var refreshGenerationsByAccountID: [String: UUID] = [:]
+    private var refreshInputRevision = 0
 
     public var successfulRefreshResults: [ProviderUsageResult] {
         results.filter { !incompleteRefreshAccountIDs.contains($0.accountID) }
@@ -28,51 +32,65 @@ public final class UsageRefreshService: ObservableObject {
 
     @discardableResult
     public func refresh(configurations: [ProviderAccountConfiguration]) async -> Bool {
+        updateCurrentConfigurations(configurations)
         guard !isRefreshing else {
             return false
         }
 
+        let revision = refreshInputRevision
         isRefreshing = true
         defer {
             isRefreshing = false
         }
 
         let enabledConfigurations = configurations.filter(\.isEnabled)
-        let enabledAccountIDs = Set(enabledConfigurations.map(\.id))
-        var nextResults: [ProviderUsageResult] = []
-        var unavailableAccountIDs = Set<String>()
+        var outcomes: [(ProviderAccountConfiguration, UUID, ProviderUsageResult?)] = []
 
-        await withTaskGroup(of: (String, ProviderUsageResult?).self) { group in
+        await withTaskGroup(
+            of: (ProviderAccountConfiguration, UUID, ProviderUsageResult?).self
+        ) { group in
             for configuration in enabledConfigurations {
+                guard
+                    isCurrent(configuration),
+                    let generation = refreshGenerationsByAccountID[configuration.id]
+                else {
+                    continue
+                }
                 guard let provider = providers.first(where: { $0.providerID == configuration.providerID }) else {
                     let errorResult = Self.errorResult(for: configuration, error: MissingUsageProviderError())
-                    nextResults.append(errorResult)
+                    group.addTask {
+                        (configuration, generation, errorResult)
+                    }
                     continue
                 }
 
                 group.addTask {
                     let result = await Self.fetchUsageWithTimeout(provider: provider, configuration: configuration)
-                    return (configuration.id, result)
+                    return (configuration, generation, result)
                 }
             }
 
-            for await (accountID, result) in group {
-                guard let result else {
-                    unavailableAccountIDs.insert(accountID)
-                    continue
-                }
-
-                nextResults.append(result)
+            for await (configuration, generation, result) in group {
+                outcomes.append((configuration, generation, result))
             }
         }
 
-        applyBulkResults(nextResults, enabledAccountIDs: enabledAccountIDs)
+        let currentOutcomes = outcomes.filter { configuration, generation, _ in
+            isCurrent(configuration, generation: generation)
+        }
+        let nextResults = currentOutcomes.compactMap(\.2)
+        let unavailableAccountIDs = Set(
+            currentOutcomes.lazy
+                .filter { $0.2 == nil }
+                .map { $0.0.id }
+        )
+        applyBulkResults(nextResults)
         incompleteRefreshAccountIDs = unavailableAccountIDs.union(
             results.lazy
                 .filter(\.isIncompleteRefresh)
                 .map(\.accountID)
         )
-        return true
+        return refreshInputRevision == revision
     }
 
     @discardableResult
@@ -81,8 +99,24 @@ public final class UsageRefreshService: ObservableObject {
             return nil
         }
 
+        let generation: UUID
+        if hasCurrentConfigurationSnapshot {
+            guard
+                isCurrent(configuration),
+                let currentGeneration = refreshGenerationsByAccountID[configuration.id]
+            else {
+                return nil
+            }
+            generation = currentGeneration
+        } else {
+            generation = registerCurrentConfiguration(configuration)
+        }
+
         guard let provider = providers.first(where: { $0.providerID == configuration.providerID }) else {
             let errorResult = Self.errorResult(for: configuration, error: MissingUsageProviderError())
+            guard isCurrent(configuration, generation: generation) else {
+                return nil
+            }
             if replaceResult(errorResult) {
                 incompleteRefreshAccountIDs.insert(configuration.id)
             }
@@ -90,7 +124,10 @@ public final class UsageRefreshService: ObservableObject {
         }
 
         let result = await Self.fetchUsageWithTimeout(provider: provider, configuration: configuration)
-        guard let result else {
+        guard
+            let result,
+            isCurrent(configuration, generation: generation)
+        else {
             return nil
         }
 
@@ -144,10 +181,66 @@ public final class UsageRefreshService: ObservableObject {
         autoRefreshTask = nil
     }
 
-    private func applyBulkResults(
-        _ incoming: [ProviderUsageResult],
-        enabledAccountIDs: Set<String>
+    func updateCurrentConfigurations(
+        _ configurations: [ProviderAccountConfiguration]
     ) {
+        let hadCurrentConfigurationSnapshot = hasCurrentConfigurationSnapshot
+        hasCurrentConfigurationSnapshot = true
+        let enabledConfigurations = configurations.filter(\.isEnabled)
+        let nextConfigurations = Dictionary(
+            uniqueKeysWithValues: enabledConfigurations.map { ($0.id, $0) }
+        )
+        let accountIDs = Set(currentConfigurationsByAccountID.keys)
+            .union(nextConfigurations.keys)
+        var invalidatedAccountIDs = Set<String>()
+
+        for accountID in accountIDs {
+            let currentConfiguration = currentConfigurationsByAccountID[accountID]
+            let nextConfiguration = nextConfigurations[accountID]
+            guard currentConfiguration != nextConfiguration,
+                  refreshInputsChanged(from: currentConfiguration, to: nextConfiguration)
+            else {
+                continue
+            }
+
+            invalidatedAccountIDs.insert(accountID)
+            if nextConfiguration == nil {
+                refreshGenerationsByAccountID.removeValue(forKey: accountID)
+            } else {
+                refreshGenerationsByAccountID[accountID] = UUID()
+            }
+        }
+
+        currentConfigurationsByAccountID = nextConfigurations
+        if !invalidatedAccountIDs.isEmpty {
+            refreshInputRevision += 1
+        }
+
+        let enabledAccountIDs = Set(nextConfigurations.keys)
+        let evictedAccountIDs = hadCurrentConfigurationSnapshot ? invalidatedAccountIDs : []
+        pruneCachedState(to: enabledAccountIDs.subtracting(evictedAccountIDs))
+    }
+
+    func invalidateCredential(forAccountID accountID: String) {
+        guard currentConfigurationsByAccountID[accountID] != nil else {
+            pruneCachedState(to: Set(currentConfigurationsByAccountID.keys))
+            return
+        }
+
+        refreshGenerationsByAccountID[accountID] = UUID()
+        refreshInputRevision += 1
+        pruneCachedState(to: Set(currentConfigurationsByAccountID.keys).subtracting([accountID]))
+    }
+
+    func hasSameRefreshInputs(
+        _ first: ProviderAccountConfiguration,
+        _ second: ProviderAccountConfiguration
+    ) -> Bool {
+        RefreshInputs(configuration: first) == RefreshInputs(configuration: second)
+    }
+
+    private func applyBulkResults(_ incoming: [ProviderUsageResult]) {
+        let enabledAccountIDs = Set(currentConfigurationsByAccountID.keys)
         var merged = Dictionary(
             uniqueKeysWithValues: results
                 .filter { enabledAccountIDs.contains($0.accountID) }
@@ -155,6 +248,9 @@ public final class UsageRefreshService: ObservableObject {
         )
 
         for result in incoming {
+            guard enabledAccountIDs.contains(result.accountID) else {
+                continue
+            }
             if let existing = merged[result.accountID] {
                 if result.fetchedAt >= existing.fetchedAt {
                     merged[result.accountID] = Self.preservingUsageData(
@@ -168,6 +264,54 @@ public final class UsageRefreshService: ObservableObject {
         }
 
         results = merged.values.sorted { $0.title < $1.title }
+    }
+
+    private func pruneCachedState(to allowedAccountIDs: Set<String>) {
+        let nextResults = results.filter { allowedAccountIDs.contains($0.accountID) }
+        if nextResults != results {
+            results = nextResults
+        }
+        let nextIncompleteAccountIDs = incompleteRefreshAccountIDs.intersection(allowedAccountIDs)
+        if nextIncompleteAccountIDs != incompleteRefreshAccountIDs {
+            incompleteRefreshAccountIDs = nextIncompleteAccountIDs
+        }
+    }
+
+    private func refreshInputsChanged(
+        from currentConfiguration: ProviderAccountConfiguration?,
+        to nextConfiguration: ProviderAccountConfiguration?
+    ) -> Bool {
+        guard let currentConfiguration, let nextConfiguration else {
+            return true
+        }
+        return !hasSameRefreshInputs(currentConfiguration, nextConfiguration)
+    }
+
+    private func registerCurrentConfiguration(
+        _ configuration: ProviderAccountConfiguration
+    ) -> UUID {
+        if currentConfigurationsByAccountID[configuration.id] != configuration {
+            currentConfigurationsByAccountID[configuration.id] = configuration
+            refreshGenerationsByAccountID[configuration.id] = UUID()
+        }
+        let generation = refreshGenerationsByAccountID[configuration.id] ?? UUID()
+        refreshGenerationsByAccountID[configuration.id] = generation
+        return generation
+    }
+
+    private func isCurrent(_ configuration: ProviderAccountConfiguration) -> Bool {
+        currentConfigurationsByAccountID[configuration.id] == configuration
+    }
+
+    private func isCurrent(
+        _ configuration: ProviderAccountConfiguration,
+        generation: UUID
+    ) -> Bool {
+        guard let currentConfiguration = currentConfigurationsByAccountID[configuration.id] else {
+            return false
+        }
+        return !refreshInputsChanged(from: configuration, to: currentConfiguration)
+            && refreshGenerationsByAccountID[configuration.id] == generation
     }
 
     @discardableResult
@@ -323,6 +467,30 @@ public final class UsageRefreshService: ObservableObject {
             isIncompleteRefresh: true,
             fetchedAt: Date()
         )
+    }
+}
+
+private struct RefreshInputs: Equatable {
+    let providerID: ProviderID
+    let authMethod: ProviderAuthMethod
+    let oauthClientID: String?
+    let copilotAccountScope: CopilotAccountScope
+    let githubOrganization: String
+    let githubEnterprise: String
+    let githubCLIUsername: String
+    let copilotTotalAllotment: Double?
+    let openCodeWorkspaceId: String
+
+    init(configuration: ProviderAccountConfiguration) {
+        self.providerID = configuration.providerID
+        self.authMethod = configuration.authMethod
+        self.oauthClientID = configuration.oauthClientID
+        self.copilotAccountScope = configuration.copilotAccountScope
+        self.githubOrganization = configuration.githubOrganization
+        self.githubEnterprise = configuration.githubEnterprise
+        self.githubCLIUsername = configuration.githubCLIUsername
+        self.copilotTotalAllotment = configuration.copilotTotalAllotment
+        self.openCodeWorkspaceId = configuration.openCodeWorkspaceId
     }
 }
 

@@ -88,6 +88,70 @@ actor BlockingUsageProvider: UsageProvider {
     }
 }
 
+actor GatedUsageProvider: UsageProvider {
+    enum Outcome: Sendable {
+        case failure(String)
+        case result(ProviderUsageResult)
+    }
+
+    nonisolated let providerID: ProviderID
+    private let outcome: Outcome
+    private var started = false
+    private var completed = false
+    private var isReleased = false
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    init(providerID: ProviderID, outcome: Outcome) {
+        self.providerID = providerID
+        self.outcome = outcome
+    }
+
+    func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
+        started = true
+        defer {
+            completed = true
+        }
+        if !isReleased {
+            await withCheckedContinuation { continuation in
+                releaseContinuation = continuation
+            }
+        }
+
+        switch outcome {
+        case .failure(let message):
+            throw SequencedUsageProviderError(message: message)
+        case .result(let result):
+            return result
+        }
+    }
+
+    func waitUntilStarted() async -> Bool {
+        for _ in 0..<200 {
+            if started {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return started
+    }
+
+    func waitUntilCompleted() async -> Bool {
+        for _ in 0..<200 {
+            if completed {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return completed
+    }
+
+    func release() {
+        isReleased = true
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+}
+
 struct SequencedUsageProviderError: LocalizedError {
     let message: String
 
