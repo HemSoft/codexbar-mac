@@ -819,7 +819,10 @@ struct ProviderSettingsView: View {
             }
 
             openCodeCredentialMessage = "OpenCode settings saved. Add a dashboard auth value to refresh."
-            requestCredentialRefresh()
+            onAccountsInvalidated()
+            Task {
+                await onAccountRefreshRequested()
+            }
             return
         }
 
