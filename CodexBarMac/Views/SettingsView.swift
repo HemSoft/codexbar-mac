@@ -145,11 +145,11 @@ struct SettingsView: View {
                                     onAccountsChanged: {
                                         await model.handleAccountsChanged()
                                     },
-                                    onCredentialsChanged: {
-                                        await model.handleCredentialsChanged(accountID: configuration.id)
-                                    },
                                     onCredentialInvalidated: {
                                         model.invalidateCredential(forAccountID: configuration.id)
+                                    },
+                                    onCredentialRefreshRequested: {
+                                        await model.refreshAfterCredentialChange()
                                     },
                                     onAccountRefresh: { configuration in
                                         await model.refreshAccount(configuration)

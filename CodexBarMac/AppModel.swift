@@ -254,8 +254,7 @@ final class AppModel: ObservableObject {
         await refresh()
     }
 
-    func handleCredentialsChanged(accountID: String) async {
-        invalidateCredential(forAccountID: accountID)
+    func refreshAfterCredentialChange() async {
         await refresh()
     }
 

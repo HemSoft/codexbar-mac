@@ -68,8 +68,8 @@ struct ProviderSettingsView: View {
     @ObservedObject var configurationStore: ProviderConfigurationStore
     let accountID: String
     var onAccountsChanged: @MainActor () async -> Void = {}
-    var onCredentialsChanged: @MainActor () async -> Void = {}
     var onCredentialInvalidated: @MainActor () -> Void = {}
+    var onCredentialRefreshRequested: @MainActor () async -> Void = {}
     var onAccountRefresh: @MainActor (ProviderAccountConfiguration) async -> ProviderUsageResult? = { _ in nil }
 
     @State private var configuration: ProviderAccountConfiguration
@@ -103,15 +103,15 @@ struct ProviderSettingsView: View {
         configurationStore: ProviderConfigurationStore,
         accountID: String,
         onAccountsChanged: @escaping @MainActor () async -> Void = {},
-        onCredentialsChanged: @escaping @MainActor () async -> Void = {},
         onCredentialInvalidated: @escaping @MainActor () -> Void = {},
+        onCredentialRefreshRequested: @escaping @MainActor () async -> Void = {},
         onAccountRefresh: @escaping @MainActor (ProviderAccountConfiguration) async -> ProviderUsageResult? = { _ in nil }
     ) {
         self.configurationStore = configurationStore
         self.accountID = accountID
         self.onAccountsChanged = onAccountsChanged
-        self.onCredentialsChanged = onCredentialsChanged
         self.onCredentialInvalidated = onCredentialInvalidated
+        self.onCredentialRefreshRequested = onCredentialRefreshRequested
         self.onAccountRefresh = onAccountRefresh
         self._configuration = State(
             initialValue: configurationStore.configuration(accountID: accountID)
@@ -393,9 +393,7 @@ struct ProviderSettingsView: View {
                     onSuccess: {
                         secret = ""
                         openCodeCredentialMessage = "OpenCode credential removed."
-                        Task {
-                            await onCredentialsChanged()
-                        }
+                        requestCredentialRefresh()
                     }
                 )
             }
@@ -527,6 +525,13 @@ struct ProviderSettingsView: View {
         return value
     }
 
+    private func requestCredentialRefresh() {
+        onCredentialInvalidated()
+        Task {
+            await onCredentialRefreshRequested()
+        }
+    }
+
     private func saveSecret() {
         let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSecret.isEmpty else {
@@ -539,9 +544,7 @@ struct ProviderSettingsView: View {
             using: configurationStore,
             onSuccess: {
                 secret = ""
-                Task {
-                    await onCredentialsChanged()
-                }
+                requestCredentialRefresh()
             }
         )
     }
@@ -553,9 +556,7 @@ struct ProviderSettingsView: View {
             using: configurationStore,
             onSuccess: {
                 secret = ""
-                Task {
-                    await onCredentialsChanged()
-                }
+                requestCredentialRefresh()
             }
         )
     }
@@ -574,9 +575,7 @@ struct ProviderSettingsView: View {
                 codexAuthError = nil
                 claudeAuthError = nil
                 claudeAuthDiagnostic = nil
-                Task {
-                    await onCredentialsChanged()
-                }
+                requestCredentialRefresh()
             }
         )
     }
@@ -590,9 +589,7 @@ struct ProviderSettingsView: View {
             onSuccess: {
                 copilotAuthError = nil
                 secret = ""
-                Task {
-                    await onCredentialsChanged()
-                }
+                requestCredentialRefresh()
             }
         )
     }
@@ -654,7 +651,8 @@ struct ProviderSettingsView: View {
             }
             configuration = updated
             secret = ""
-            await onCredentialsChanged()
+            onCredentialInvalidated()
+            await onCredentialRefreshRequested()
         } catch {
             codexAuthError = Task.isCancelled
                 ? "ChatGPT sign-in canceled. The existing account was not changed."
@@ -711,7 +709,8 @@ struct ProviderSettingsView: View {
             configuration = updated
             secret = ""
             claudeAuthDiagnostic = "Claude sign-in complete."
-            await onCredentialsChanged()
+            onCredentialInvalidated()
+            await onCredentialRefreshRequested()
         } catch {
             claudeAuthError = Task.isCancelled
                 ? "Claude sign-in canceled. The existing account was not changed."
@@ -778,7 +777,8 @@ struct ProviderSettingsView: View {
             }
             configuration = updated
             secret = ""
-            await onCredentialsChanged()
+            onCredentialInvalidated()
+            await onCredentialRefreshRequested()
         } catch {
             copilotAuthError = Task.isCancelled
                 ? "GitHub sign-in canceled. The existing account was not changed."
@@ -815,9 +815,7 @@ struct ProviderSettingsView: View {
             }
 
             openCodeCredentialMessage = "OpenCode settings saved. Add a dashboard auth value to refresh."
-            Task {
-                await onCredentialsChanged()
-            }
+            requestCredentialRefresh()
             return
         }
 
@@ -924,7 +922,8 @@ struct ProviderSettingsView: View {
             }
             configuration = connectedConfiguration
             secret = ""
-            await onCredentialsChanged()
+            onCredentialInvalidated()
+            await onCredentialRefreshRequested()
         } catch {
             cursorAuthError = Task.isCancelled
                 ? "Cursor sign-in canceled. The existing account was not changed."
@@ -940,9 +939,7 @@ struct ProviderSettingsView: View {
             return
         }
         configuration = disconnectedConfiguration
-        Task {
-            await onCredentialsChanged()
-        }
+        requestCredentialRefresh()
     }
 
     private static let openCodeBalanceFormatter: NumberFormatter = {
