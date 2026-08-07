@@ -5,9 +5,11 @@ actor CredentialRefreshCoordinator<Result: Sendable> {
 
     func run(
         for account: String,
+        onJoinExistingTask: (@Sendable () -> Void)? = nil,
         operation: @escaping @Sendable () async -> Result
     ) async -> Result {
         if let task = inFlightTasks[account] {
+            onJoinExistingTask?()
             return await task.value
         }
 

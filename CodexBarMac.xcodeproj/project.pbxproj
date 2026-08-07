@@ -90,6 +90,7 @@
 		A1000000000000000000000E /* RefreshTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* RefreshTestSupport.swift */; };
 		A1000000000000000000000F /* CredentialTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* CredentialTestSupport.swift */; };
 		A10000000000000000000010 /* NetworkTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* NetworkTestSupport.swift */; };
+		A10000000000000000000011 /* CredentialRefreshCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* CredentialRefreshCoordinatorTests.swift */; };
 		100000000000000000000047 /* CheckForUpdatesButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000049 /* CheckForUpdatesButton.swift */; };
 		100000000000000000000048 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E00000000000000000000001 /* Sparkle */; };
 		100000000000000000000049 /* DashboardTextSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000004A /* DashboardTextSize.swift */; };
@@ -184,6 +185,7 @@
 		A2000000000000000000000E /* RefreshTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshTestSupport.swift; sourceTree = "<group>"; };
 		A2000000000000000000000F /* CredentialTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialTestSupport.swift; sourceTree = "<group>"; };
 		A20000000000000000000010 /* NetworkTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkTestSupport.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* CredentialRefreshCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialRefreshCoordinatorTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -369,6 +371,7 @@
 				A2000000000000000000000E /* RefreshTestSupport.swift */,
 				A2000000000000000000000F /* CredentialTestSupport.swift */,
 				A20000000000000000000010 /* NetworkTestSupport.swift */,
+				A20000000000000000000011 /* CredentialRefreshCoordinatorTests.swift */,
 			);
 			path = CodexBarMacTests;
 			sourceTree = "<group>";
@@ -486,6 +489,7 @@
 				A1000000000000000000000E /* RefreshTestSupport.swift in Sources */,
 				A1000000000000000000000F /* CredentialTestSupport.swift in Sources */,
 				A10000000000000000000010 /* NetworkTestSupport.swift in Sources */,
+				A10000000000000000000011 /* CredentialRefreshCoordinatorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

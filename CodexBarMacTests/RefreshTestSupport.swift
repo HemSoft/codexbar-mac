@@ -1,6 +1,198 @@
 import XCTest
 @testable import CodexBarMac
 
+final class TestSignal: @unchecked Sendable {
+    private let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.stream = stream
+        self.continuation = continuation
+    }
+
+    deinit {}
+
+    func signal() {
+        continuation.yield()
+    }
+
+    func wait() async {
+        for await _ in stream {
+            return
+        }
+    }
+}
+
+actor TestAsyncGate {
+    private let blocked = TestSignal()
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            blocked.signal()
+        }
+    }
+
+    func waitUntilBlocked() async {
+        await blocked.wait()
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+struct TestWatchdogError: LocalizedError, Sendable {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
+private final class TestWatchdogStartLatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    deinit {}
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = lock.withLock {
+                guard !isOpen else { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func open() {
+        let pendingWaiters = lock.withLock {
+            isOpen = true
+            defer { waiters.removeAll() }
+            return waiters
+        }
+        for waiter in pendingWaiters {
+            waiter.resume()
+        }
+    }
+}
+
+private final class TestWatchdogTaskCoordinator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isTerminated = false
+    private var tasks: [Task<Void, Never>] = []
+
+    deinit {}
+
+    func install(_ tasks: [Task<Void, Never>]) {
+        let shouldCancel = lock.withLock {
+            guard !isTerminated else { return true }
+            self.tasks = tasks
+            return false
+        }
+        guard shouldCancel else { return }
+
+        for task in tasks {
+            task.cancel()
+        }
+    }
+
+    func terminate() {
+        let tasksToCancel = lock.withLock {
+            isTerminated = true
+            defer { tasks.removeAll() }
+            return tasks
+        }
+        for task in tasksToCancel {
+            task.cancel()
+        }
+    }
+}
+
+private final class TestWatchdogOutcomeCoordinator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didChooseOutcome = false
+
+    deinit {}
+
+    func claimOperation() -> Bool {
+        claimOutcome()
+    }
+
+    func claimTimeout() -> Bool {
+        claimOutcome()
+    }
+
+    private func claimOutcome() -> Bool {
+        lock.withLock {
+            guard !didChooseOutcome else { return false }
+            didChooseOutcome = true
+            return true
+        }
+    }
+}
+
+func withTestWatchdog<Result: Sendable>(
+    timeout: Duration,
+    failureMessage: String,
+    onTimeout: @escaping @Sendable () -> Void,
+    waitForTimeout: @escaping @Sendable (Duration) async throws -> Void = { duration in
+        try await Task.sleep(for: duration)
+    },
+    operation: @escaping @Sendable () async throws -> Result
+) async throws -> Result {
+    let outcomes = AsyncThrowingStream(Result.self) { continuation in
+        let startLatch = TestWatchdogStartLatch()
+        let taskCoordinator = TestWatchdogTaskCoordinator()
+        let outcomeCoordinator = TestWatchdogOutcomeCoordinator()
+        continuation.onTermination = { _ in
+            taskCoordinator.terminate()
+        }
+
+        let operationTask = Task {
+            await startLatch.wait()
+            do {
+                let result = try await operation()
+                guard outcomeCoordinator.claimOperation() else { return }
+                continuation.yield(result)
+                continuation.finish()
+            } catch {
+                guard outcomeCoordinator.claimOperation() else { return }
+                continuation.finish(throwing: error)
+            }
+        }
+        let timeoutTask = Task {
+            await startLatch.wait()
+            do {
+                try await waitForTimeout(timeout)
+                try Task.checkCancellation()
+            } catch {
+                return
+            }
+
+            guard outcomeCoordinator.claimTimeout() else { return }
+            onTimeout()
+            continuation.finish(throwing: TestWatchdogError(message: failureMessage))
+        }
+        taskCoordinator.install([operationTask, timeoutTask])
+        startLatch.open()
+    }
+
+    for try await result in outcomes {
+        return result
+    }
+    throw CancellationError()
+}
+
 struct StubUsageProvider: UsageProvider {
     let providerID: ProviderID
     let result: ProviderUsageResult

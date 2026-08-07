@@ -580,6 +580,99 @@ final class CopilotProviderTests: XCTestCase {
         XCTAssertEqual(result.bars.first?.used, 25)
     }
 
+    func testConcurrentCopilotFetchesCoalesceBrowserCredentialRefresh() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            id: "copilot.concurrent-refresh",
+            providerID: .copilot,
+            accountLabel: "octocat",
+            authMethod: .browserSession
+        )
+        try secretStore.saveSecret(
+            CopilotCredentialsParser.storedCredential(from: CopilotCredentials(
+                accessToken: "old-access",
+                username: "octocat",
+                refreshToken: "old-refresh",
+                expiresAt: 2_000_000_060,
+                refreshTokenExpiresAt: 2_100_000_000
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let refreshJoined = TestSignal()
+        let refreshGate = CopilotRefreshRequestGate()
+        let recorder = CopilotConcurrentRequestRecorder()
+        let sessionFixture = IsolatedTestURLSession { request in
+            if request.url?.path == "/github-token" {
+                recorder.recordRefreshRequest()
+                refreshGate.blockUntilReleased()
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!,
+                    Data(#"{"access_token":"new-access","refresh_token":"new-refresh","expires_in":28800,"refresh_token_expires_in":15897600}"#.utf8)
+                )
+            }
+
+            recorder.recordUsageRequest(
+                authorization: request.value(forHTTPHeaderField: "Authorization")
+            )
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"login":"octocat","copilot_plan":"individual_pro","quota_reset_date_utc":"2033-05-19T03:33:20Z","quota_snapshots":{"premium_interactions":{"entitlement":100,"remaining":75,"unlimited":false}}}"#.utf8)
+            )
+        }
+        defer {
+            refreshGate.release()
+            sessionFixture.invalidate()
+        }
+        let provider = CopilotUsageProvider(
+            secretStore: secretStore,
+            session: sessionFixture.session,
+            usageEndpoint: URL(string: "https://example.test/copilot-usage")!,
+            tokenEndpoint: URL(string: "https://example.test/github-token")!,
+            oauthConfiguration: CopilotOAuthConfiguration(clientID: "client", clientSecret: "secret"),
+            now: { now },
+            onJoinInFlightRefresh: { refreshJoined.signal() }
+        )
+
+        let results = try await withTestWatchdog(
+            timeout: .seconds(10),
+            failureMessage: "Copilot concurrent refresh did not finish within the test bound.",
+            onTimeout: {
+                refreshGate.release()
+                sessionFixture.invalidate()
+            }
+        ) {
+            let first = Task { try await provider.fetchUsage(for: configuration) }
+            defer {
+                first.cancel()
+                refreshGate.release()
+            }
+            await refreshGate.waitUntilBlocked()
+
+            let second = Task { try await provider.fetchUsage(for: configuration) }
+            defer { second.cancel() }
+            await refreshJoined.wait()
+
+            refreshGate.release()
+            return try await [first.value, second.value]
+        }
+
+        XCTAssertEqual(recorder.refreshRequestCount, 1)
+        XCTAssertEqual(recorder.usageAuthorizations, ["token new-access", "token new-access"])
+        XCTAssertTrue(results.allSatisfy { $0.bars.first?.used == 25 })
+    }
+
     func testCopilotUsageProviderDoesNotCacheActiveCLIAccountToken() async throws {
         let tokenCounter = CopilotTokenResolverCounter()
         let sessionConfiguration = URLSessionConfiguration.ephemeral
@@ -1304,4 +1397,56 @@ final class CopilotProviderTests: XCTestCase {
         XCTAssertEqual(result.bars.map(\.label), ["Current AI credits (1,500 / 150,000)"])
     }
 
+}
+
+private final class CopilotRefreshRequestGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private let requestStarted = TestSignal()
+    private var released = false
+
+    deinit {}
+
+    func blockUntilReleased() {
+        condition.lock()
+        requestStarted.signal()
+        while !released {
+            condition.wait()
+        }
+        condition.unlock()
+    }
+
+    func waitUntilBlocked() async {
+        await requestStarted.wait()
+    }
+
+    func release() {
+        condition.lock()
+        released = true
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
+private final class CopilotConcurrentRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var refreshRequests = 0
+    private var authorizations: [String?] = []
+
+    deinit {}
+
+    var refreshRequestCount: Int {
+        lock.withLock { refreshRequests }
+    }
+
+    var usageAuthorizations: [String?] {
+        lock.withLock { authorizations }
+    }
+
+    func recordRefreshRequest() {
+        lock.withLock { refreshRequests += 1 }
+    }
+
+    func recordUsageRequest(authorization: String?) {
+        lock.withLock { authorizations.append(authorization) }
+    }
 }

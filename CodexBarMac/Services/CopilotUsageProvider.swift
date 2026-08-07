@@ -26,11 +26,12 @@ public final class CopilotUsageProvider: UsageProvider {
     private let oauthConfiguration: CopilotOAuthConfiguration
     private let gitHubTokenResolver: GitHubTokenResolver
     private let now: @Sendable () -> Date
+    private let onJoinInFlightRefresh: (@Sendable () -> Void)?
     private let cliTokenCache = CopilotCLITokenCache()
 
     public let providerID = ProviderID.copilot
 
-    public init(
+    public convenience init(
         secretStore: any SecretStore = KeychainService(),
         session: URLSession = .shared,
         usageEndpoint: URL = URL(string: "https://api.github.com/copilot_internal/user")!,
@@ -39,6 +40,30 @@ public final class CopilotUsageProvider: UsageProvider {
         oauthConfiguration: CopilotOAuthConfiguration = .bundled,
         gitHubTokenResolver: (@Sendable (String?) throws -> String?)? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.init(
+            secretStore: secretStore,
+            session: session,
+            usageEndpoint: usageEndpoint,
+            githubAPIBaseURL: githubAPIBaseURL,
+            tokenEndpoint: tokenEndpoint,
+            oauthConfiguration: oauthConfiguration,
+            gitHubTokenResolver: gitHubTokenResolver,
+            now: now,
+            onJoinInFlightRefresh: nil
+        )
+    }
+
+    init(
+        secretStore: any SecretStore,
+        session: URLSession,
+        usageEndpoint: URL,
+        githubAPIBaseURL: URL = URL(string: "https://api.github.com")!,
+        tokenEndpoint: URL,
+        oauthConfiguration: CopilotOAuthConfiguration,
+        gitHubTokenResolver: (@Sendable (String?) throws -> String?)? = nil,
+        now: @escaping @Sendable () -> Date,
+        onJoinInFlightRefresh: (@Sendable () -> Void)?
     ) {
         self.secretStore = secretStore
         self.session = session
@@ -50,6 +75,7 @@ public final class CopilotUsageProvider: UsageProvider {
             try LocalCredentialDiscovery.gitHubAuthToken(for: username)
         }
         self.now = now
+        self.onJoinInFlightRefresh = onJoinInFlightRefresh
     }
 
     public func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
@@ -449,7 +475,10 @@ public final class CopilotUsageProvider: UsageProvider {
         _ credentials: CopilotCredentials,
         keychainAccount: String
     ) async -> CopilotCredentialRefreshResult {
-        await Self.refreshCoordinator.run(for: keychainAccount) { [self] in
+        await Self.refreshCoordinator.run(
+            for: keychainAccount,
+            onJoinExistingTask: onJoinInFlightRefresh
+        ) { [self] in
             await performCredentialRefresh(credentials, keychainAccount: keychainAccount)
         }
     }
