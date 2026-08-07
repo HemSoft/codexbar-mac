@@ -31,7 +31,7 @@ public final class CopilotUsageProvider: UsageProvider {
 
     public let providerID = ProviderID.copilot
 
-    public init(
+    public convenience init(
         secretStore: any SecretStore = KeychainService(),
         session: URLSession = .shared,
         usageEndpoint: URL = URL(string: "https://api.github.com/copilot_internal/user")!,
@@ -41,17 +41,17 @@ public final class CopilotUsageProvider: UsageProvider {
         gitHubTokenResolver: (@Sendable (String?) throws -> String?)? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.secretStore = secretStore
-        self.session = session
-        self.usageEndpoint = usageEndpoint
-        self.githubAPIBaseURL = githubAPIBaseURL
-        self.tokenEndpoint = tokenEndpoint
-        self.oauthConfiguration = oauthConfiguration
-        self.gitHubTokenResolver = gitHubTokenResolver ?? { username in
-            try LocalCredentialDiscovery.gitHubAuthToken(for: username)
-        }
-        self.now = now
-        self.onJoinInFlightRefresh = nil
+        self.init(
+            secretStore: secretStore,
+            session: session,
+            usageEndpoint: usageEndpoint,
+            githubAPIBaseURL: githubAPIBaseURL,
+            tokenEndpoint: tokenEndpoint,
+            oauthConfiguration: oauthConfiguration,
+            gitHubTokenResolver: gitHubTokenResolver,
+            now: now,
+            onJoinInFlightRefresh: nil
+        )
     }
 
     init(

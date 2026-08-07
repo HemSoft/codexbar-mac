@@ -1404,6 +1404,8 @@ private final class CopilotRefreshRequestGate: @unchecked Sendable {
     private let requestStarted = TestSignal()
     private var released = false
 
+    deinit {}
+
     func blockUntilReleased() {
         condition.lock()
         requestStarted.signal()
@@ -1429,6 +1431,8 @@ private final class CopilotConcurrentRequestRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var refreshRequests = 0
     private var authorizations: [String?] = []
+
+    deinit {}
 
     var refreshRequestCount: Int {
         lock.withLock { refreshRequests }

@@ -14,6 +14,8 @@ final class TestSignal: @unchecked Sendable {
         self.continuation = continuation
     }
 
+    deinit {}
+
     func signal() {
         continuation.yield()
     }
@@ -30,9 +32,9 @@ actor TestAsyncGate {
     private var continuation: CheckedContinuation<Void, Never>?
 
     func wait() async {
-        blocked.signal()
         await withCheckedContinuation { continuation in
             self.continuation = continuation
+            blocked.signal()
         }
     }
 
@@ -56,6 +58,8 @@ private final class TestWatchdogStartLatch: @unchecked Sendable {
     private let lock = NSLock()
     private var isOpen = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    deinit {}
 
     func wait() async {
         await withCheckedContinuation { continuation in
@@ -87,6 +91,8 @@ private final class TestWatchdogTaskCoordinator: @unchecked Sendable {
     private var isTerminated = false
     private var tasks: [Task<Void, Never>] = []
 
+    deinit {}
+
     func install(_ tasks: [Task<Void, Never>]) {
         let shouldCancel = lock.withLock {
             guard !isTerminated else { return true }
@@ -115,6 +121,8 @@ private final class TestWatchdogTaskCoordinator: @unchecked Sendable {
 private final class TestWatchdogOutcomeCoordinator: @unchecked Sendable {
     private let lock = NSLock()
     private var didChooseOutcome = false
+
+    deinit {}
 
     func claimOperation() -> Bool {
         claimOutcome()

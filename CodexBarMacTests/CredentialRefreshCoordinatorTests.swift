@@ -2,6 +2,8 @@ import XCTest
 @testable import CodexBarMac
 
 final class CredentialRefreshCoordinatorTests: XCTestCase {
+    deinit {}
+
     func testSameAccountJoinsOneInFlightOperation() async throws {
         let coordinator = CredentialRefreshCoordinator<Int>()
         let operationCount = RefreshOperationCounter()
@@ -138,6 +140,8 @@ private actor RefreshOperationCounter {
 private final class LockedTestFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var value = false
+
+    deinit {}
 
     func set() {
         lock.withLock { value = true }
