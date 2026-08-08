@@ -69,13 +69,56 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
 typealias IsolatedTestURLProtocolHandler = @Sendable (URLRequest) async throws -> (HTTPURLResponse, Data)
 
 private final class IsolatedTestURLProtocol: URLProtocol, @unchecked Sendable {
+    deinit {}
+
     private final class LoadContext: @unchecked Sendable {
+        deinit {}
+
+        private let lock = NSRecursiveLock()
         weak var protocolInstance: IsolatedTestURLProtocol?
         weak var client: (any URLProtocolClient)?
+        private var isStopped = false
 
         init(protocolInstance: IsolatedTestURLProtocol, client: (any URLProtocolClient)?) {
             self.protocolInstance = protocolInstance
             self.client = client
+        }
+
+        func stop() {
+            lock.withLock {
+                isStopped = true
+            }
+        }
+
+        func deliver(response: HTTPURLResponse, data: Data) {
+            lock.withLock {
+                guard
+                    !isStopped,
+                    let protocolInstance,
+                    let client
+                else { return }
+
+                client.urlProtocol(
+                    protocolInstance,
+                    didReceive: response,
+                    cacheStoragePolicy: .notAllowed
+                )
+                guard !isStopped else { return }
+                client.urlProtocol(protocolInstance, didLoad: data)
+                guard !isStopped else { return }
+                client.urlProtocolDidFinishLoading(protocolInstance)
+            }
+        }
+
+        func deliver(error: any Error) {
+            lock.withLock {
+                guard
+                    !isStopped,
+                    let protocolInstance,
+                    let client
+                else { return }
+                client.urlProtocol(protocolInstance, didFailWithError: error)
+            }
         }
     }
 
@@ -86,6 +129,7 @@ private final class IsolatedTestURLProtocol: URLProtocol, @unchecked Sendable {
 
     private let loadingTaskLock = NSLock()
     private var loadingTask: Task<Void, Never>?
+    private var loadContext: LoadContext?
     private var didStopLoading = false
 
     static func register(_ handler: @escaping IsolatedTestURLProtocolHandler, for handlerID: String) {
@@ -118,24 +162,26 @@ private final class IsolatedTestURLProtocol: URLProtocol, @unchecked Sendable {
         }
 
         let context = LoadContext(protocolInstance: self, client: client)
+        let shouldStart = loadingTaskLock.withLock {
+            guard !didStopLoading else { return false }
+            loadContext = context
+            return true
+        }
+        guard shouldStart else {
+            context.stop()
+            return
+        }
+
         let capturedRequest = request
         let task = Task { [context, capturedRequest, handler] in
             do {
                 let (response, data) = try await handler(capturedRequest)
                 try Task.checkCancellation()
-                guard let protocolInstance = context.protocolInstance else { return }
-                context.client?.urlProtocol(
-                    protocolInstance,
-                    didReceive: response,
-                    cacheStoragePolicy: .notAllowed
-                )
-                context.client?.urlProtocol(protocolInstance, didLoad: data)
-                context.client?.urlProtocolDidFinishLoading(protocolInstance)
+                context.deliver(response: response, data: data)
             } catch is CancellationError {
                 return
             } catch {
-                guard let protocolInstance = context.protocolInstance else { return }
-                context.client?.urlProtocol(protocolInstance, didFailWithError: error)
+                context.deliver(error: error)
             }
         }
         let shouldCancel = loadingTaskLock.withLock {
@@ -144,16 +190,21 @@ private final class IsolatedTestURLProtocol: URLProtocol, @unchecked Sendable {
             return false
         }
         if shouldCancel {
+            context.stop()
             task.cancel()
         }
     }
 
     override func stopLoading() {
-        let task = loadingTaskLock.withLock {
+        let (task, context) = loadingTaskLock.withLock {
             didStopLoading = true
-            defer { loadingTask = nil }
-            return loadingTask
+            defer {
+                loadingTask = nil
+                loadContext = nil
+            }
+            return (loadingTask, loadContext)
         }
+        context?.stop()
         task?.cancel()
     }
 }
