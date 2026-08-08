@@ -74,7 +74,7 @@ private final class IsolatedTestURLProtocol: URLProtocol, @unchecked Sendable {
     private final class LoadContext: @unchecked Sendable {
         deinit {}
 
-        private let lock = NSRecursiveLock()
+        private let lock = NSLock()
         weak var protocolInstance: IsolatedTestURLProtocol?
         weak var client: (any URLProtocolClient)?
         private var isStopped = false
@@ -91,33 +91,33 @@ private final class IsolatedTestURLProtocol: URLProtocol, @unchecked Sendable {
         }
 
         func deliver(response: HTTPURLResponse, data: Data) {
-            lock.withLock {
-                guard
-                    !isStopped,
-                    let protocolInstance,
-                    let client
-                else { return }
+            guard !Task.isCancelled, let (protocolInstance, client) = activeClient() else { return }
+            client.urlProtocol(
+                protocolInstance,
+                didReceive: response,
+                cacheStoragePolicy: .notAllowed
+            )
 
-                client.urlProtocol(
-                    protocolInstance,
-                    didReceive: response,
-                    cacheStoragePolicy: .notAllowed
-                )
-                guard !isStopped else { return }
-                client.urlProtocol(protocolInstance, didLoad: data)
-                guard !isStopped else { return }
-                client.urlProtocolDidFinishLoading(protocolInstance)
-            }
+            guard !Task.isCancelled, let (protocolInstance, client) = activeClient() else { return }
+            client.urlProtocol(protocolInstance, didLoad: data)
+
+            guard !Task.isCancelled, let (protocolInstance, client) = activeClient() else { return }
+            client.urlProtocolDidFinishLoading(protocolInstance)
         }
 
         func deliver(error: any Error) {
+            guard !Task.isCancelled, let (protocolInstance, client) = activeClient() else { return }
+            client.urlProtocol(protocolInstance, didFailWithError: error)
+        }
+
+        private func activeClient() -> (IsolatedTestURLProtocol, any URLProtocolClient)? {
             lock.withLock {
                 guard
                     !isStopped,
                     let protocolInstance,
                     let client
-                else { return }
-                client.urlProtocol(protocolInstance, didFailWithError: error)
+                else { return nil }
+                return (protocolInstance, client)
             }
         }
     }
@@ -204,8 +204,8 @@ private final class IsolatedTestURLProtocol: URLProtocol, @unchecked Sendable {
             }
             return (loadingTask, loadContext)
         }
-        context?.stop()
         task?.cancel()
+        context?.stop()
     }
 }
 
