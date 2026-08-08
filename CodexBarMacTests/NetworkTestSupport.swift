@@ -66,13 +66,71 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-typealias IsolatedTestURLProtocolHandler = (URLRequest) throws -> (HTTPURLResponse, Data)
+typealias IsolatedTestURLProtocolHandler = @Sendable (URLRequest) async throws -> (HTTPURLResponse, Data)
 
 private final class IsolatedTestURLProtocol: URLProtocol, @unchecked Sendable {
+    deinit {}
+
+    private final class LoadContext: @unchecked Sendable {
+        deinit {}
+
+        private let lock = NSLock()
+        weak var protocolInstance: IsolatedTestURLProtocol?
+        weak var client: (any URLProtocolClient)?
+        private var isStopped = false
+
+        init(protocolInstance: IsolatedTestURLProtocol, client: (any URLProtocolClient)?) {
+            self.protocolInstance = protocolInstance
+            self.client = client
+        }
+
+        func stop() {
+            lock.withLock {
+                isStopped = true
+            }
+        }
+
+        func deliver(response: HTTPURLResponse, data: Data) {
+            guard !Task.isCancelled, let (protocolInstance, client) = activeClient() else { return }
+            client.urlProtocol(
+                protocolInstance,
+                didReceive: response,
+                cacheStoragePolicy: .notAllowed
+            )
+
+            guard !Task.isCancelled, let (protocolInstance, client) = activeClient() else { return }
+            client.urlProtocol(protocolInstance, didLoad: data)
+
+            guard !Task.isCancelled, let (protocolInstance, client) = activeClient() else { return }
+            client.urlProtocolDidFinishLoading(protocolInstance)
+        }
+
+        func deliver(error: any Error) {
+            guard !Task.isCancelled, let (protocolInstance, client) = activeClient() else { return }
+            client.urlProtocol(protocolInstance, didFailWithError: error)
+        }
+
+        private func activeClient() -> (IsolatedTestURLProtocol, any URLProtocolClient)? {
+            lock.withLock {
+                guard
+                    !isStopped,
+                    let protocolInstance,
+                    let client
+                else { return nil }
+                return (protocolInstance, client)
+            }
+        }
+    }
+
     static let handlerIDHeader = "X-CodexBar-Test-Handler-ID"
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var handlers: [String: IsolatedTestURLProtocolHandler] = [:]
+
+    private let loadingTaskLock = NSLock()
+    private var loadingTask: Task<Void, Never>?
+    private var loadContext: LoadContext?
+    private var didStopLoading = false
 
     static func register(_ handler: @escaping IsolatedTestURLProtocolHandler, for handlerID: String) {
         lock.withLock {
@@ -103,17 +161,52 @@ private final class IsolatedTestURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
-        do {
-            let (response, data) = try handler(request)
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
+        let context = LoadContext(protocolInstance: self, client: client)
+        let shouldStart = loadingTaskLock.withLock {
+            guard !didStopLoading else { return false }
+            loadContext = context
+            return true
+        }
+        guard shouldStart else {
+            context.stop()
+            return
+        }
+
+        let capturedRequest = request
+        let task = Task { [context, capturedRequest, handler] in
+            do {
+                let (response, data) = try await handler(capturedRequest)
+                try Task.checkCancellation()
+                context.deliver(response: response, data: data)
+            } catch is CancellationError {
+                return
+            } catch {
+                context.deliver(error: error)
+            }
+        }
+        let shouldCancel = loadingTaskLock.withLock {
+            guard !didStopLoading else { return true }
+            loadingTask = task
+            return false
+        }
+        if shouldCancel {
+            context.stop()
+            task.cancel()
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        let (task, context) = loadingTaskLock.withLock {
+            didStopLoading = true
+            defer {
+                loadingTask = nil
+                loadContext = nil
+            }
+            return (loadingTask, loadContext)
+        }
+        task?.cancel()
+        context?.stop()
+    }
 }
 
 final class IsolatedTestURLSession: @unchecked Sendable {

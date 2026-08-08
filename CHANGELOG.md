@@ -116,6 +116,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Developer Experience
 
+- Added deterministic Gemini provider concurrency coverage for tier-fetch
+  coalescing, including the in-flight waiter and tier-derived project routing.
 - Added deterministic coordinator and GitHub Copilot concurrency coverage for
   account-scoped credential-refresh coalescing under parallel XCTest execution.
 - Gated provider test doubles now suspend in-flight refreshes deterministically,

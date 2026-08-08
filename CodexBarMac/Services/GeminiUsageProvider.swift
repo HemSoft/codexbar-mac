@@ -11,11 +11,12 @@ public final class GeminiUsageProvider: UsageProvider {
     private let projectsEndpoint: URL
     private let tokenEndpoint: URL
     private let now: @Sendable () -> Date
+    private let tierWaiterEnqueued: (@Sendable () -> Void)?
     private let tierCache = GeminiTierCache()
 
     public let providerID = ProviderID.gemini
 
-    public init(
+    public convenience init(
         session: URLSession = .shared,
         oauthFilePath: String = GeminiAuthFileStore.defaultPath(),
         settingsPath: String? = nil,
@@ -24,6 +25,30 @@ public final class GeminiUsageProvider: UsageProvider {
         projectsEndpoint: URL = URL(string: "https://cloudresourcemanager.googleapis.com/v1/projects")!,
         tokenEndpoint: URL = GeminiTokenRefresh.tokenEndpoint,
         now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.init(
+            session: session,
+            oauthFilePath: oauthFilePath,
+            settingsPath: settingsPath,
+            quotaEndpoint: quotaEndpoint,
+            tierEndpoint: tierEndpoint,
+            projectsEndpoint: projectsEndpoint,
+            tokenEndpoint: tokenEndpoint,
+            now: now,
+            tierWaiterEnqueued: nil
+        )
+    }
+
+    init(
+        session: URLSession,
+        oauthFilePath: String,
+        settingsPath: String? = nil,
+        quotaEndpoint: URL,
+        tierEndpoint: URL,
+        projectsEndpoint: URL = URL(string: "https://cloudresourcemanager.googleapis.com/v1/projects")!,
+        tokenEndpoint: URL = GeminiTokenRefresh.tokenEndpoint,
+        now: @escaping @Sendable () -> Date = { Date() },
+        tierWaiterEnqueued: (@Sendable () -> Void)?
     ) {
         self.session = session
         self.oauthFilePath = oauthFilePath
@@ -37,6 +62,7 @@ public final class GeminiUsageProvider: UsageProvider {
         self.projectsEndpoint = projectsEndpoint
         self.tokenEndpoint = tokenEndpoint
         self.now = now
+        self.tierWaiterEnqueued = tierWaiterEnqueued
     }
 
     public func fetchUsage(for configuration: ProviderAccountConfiguration) async throws -> ProviderUsageResult {
@@ -93,7 +119,7 @@ public final class GeminiUsageProvider: UsageProvider {
     ) async throws -> ProviderUsageResult {
         let fingerprint = credentialFingerprint(for: accessToken)
         await fetchTierIfNeeded(accessToken: accessToken, fingerprint: fingerprint)
-        await tierCache.waitForInFlightFetchIfNeeded()
+        await tierCache.waitForInFlightFetchIfNeeded(onWaiterEnqueued: tierWaiterEnqueued)
 
         let projectID = await resolveQuotaProjectID(accessToken: accessToken, fingerprint: fingerprint)
         let (data, response) = try await session.data(for: makeQuotaRequest(accessToken: accessToken, projectID: projectID))
@@ -593,19 +619,24 @@ private final class GeminiTierCache: @unchecked Sendable {
         resumeWaiters()
     }
 
-    func waitForInFlightFetchIfNeeded() async {
+    func waitForInFlightFetchIfNeeded(onWaiterEnqueued: (@Sendable () -> Void)?) async {
         let shouldWait = lock.withLock { fetchInProgress && !fetched }
         guard shouldWait else {
             return
         }
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var didEnqueue = false
             lock.withLock {
                 if !fetchInProgress || fetched {
                     continuation.resume()
                 } else {
                     fetchWaiters.append(continuation)
+                    didEnqueue = true
                 }
+            }
+            if didEnqueue {
+                onWaiterEnqueued?()
             }
         }
     }

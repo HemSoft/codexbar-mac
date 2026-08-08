@@ -899,6 +899,115 @@ final class GeminiProviderTests: XCTestCase {
         XCTAssertEqual(result.subtitle, "Live Gemini CLI usage")
     }
 
+    func testGeminiUsageProviderCoalescesConcurrentTierFetches() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let oauthFilePath = directory.appendingPathComponent("oauth_creds.json").path
+        try """
+        {
+          "access_token": "redacted-access-token",
+          "refresh_token": "redacted-refresh-token",
+          "expiry_date": 4102444800000
+        }
+        """.write(toFile: oauthFilePath, atomically: true, encoding: .utf8)
+        _ = chmod(oauthFilePath, 0o600)
+
+        let tierResponseGate = TestAsyncGate()
+        let waiterEnqueued = TestSignal()
+        let requests = GeminiConcurrentRequestRecorder()
+        let isolatedSession = IsolatedTestURLSession { request in
+            guard let url = request.url else {
+                throw URLError(.badURL)
+            }
+
+            switch url.path {
+            case "/gemini-tier":
+                await requests.recordTierRequest()
+                await tierResponseGate.wait()
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(
+                        #"{"currentTier":{"id":"standard-tier"},"cloudaicompanionProject":"gen-lang-client-coalesced"}"#.utf8
+                    )
+                )
+            case "/gemini-quota":
+                guard
+                    let body = requestBodyData(from: request),
+                    let json = try JSONSerialization.jsonObject(with: body) as? [String: String],
+                    let projectID = json["project"]
+                else {
+                    throw URLError(.cannotParseResponse)
+                }
+                await requests.recordQuotaRequest(projectID: projectID)
+                return (
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                    Data(
+                        #"{"buckets":[{"tokenType":"REQUESTS","modelId":"gemini-2.5-pro","remainingFraction":0.8,"resetTime":"2026-07-17T12:00:00Z"}]}"#.utf8
+                    )
+                )
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+        defer { isolatedSession.invalidate() }
+
+        let provider = GeminiUsageProvider(
+            session: isolatedSession.session,
+            oauthFilePath: oauthFilePath,
+            quotaEndpoint: URL(string: "https://example.test/gemini-quota")!,
+            tierEndpoint: URL(string: "https://example.test/gemini-tier")!,
+            now: { now },
+            tierWaiterEnqueued: {
+                waiterEnqueued.signal()
+            }
+        )
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .gemini)
+
+        let results = try await withTestWatchdog(
+            timeout: .seconds(10),
+            failureMessage: "Concurrent Gemini tier fetches did not complete.",
+            onTimeout: {
+                Task {
+                    await tierResponseGate.release()
+                }
+            }
+        ) {
+            let firstFetch = Task {
+                try await provider.fetchUsage(for: configuration)
+            }
+            await tierResponseGate.waitUntilBlocked()
+
+            let secondFetch = Task {
+                try await provider.fetchUsage(for: configuration)
+            }
+            await waiterEnqueued.wait()
+
+            let blockedSnapshot = await requests.snapshot()
+            XCTAssertEqual(blockedSnapshot.tierRequestCount, 1)
+            XCTAssertTrue(blockedSnapshot.quotaProjectIDs.isEmpty)
+
+            await tierResponseGate.release()
+            return try await (firstFetch.value, secondFetch.value)
+        }
+
+        let completedSnapshot = await requests.snapshot()
+        XCTAssertEqual(completedSnapshot.tierRequestCount, 1)
+        XCTAssertEqual(
+            completedSnapshot.quotaProjectIDs,
+            ["gen-lang-client-coalesced", "gen-lang-client-coalesced"]
+        )
+        for result in [results.0, results.1] {
+            XCTAssertEqual(result.bars.count, 1)
+            XCTAssertEqual(result.bars[0].label, "Pro (Code Assist)")
+            XCTAssertEqual(result.bars[0].used, 0.2, accuracy: 0.0001)
+            XCTAssertEqual(result.subtitle, "Live Gemini CLI usage")
+        }
+    }
+
     func testGeminiUsageProviderDiscoversProjectViaResourceManager() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let directory = FileManager.default.temporaryDirectory
@@ -1117,4 +1226,21 @@ final class GeminiProviderTests: XCTestCase {
         XCTAssertEqual(fallback, FileManager.default.homeDirectoryForCurrentUser)
     }
 
+}
+
+private actor GeminiConcurrentRequestRecorder {
+    private var tierRequestCount = 0
+    private var quotaProjectIDs: [String] = []
+
+    func recordTierRequest() {
+        tierRequestCount += 1
+    }
+
+    func recordQuotaRequest(projectID: String) {
+        quotaProjectIDs.append(projectID)
+    }
+
+    func snapshot() -> (tierRequestCount: Int, quotaProjectIDs: [String]) {
+        (tierRequestCount, quotaProjectIDs)
+    }
 }
