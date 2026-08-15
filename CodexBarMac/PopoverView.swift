@@ -10,9 +10,15 @@ enum DashboardPresentation {
 struct PopoverView: View {
     @ObservedObject var model: AppModel
     let updater: SPUUpdater
+    @ObservedObject var updateReminder: SparkleUpdateReminderCoordinator
 
     var body: some View {
-        DashboardView(model: model, updater: updater, presentation: .menuBar)
+        DashboardView(
+            model: model,
+            updater: updater,
+            updateReminder: updateReminder,
+            presentation: .menuBar
+        )
             .frame(
                 minWidth: DashboardPanelSize.minimumSize.width,
                 idealWidth: model.configurationStore.menuBarDashboardSize.width,
@@ -29,6 +35,7 @@ struct PopoverView: View {
 struct DashboardView: View {
     @ObservedObject var model: AppModel
     let updater: SPUUpdater
+    @ObservedObject var updateReminder: SparkleUpdateReminderCoordinator
     let presentation: DashboardPresentation
 
     @Environment(\.openSettings) private var openSettings
@@ -89,7 +96,16 @@ struct DashboardView: View {
             Divider()
 
             HStack {
-                CheckForUpdatesButton(updater: updater)
+                if updateReminder.hasPendingScheduledUpdate {
+                    Button {
+                        updateReminder.showPendingUpdate(using: updater)
+                    } label: {
+                        Label("Update Available…", systemImage: "arrow.down.circle.fill")
+                    }
+                    .accessibilityIdentifier("show-pending-update")
+                } else {
+                    CheckForUpdatesButton(updater: updater)
+                }
                 Spacer()
             }
             .padding(.horizontal, 12 * scale)

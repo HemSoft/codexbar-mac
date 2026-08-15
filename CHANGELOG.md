@@ -43,6 +43,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Scheduled Sparkle updates now remain visible as an actionable menu bar and
+  dashboard reminder until the update receives attention or its session ends.
 - Refreshes that finish after an account is removed, disabled, or given new
   credentials or routing settings no longer restore stale usage, errors,
   history, or alerts.

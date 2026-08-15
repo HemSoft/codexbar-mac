@@ -19,37 +19,65 @@ enum StatusBarRightClickRoute: Equatable {
 
 struct MenuBarStatusLabel: View {
     let severity: UsageSeverity
+    let hasPendingUpdate: Bool
     let isRefreshEnabled: Bool
+    let onShowUpdate: () -> Void
     let onRefresh: () -> Void
     let onOpenSettings: () -> Void
     let onQuit: () -> Void
 
     var body: some View {
-        Image(systemName: "chart.bar.fill")
-            .symbolRenderingMode(.palette)
-            .foregroundStyle(severity.tint, Color.primary.opacity(0.35))
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: "chart.bar.fill")
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(severity.tint, Color.primary.opacity(0.35))
+
+            if hasPendingUpdate {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 6, height: 6)
+                    .overlay {
+                        Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1)
+                    }
+                    .offset(x: 2, y: -2)
+            }
+        }
             .accessibilityLabel("CodexBar")
-            .accessibilityValue(severity.accessibilityLabel)
+            .accessibilityValue(accessibilityValue)
             .background(
                 StatusBarRightClickMenu(
+                    hasPendingUpdate: hasPendingUpdate,
                     isRefreshEnabled: isRefreshEnabled,
+                    onShowUpdate: onShowUpdate,
                     onRefresh: onRefresh,
                     onOpenSettings: onOpenSettings,
                     onQuit: onQuit
                 )
             )
     }
+
+    private var accessibilityValue: String {
+        guard hasPendingUpdate else {
+            return severity.accessibilityLabel
+        }
+
+        return "Update available. \(severity.accessibilityLabel)"
+    }
 }
 
 private struct StatusBarRightClickMenu: NSViewRepresentable {
+    let hasPendingUpdate: Bool
     let isRefreshEnabled: Bool
+    let onShowUpdate: () -> Void
     let onRefresh: () -> Void
     let onOpenSettings: () -> Void
     let onQuit: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
+            hasPendingUpdate: hasPendingUpdate,
             isRefreshEnabled: isRefreshEnabled,
+            onShowUpdate: onShowUpdate,
             onRefresh: onRefresh,
             onOpenSettings: onOpenSettings,
             onQuit: onQuit
@@ -63,7 +91,9 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: MenuAnchorView, context: Context) {
+        context.coordinator.hasPendingUpdate = hasPendingUpdate
         context.coordinator.isRefreshEnabled = isRefreshEnabled
+        context.coordinator.onShowUpdate = onShowUpdate
         context.coordinator.onRefresh = onRefresh
         context.coordinator.onOpenSettings = onOpenSettings
         context.coordinator.onQuit = onQuit
@@ -73,7 +103,9 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject {
+        var hasPendingUpdate: Bool
         var isRefreshEnabled: Bool
+        var onShowUpdate: () -> Void
         var onRefresh: () -> Void
         var onOpenSettings: () -> Void
         var onQuit: () -> Void
@@ -83,12 +115,16 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
         private var menu: NSMenu?
 
         init(
+            hasPendingUpdate: Bool,
             isRefreshEnabled: Bool,
+            onShowUpdate: @escaping () -> Void,
             onRefresh: @escaping () -> Void,
             onOpenSettings: @escaping () -> Void,
             onQuit: @escaping () -> Void
         ) {
+            self.hasPendingUpdate = hasPendingUpdate
             self.isRefreshEnabled = isRefreshEnabled
+            self.onShowUpdate = onShowUpdate
             self.onRefresh = onRefresh
             self.onOpenSettings = onOpenSettings
             self.onQuit = onQuit
@@ -116,6 +152,17 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
 
         func rebuildMenu() {
             let menu = NSMenu()
+
+            if hasPendingUpdate {
+                let updateItem = NSMenuItem(
+                    title: "Update Available…",
+                    action: #selector(showUpdateClicked),
+                    keyEquivalent: ""
+                )
+                updateItem.target = self
+                menu.addItem(updateItem)
+                menu.addItem(.separator())
+            }
 
             let refreshItem = NSMenuItem(
                 title: "Refresh",
@@ -145,6 +192,10 @@ private struct StatusBarRightClickMenu: NSViewRepresentable {
             menu.addItem(quitItem)
 
             self.menu = menu
+        }
+
+        @objc private func showUpdateClicked() {
+            onShowUpdate()
         }
 
         @objc private func refreshClicked() {

@@ -399,4 +399,72 @@ final class AppAndCredentialWorkflowTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testScheduledSparkleUpdateReminderPresentationAndActivation() {
+        let reminder = SparkleUpdateReminderCoordinator()
+
+        XCTAssertTrue(reminder.supportsGentleScheduledUpdateReminders)
+        XCTAssertTrue(
+            reminder.responds(to: NSSelectorFromString("supportsGentleScheduledUpdateReminders"))
+        )
+        XCTAssertTrue(
+            reminder.responds(
+                to: NSSelectorFromString("standardUserDriverDidReceiveUserAttentionForUpdate:")
+            )
+        )
+        XCTAssertTrue(
+            reminder.responds(to: NSSelectorFromString("standardUserDriverWillFinishUpdateSession"))
+        )
+        XCTAssertFalse(
+            reminder.shouldStandardUserDriverHandleScheduledUpdate(inImmediateFocus: false)
+        )
+
+        reminder.recordUpdatePresentation(
+            standardUserDriverWillHandle: false,
+            userInitiated: false
+        )
+        XCTAssertTrue(reminder.hasPendingScheduledUpdate)
+
+        var activationCount = 0
+        XCTAssertTrue(
+            reminder.activatePendingUpdate {
+                activationCount += 1
+            }
+        )
+        XCTAssertEqual(activationCount, 1)
+        XCTAssertTrue(reminder.hasPendingScheduledUpdate)
+
+        reminder.userDidAttendToUpdate()
+        XCTAssertFalse(reminder.hasPendingScheduledUpdate)
+        XCTAssertFalse(reminder.activatePendingUpdate { activationCount += 1 })
+        XCTAssertEqual(activationCount, 1)
+    }
+
+    @MainActor
+    func testSparkleReminderKeepsFocusedAndUserInitiatedChecksStandard() {
+        let reminder = SparkleUpdateReminderCoordinator()
+
+        XCTAssertTrue(
+            reminder.shouldStandardUserDriverHandleScheduledUpdate(inImmediateFocus: true)
+        )
+        reminder.recordUpdatePresentation(
+            standardUserDriverWillHandle: true,
+            userInitiated: false
+        )
+        XCTAssertFalse(reminder.hasPendingScheduledUpdate)
+
+        reminder.recordUpdatePresentation(
+            standardUserDriverWillHandle: false,
+            userInitiated: true
+        )
+        XCTAssertFalse(reminder.hasPendingScheduledUpdate)
+
+        reminder.recordUpdatePresentation(
+            standardUserDriverWillHandle: false,
+            userInitiated: false
+        )
+        reminder.updateSessionDidFinish()
+        XCTAssertFalse(reminder.hasPendingScheduledUpdate)
+    }
+
 }
