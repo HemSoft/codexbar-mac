@@ -43,6 +43,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Sparkle update installation now includes upstream hardening against symbolic
+  links in intermediate archive destination directories.
 - Scheduled Sparkle updates now remain visible as an actionable menu bar and
   dashboard reminder until the update receives attention or its session ends.
 - Refreshes that finish after an account is removed, disabled, or given new
