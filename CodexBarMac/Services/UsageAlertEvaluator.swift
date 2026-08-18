@@ -354,10 +354,6 @@ public enum UsageAlertEvaluator {
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
-    private static func formatPercent(_ fraction: Double) -> String {
-        "\(Int((fraction * 100).rounded()))%"
-    }
-
     private static func formatCurrency(_ value: Double) -> String {
         currencyFormatter.string(from: NSNumber(value: value)) ?? "$\(String(format: "%.2f", value))"
     }
@@ -384,6 +380,10 @@ public enum UsageAlertEvaluator {
         formatter.maximumFractionDigits = 1
         return formatter
     }()
+}
+
+private func formatPercent(_ fraction: Double) -> String {
+    "\(Int((fraction * 100).rounded()))%"
 }
 
 private struct SeverityAlertTrigger {
@@ -420,10 +420,6 @@ private struct SeverityAlertTrigger {
         return "\(bar.label) \(usageKind) is \(formatPercent(fraction)) "
             + "(\(severity.displayName) threshold: \(formatPercent(severity.alertThreshold)))."
     }
-
-    private func formatPercent(_ fraction: Double) -> String {
-        "\(Int((fraction * 100).rounded()))%"
-    }
 }
 
 private extension UsageAlertDetail {
@@ -449,9 +445,9 @@ private extension UsageSeverity {
         case .normal:
             0
         case .warning:
-            0.75
+            UsageSeverity.warningThreshold
         case .critical:
-            0.90
+            UsageSeverity.criticalThreshold
         }
     }
 }

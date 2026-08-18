@@ -5,10 +5,13 @@ public enum UsageSeverity: Int, Codable, Comparable, Sendable {
     case warning
     case critical
 
+    static let warningThreshold = 0.75
+    static let criticalThreshold = 0.90
+
     public init(fractionUsed: Double) {
-        if fractionUsed >= 0.9 {
+        if fractionUsed >= Self.criticalThreshold {
             self = .critical
-        } else if fractionUsed >= 0.75 {
+        } else if fractionUsed >= Self.warningThreshold {
             self = .warning
         } else {
             self = .normal
