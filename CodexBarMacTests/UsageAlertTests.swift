@@ -642,6 +642,45 @@ final class UsageAlertTests: XCTestCase {
         )
     }
 
+    func testUsageAlertEvaluatorPrefersSpendLimitOverCriticalUsageInBothArrayOrders() {
+        let bars = [
+            UsageBar(stableKey: "five-hour", label: "5-hour", used: 91, limit: 100),
+            UsageBar(stableKey: "weekly", label: "Weekly", used: 95, limit: 100),
+        ]
+
+        let evaluations = [bars, Array(bars.reversed())].map { orderedBars in
+            let result = ProviderUsageResult(
+                accountID: "cursor.work",
+                providerID: .cursor,
+                title: "Work Cursor",
+                subtitle: "Included usage",
+                bars: orderedBars,
+                hasReachedSpendLimit: true,
+                fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+            )
+            return UsageAlertEvaluator.evaluate(
+                results: [result],
+                settings: UsageAlertSettings(
+                    isEnabled: true,
+                    usageThreshold: 1,
+                    includesSeverityAlerts: true
+                ),
+                activeAlertIDs: []
+            )
+        }
+
+        XCTAssertTrue(evaluations.allSatisfy { evaluation in
+            evaluation.notifications.map(\.body) == [
+                "Critical status. Work Cursor reached its monthly usage-credit spend limit.",
+            ]
+        })
+        XCTAssertTrue(evaluations.allSatisfy { evaluation in
+            evaluation.activeAlerts.map(\.message) == [
+                "Work Cursor reached its monthly usage-credit spend limit.",
+            ]
+        })
+    }
+
     func testUsageAlertEvaluatorChoosesLargestCurrentCrossingRegardlessOfArrayOrder() {
         let bars = [
             UsageBar(stableKey: "five-hour", label: "5-hour", used: 105, limit: 100),
@@ -754,6 +793,44 @@ final class UsageAlertTests: XCTestCase {
                 "Weekly current usage is 95% (Critical threshold: 90%).",
             ]
         )
+    }
+
+    func testUsageAlertEvaluatorUsesLabelsWhenStableMetricKeysMatch() {
+        let bars = [
+            UsageBar(stableKey: "shared", label: "Weekly", used: 95, limit: 100),
+            UsageBar(stableKey: "shared", label: "5-hour", used: 95, limit: 100),
+        ]
+
+        let evaluations = [bars, Array(bars.reversed())].map { orderedBars in
+            let result = ProviderUsageResult(
+                accountID: "codex.personal",
+                providerID: .codex,
+                title: "Codex",
+                subtitle: "Live usage",
+                bars: orderedBars,
+                fetchedAt: Date(timeIntervalSince1970: 1_783_667_520)
+            )
+            return UsageAlertEvaluator.evaluate(
+                results: [result],
+                settings: UsageAlertSettings(
+                    isEnabled: true,
+                    usageThreshold: 1,
+                    includesSeverityAlerts: true
+                ),
+                activeAlertIDs: []
+            )
+        }
+
+        XCTAssertTrue(evaluations.allSatisfy { evaluation in
+            evaluation.notifications.map(\.body) == [
+                "Critical status. 5-hour current usage is 95% (Critical threshold: 90%).",
+            ]
+        })
+        XCTAssertTrue(evaluations.allSatisfy { evaluation in
+            evaluation.activeAlerts.map(\.message) == [
+                "5-hour current usage is 95% (Critical threshold: 90%).",
+            ]
+        })
     }
 
     func testUsageAlertEvaluatorReportsSeverityAlongsideSpecificThresholds() {
