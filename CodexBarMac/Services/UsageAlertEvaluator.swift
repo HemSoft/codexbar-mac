@@ -232,32 +232,75 @@ public enum UsageAlertEvaluator {
         severity: UsageSeverity,
         now: Date
     ) -> UsageAlertDetail {
-        let affectedBar = result.bars
-            .first { $0.effectiveSeverity(at: now) == severity }
-        let message: String
-
-        if let affectedBar {
-            if affectedBar.severity < severity,
-               let projectedFraction = affectedBar.projectedFraction(at: now)
-            {
-                message = "\(affectedBar.label) is projected to reach \(formatPercent(projectedFraction))."
-            } else {
-                message = "\(affectedBar.label) is currently at \(affectedBar.usageText)."
-            }
-        } else if result.hasReachedSpendLimit {
-            message = "The monthly usage-credit spend limit has been reached."
-        } else {
-            message = result.subtitle
-        }
+        let trigger = severityAlertTrigger(
+            result: result,
+            severity: severity,
+            now: now
+        )
 
         return UsageAlertDetail(
             id: id,
             accountID: result.accountID,
             kind: .severity,
             title: "\(severity.displayName) status",
-            message: message,
+            message: trigger?.message(accountName: result.title, severity: severity)
+                ?? result.subtitle,
             severity: severity
         )
+    }
+
+    private static func severityAlertTrigger(
+        result: ProviderUsageResult,
+        severity: UsageSeverity,
+        now: Date
+    ) -> SeverityAlertTrigger? {
+        if severity == .critical, result.hasReachedSpendLimit {
+            return SeverityAlertTrigger(source: .spendLimit, bar: nil, fraction: nil)
+        }
+
+        let candidates = result.bars.compactMap { bar -> SeverityAlertTrigger? in
+            if bar.severity == severity {
+                return SeverityAlertTrigger(
+                    source: .current,
+                    bar: bar,
+                    fraction: currentUsageFraction(for: bar)
+                )
+            }
+            if bar.projectedSeverity(at: now) == severity,
+               let projectedFraction = bar.projectedFraction(at: now)
+            {
+                return SeverityAlertTrigger(
+                    source: .projected,
+                    bar: bar,
+                    fraction: projectedFraction
+                )
+            }
+            return nil
+        }
+
+        // Prefer observed usage over a forecast, then the largest crossing.
+        // Stable metric identity and label make equal crossings independent of array order.
+        return candidates.sorted { lhs, rhs in
+            if lhs.source.rank != rhs.source.rank {
+                return lhs.source.rank < rhs.source.rank
+            }
+            if lhs.fraction != rhs.fraction {
+                return (lhs.fraction ?? 0) > (rhs.fraction ?? 0)
+            }
+            let lhsKey = lhs.bar?.stableKey ?? ""
+            let rhsKey = rhs.bar?.stableKey ?? ""
+            if lhsKey != rhsKey {
+                return lhsKey < rhsKey
+            }
+            return (lhs.bar?.label ?? "") < (rhs.bar?.label ?? "")
+        }.first
+    }
+
+    private static func currentUsageFraction(for bar: UsageBar) -> Double {
+        guard bar.limit > 0 else {
+            return bar.fractionUsed
+        }
+        return max(bar.used / bar.limit, 0)
     }
 
     private static func alertID(for result: ProviderUsageResult, bar: UsageBar) -> String {
@@ -311,10 +354,6 @@ public enum UsageAlertEvaluator {
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
-    private static func formatPercent(_ fraction: Double) -> String {
-        "\(Int((fraction * 100).rounded()))%"
-    }
-
     private static func formatCurrency(_ value: Double) -> String {
         currencyFormatter.string(from: NSNumber(value: value)) ?? "$\(String(format: "%.2f", value))"
     }
@@ -343,6 +382,46 @@ public enum UsageAlertEvaluator {
     }()
 }
 
+private func formatPercent(_ fraction: Double) -> String {
+    "\(Int((fraction * 100).rounded()))%"
+}
+
+private struct SeverityAlertTrigger {
+    enum Source: Equatable {
+        case current
+        case projected
+        case spendLimit
+
+        var rank: Int {
+            switch self {
+            case .spendLimit:
+                0
+            case .current:
+                1
+            case .projected:
+                2
+            }
+        }
+    }
+
+    let source: Source
+    let bar: UsageBar?
+    let fraction: Double?
+
+    func message(accountName: String, severity: UsageSeverity) -> String {
+        guard source != .spendLimit else {
+            return "\(accountName) reached its monthly usage-credit spend limit."
+        }
+        guard let bar, let fraction else {
+            return accountName
+        }
+
+        let usageKind = source == .current ? "current usage" : "projected usage"
+        return "\(bar.label) \(usageKind) is \(formatPercent(fraction)) "
+            + "(\(severity.displayName) threshold: \(formatPercent(severity.alertThreshold)))."
+    }
+}
+
 private extension UsageAlertDetail {
     var notificationBody: String {
         "\(title). \(message)"
@@ -358,6 +437,17 @@ private extension UsageSeverity {
             "Warning"
         case .critical:
             "Critical"
+        }
+    }
+
+    var alertThreshold: Double {
+        switch self {
+        case .normal:
+            0
+        case .warning:
+            UsageSeverity.warningThreshold
+        case .critical:
+            UsageSeverity.criticalThreshold
         }
     }
 }

@@ -43,6 +43,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Warning and Critical notifications now identify the exact current-usage,
+  projected-usage, or account-specific spend-limit trigger, include the severity
+  threshold, and choose deterministically when multiple metrics qualify.
 - Sparkle update installation now includes upstream hardening against symbolic
   links in intermediate archive destination directories.
 - Scheduled Sparkle updates now remain visible as an actionable menu bar and
