@@ -1384,7 +1384,7 @@ final class ClaudeProviderTests: XCTestCase {
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer local-access")
             return (
                 HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
-                Data()
+                Data(#"{"error":{"message":"OAuth authentication is currently not allowed for this organization"}}"#.utf8)
             )
         }
         defer { MockURLProtocol.handler = nil }
@@ -1396,6 +1396,61 @@ final class ClaudeProviderTests: XCTestCase {
         XCTAssertTrue(first.subtitle.contains("Retrying after"))
         XCTAssertEqual(second.subtitle, first.subtitle)
         XCTAssertTrue(second.isIncompleteRefresh)
+    }
+
+    func testClaudeUsageProviderFallsBackAfterCredentialScopedForbiddenResponse() async throws {
+        let clock = ClaudeUsageTestClock(Date(timeIntervalSince1970: 2_000_000_000))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 2_000_003_600,
+            accessToken: "local-access"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .claude)
+        try secretStore.saveSecret(
+            ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                expiresAt: 2_000_003_600,
+                accessToken: "browser-access"
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+        let provider = makeClaudeBackoffTestProvider(
+            secretStore: secretStore,
+            credentialsFilePath: credentialsPath,
+            clock: clock
+        )
+        var requestedTokens: [String] = []
+        MockURLProtocol.handler = { request in
+            let authorization = try XCTUnwrap(request.value(forHTTPHeaderField: "Authorization"))
+            requestedTokens.append(authorization)
+            if authorization == "Bearer local-access" {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"error":{"message":"This credential lacks the required scope"}}"#.utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":26,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let first = try await provider.fetchUsage(for: configuration)
+        let second = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(first.bars.first?.used, 26)
+        XCTAssertEqual(second.bars.first?.used, 26)
+        XCTAssertEqual(
+            requestedTokens,
+            ["Bearer local-access", "Bearer browser-access", "Bearer browser-access"]
+        )
     }
 
     func testClaudeUsageProviderUsesFifteenMinuteBackoffWithoutRetryAfter() async throws {
@@ -1577,6 +1632,90 @@ final class ClaudeProviderTests: XCTestCase {
         XCTAssertEqual(recovered.bars.first?.used, 33)
     }
 
+    func testClaudeUsageProviderRejectsStaleBackoffAfterCredentialReplacement() async throws {
+        let clock = ClaudeUsageTestClock(Date(timeIntervalSince1970: 2_000_000_000))
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            id: "claude.concurrent-rotation",
+            providerID: .claude,
+            authMethod: .browserSession
+        )
+        try secretStore.saveSecret(
+            ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                expiresAt: 2_000_003_600,
+                accessToken: "old-access"
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let oldResponseGate = TestAsyncGate()
+        let requests = ClaudeUsageRequestRecorder()
+        let sessionFixture = IsolatedTestURLSession { request in
+            let authorization = try XCTUnwrap(request.value(forHTTPHeaderField: "Authorization"))
+            await requests.record(authorization)
+            if authorization == "Bearer old-access" {
+                await oldResponseGate.wait()
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"error":{"message":"OAuth authentication is currently not allowed for this organization"}}"#.utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":35,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer {
+            Task { await oldResponseGate.release() }
+            sessionFixture.invalidate()
+        }
+        let provider = ClaudeUsageProvider(
+            secretStore: secretStore,
+            session: sessionFixture.session,
+            credentialsFilePath: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathComponent(".credentials.json").path,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)",
+            now: { clock.now() }
+        )
+
+        let results = try await withTestWatchdog(
+            timeout: .seconds(10),
+            failureMessage: "Claude credential rotation overlap did not finish.",
+            onTimeout: {
+                Task { await oldResponseGate.release() }
+                sessionFixture.invalidate()
+            }
+        ) {
+            let oldFetch = Task { try await provider.fetchUsage(for: configuration) }
+            defer {
+                oldFetch.cancel()
+                Task { await oldResponseGate.release() }
+            }
+            await oldResponseGate.waitUntilBlocked()
+
+            try secretStore.saveSecret(
+                ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                    expiresAt: 2_000_003_600,
+                    accessToken: "new-access"
+                )),
+                account: ProviderConfigurationStore.keychainAccount(for: configuration)
+            )
+            let replacementResult = try await provider.fetchUsage(for: configuration)
+            await oldResponseGate.release()
+            _ = try await oldFetch.value
+            let nextResult = try await provider.fetchUsage(for: configuration)
+            return [replacementResult, nextResult]
+        }
+
+        XCTAssertTrue(results.allSatisfy { $0.bars.first?.used == 35 })
+        let requestedAuthorizations = await requests.authorizations()
+        XCTAssertEqual(
+            requestedAuthorizations,
+            ["Bearer old-access", "Bearer new-access", "Bearer new-access"]
+        )
+    }
+
     private func makeLocalClaudeBackoffTestProvider(
         clock: ClaudeUsageTestClock
     ) throws -> (
@@ -1637,5 +1776,17 @@ private final class ClaudeUsageTestClock: @unchecked Sendable {
         lock.withLock {
             date = date.addingTimeInterval(interval)
         }
+    }
+}
+
+private actor ClaudeUsageRequestRecorder {
+    private var values: [String] = []
+
+    func record(_ authorization: String) {
+        values.append(authorization)
+    }
+
+    func authorizations() -> [String] {
+        values
     }
 }

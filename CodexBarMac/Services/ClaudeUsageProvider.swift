@@ -169,13 +169,17 @@ public final class ClaudeUsageProvider: UsageProvider {
         canRefresh: Bool
     ) async throws -> OAuthUsageOutcome {
         let fetchedAt = now()
-        if let backoff = await snapshotCache.backoff(accountID: configuration.id),
+        if let backoff = await snapshotCache.backoff(
+            accountID: configuration.id,
+            credential: accessToken
+        ),
            backoff.retryAt > fetchedAt {
             return OAuthUsageOutcome(
                 result: await staleOrFailureResult(
                     backoff.message,
                     configuration: configuration
-                )
+                ),
+                shouldTryFallbackCredential: backoff.shouldTryFallbackCredential
             )
         }
 
@@ -188,7 +192,10 @@ public final class ClaudeUsageProvider: UsageProvider {
 
         switch httpResponse.statusCode {
         case 200..<300:
-            await snapshotCache.clearBackoff(accountID: configuration.id)
+            await snapshotCache.clearBackoff(
+                accountID: configuration.id,
+                credential: accessToken
+            )
             guard let parsed = ClaudeUsageParser.parse(
                 data,
                 subscriptionType: loaded.credentials.subscriptionType,
@@ -256,15 +263,22 @@ public final class ClaudeUsageProvider: UsageProvider {
         case 403:
             let retryAt = fetchedAt.addingTimeInterval(Self.permissionDeniedBackoff)
             let message = "Claude credential lacks permission to read subscription usage. Retrying after \(Self.formatRetryDate(retryAt))."
+            let shouldTryFallbackCredential = !permissionFailureIsOrganizationWide(data)
             await snapshotCache.setBackoff(
-                ClaudeUsageBackoff(retryAt: retryAt, message: message),
-                accountID: configuration.id
+                ClaudeUsageBackoff(
+                    retryAt: retryAt,
+                    message: message,
+                    shouldTryFallbackCredential: shouldTryFallbackCredential
+                ),
+                accountID: configuration.id,
+                credential: accessToken
             )
             return OAuthUsageOutcome(
                 result: await staleOrFailureResult(
                     message,
                     configuration: configuration
-                )
+                ),
+                shouldTryFallbackCredential: shouldTryFallbackCredential
             )
         case 404:
             return OAuthUsageOutcome(
@@ -278,8 +292,13 @@ public final class ClaudeUsageProvider: UsageProvider {
                 ?? fetchedAt.addingTimeInterval(Self.defaultRateLimitBackoff)
             let message = "Claude usage is rate-limited until \(Self.formatRetryDate(retryAt))."
             await snapshotCache.setBackoff(
-                ClaudeUsageBackoff(retryAt: retryAt, message: message),
-                accountID: configuration.id
+                ClaudeUsageBackoff(
+                    retryAt: retryAt,
+                    message: message,
+                    shouldTryFallbackCredential: false
+                ),
+                accountID: configuration.id,
+                credential: accessToken
             )
             return OAuthUsageOutcome(
                 result: await staleOrFailureResult(
@@ -563,6 +582,11 @@ public final class ClaudeUsageProvider: UsageProvider {
         return retryAt
     }
 
+    private func permissionFailureIsOrganizationWide(_ data: Data) -> Bool {
+        String(decoding: data, as: UTF8.self)
+            .localizedCaseInsensitiveContains("OAuth authentication is currently not allowed")
+    }
+
     private static func formatRetryDate(_ date: Date) -> String {
         UserFacingDateTimeFormatter.current.dateAndTime(date)
     }
@@ -601,7 +625,7 @@ public final class ClaudeUsageProvider: UsageProvider {
 
 private actor ClaudeUsageSnapshotCache {
     private var results: [String: ProviderUsageResult] = [:]
-    private var backoffs: [String: ClaudeUsageBackoff] = [:]
+    private var backoffs: [String: [String: ClaudeUsageBackoff]] = [:]
     private var credentials: [String: String] = [:]
 
     func prepare(accountID: String, credential: String) {
@@ -610,7 +634,6 @@ private actor ClaudeUsageSnapshotCache {
         }
         if credentials[accountID] != nil {
             results[accountID] = nil
-            backoffs[accountID] = nil
         }
         credentials[accountID] = credential
     }
@@ -621,7 +644,6 @@ private actor ClaudeUsageSnapshotCache {
 
     func store(_ result: ProviderUsageResult, accountID: String) {
         results[accountID] = result
-        backoffs[accountID] = nil
     }
 
     @discardableResult
@@ -664,7 +686,6 @@ private actor ClaudeUsageSnapshotCache {
             fetchedAt: result.fetchedAt
         )
         results[accountID] = preserved
-        backoffs[accountID] = nil
         return preserved
     }
 
@@ -672,22 +693,33 @@ private actor ClaudeUsageSnapshotCache {
         results[accountID]
     }
 
-    func setBackoff(_ backoff: ClaudeUsageBackoff, accountID: String) {
-        backoffs[accountID] = backoff
+    func setBackoff(
+        _ backoff: ClaudeUsageBackoff,
+        accountID: String,
+        credential: String
+    ) {
+        guard credentials[accountID] == credential else {
+            return
+        }
+        backoffs[accountID, default: [:]][credential] = backoff
     }
 
-    func backoff(accountID: String) -> ClaudeUsageBackoff? {
-        backoffs[accountID]
+    func backoff(accountID: String, credential: String) -> ClaudeUsageBackoff? {
+        backoffs[accountID]?[credential]
     }
 
-    func clearBackoff(accountID: String) {
-        backoffs[accountID] = nil
+    func clearBackoff(accountID: String, credential: String) {
+        guard credentials[accountID] == credential else {
+            return
+        }
+        backoffs[accountID]?[credential] = nil
     }
 }
 
 private struct ClaudeUsageBackoff: Sendable {
     let retryAt: Date
     let message: String
+    let shouldTryFallbackCredential: Bool
 }
 
 private enum ClaudeCredentialRefreshResult: Sendable {
