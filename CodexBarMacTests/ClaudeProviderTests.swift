@@ -1231,7 +1231,8 @@ final class ClaudeProviderTests: XCTestCase {
 
         XCTAssertEqual(requestCount, 1)
         XCTAssertTrue(result.bars.isEmpty)
-        XCTAssertEqual(result.subtitle, "Claude credential lacks permission to read subscription usage.")
+        XCTAssertTrue(result.subtitle.contains("Claude credential lacks permission to read subscription usage."))
+        XCTAssertTrue(result.subtitle.contains("Retrying after"))
         XCTAssertTrue(result.isIncompleteRefresh)
     }
 
@@ -1350,4 +1351,442 @@ final class ClaudeProviderTests: XCTestCase {
         XCTAssertTrue(secondResult.subtitle.contains("Showing last known data."))
     }
 
+    func testClaudeUsageProviderBacksOffRepeatedForbiddenResponsesWithoutTryingFallbackCredential() async throws {
+        let clock = ClaudeUsageTestClock(Date(timeIntervalSince1970: 2_000_000_000))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 2_000_003_600,
+            accessToken: "local-access"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .claude)
+        try secretStore.saveSecret(
+            ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                expiresAt: 2_000_003_600,
+                accessToken: "browser-access"
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+        let provider = makeClaudeBackoffTestProvider(
+            secretStore: secretStore,
+            credentialsFilePath: credentialsPath,
+            clock: clock
+        )
+        var requestCount = 0
+        MockURLProtocol.handler = { request in
+            requestCount += 1
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer local-access")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"error":{"message":"OAuth authentication is currently not allowed for this organization"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let first = try await provider.fetchUsage(for: configuration)
+        let second = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(requestCount, 1)
+        XCTAssertTrue(first.subtitle.contains("Retrying after"))
+        XCTAssertEqual(second.subtitle, first.subtitle)
+        XCTAssertTrue(second.isIncompleteRefresh)
+    }
+
+    func testClaudeUsageProviderFallsBackAfterCredentialScopedForbiddenResponse() async throws {
+        let clock = ClaudeUsageTestClock(Date(timeIntervalSince1970: 2_000_000_000))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 2_000_003_600,
+            accessToken: "local-access"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .claude)
+        try secretStore.saveSecret(
+            ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                expiresAt: 2_000_003_600,
+                accessToken: "browser-access"
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+        let provider = makeClaudeBackoffTestProvider(
+            secretStore: secretStore,
+            credentialsFilePath: credentialsPath,
+            clock: clock
+        )
+        var requestedTokens: [String] = []
+        MockURLProtocol.handler = { request in
+            let authorization = try XCTUnwrap(request.value(forHTTPHeaderField: "Authorization"))
+            requestedTokens.append(authorization)
+            if authorization == "Bearer local-access" {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"error":{"message":"This credential lacks the required scope"}}"#.utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":26,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        let first = try await provider.fetchUsage(for: configuration)
+        let second = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(first.bars.first?.used, 26)
+        XCTAssertEqual(second.bars.first?.used, 26)
+        XCTAssertEqual(
+            requestedTokens,
+            ["Bearer local-access", "Bearer browser-access", "Bearer browser-access"]
+        )
+    }
+
+    func testClaudeUsageProviderUsesFifteenMinuteBackoffWithoutRetryAfter() async throws {
+        let clock = ClaudeUsageTestClock(Date(timeIntervalSince1970: 2_000_000_000))
+        let fixture = try makeLocalClaudeBackoffTestProvider(clock: clock)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        var requestCount = 0
+        MockURLProtocol.handler = { request in
+            requestCount += 1
+            if requestCount == 1 {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 429, httpVersion: nil, headerFields: nil)!,
+                    Data()
+                )
+            }
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":27,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        _ = try await fixture.provider.fetchUsage(for: fixture.configuration)
+        clock.advance(by: 899)
+        _ = try await fixture.provider.fetchUsage(for: fixture.configuration)
+        XCTAssertEqual(requestCount, 1)
+
+        clock.advance(by: 1)
+        let recovered = try await fixture.provider.fetchUsage(for: fixture.configuration)
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertEqual(recovered.bars.first?.used, 27)
+    }
+
+    func testClaudeUsageProviderHonorsDeltaAndHTTPDateRetryAfter() async throws {
+        let baseDate = Date(timeIntervalSince1970: 2_000_000_000)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
+        let cases = [
+            (header: "120", delay: TimeInterval(120)),
+            (header: formatter.string(from: baseDate.addingTimeInterval(300)), delay: TimeInterval(300)),
+        ]
+
+        for testCase in cases {
+            let clock = ClaudeUsageTestClock(baseDate)
+            let fixture = try makeLocalClaudeBackoffTestProvider(clock: clock)
+            defer { try? FileManager.default.removeItem(at: fixture.directory) }
+            var requestCount = 0
+            MockURLProtocol.handler = { request in
+                requestCount += 1
+                let statusCode = requestCount == 1 ? 429 : 200
+                let headers = requestCount == 1 ? ["Retry-After": testCase.header] : nil
+                let data = requestCount == 1
+                    ? Data()
+                    : Data(#"{"five_hour":{"utilization":29,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: statusCode,
+                        httpVersion: nil,
+                        headerFields: headers
+                    )!,
+                    data
+                )
+            }
+
+            _ = try await fixture.provider.fetchUsage(for: fixture.configuration)
+            clock.advance(by: testCase.delay - 1)
+            _ = try await fixture.provider.fetchUsage(for: fixture.configuration)
+            XCTAssertEqual(requestCount, 1, "Retry-After \(testCase.header) ended early")
+
+            clock.advance(by: 1)
+            let recovered = try await fixture.provider.fetchUsage(for: fixture.configuration)
+            XCTAssertEqual(requestCount, 2, "Retry-After \(testCase.header) lasted too long")
+            XCTAssertEqual(recovered.bars.first?.used, 29)
+            MockURLProtocol.handler = nil
+        }
+    }
+
+    func testClaudeUsageProviderIsolatesBackoffAndClearsItWhenCredentialChanges() async throws {
+        let clock = ClaudeUsageTestClock(Date(timeIntervalSince1970: 2_000_000_000))
+        let secretStore = InMemorySecretStore()
+        let firstConfiguration = ProviderAccountConfiguration(
+            id: "claude.first",
+            providerID: .claude,
+            authMethod: .browserSession
+        )
+        let secondConfiguration = ProviderAccountConfiguration(
+            id: "claude.second",
+            providerID: .claude,
+            authMethod: .browserSession
+        )
+        for (configuration, accessToken) in [
+            (firstConfiguration, "first-old"),
+            (secondConfiguration, "second-access"),
+        ] {
+            try secretStore.saveSecret(
+                ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                    expiresAt: 2_000_003_600,
+                    accessToken: accessToken
+                )),
+                account: ProviderConfigurationStore.keychainAccount(for: configuration)
+            )
+        }
+        let provider = makeClaudeBackoffTestProvider(
+            secretStore: secretStore,
+            credentialsFilePath: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathComponent(".credentials.json").path,
+            clock: clock
+        )
+        var requestedTokens: [String] = []
+        MockURLProtocol.handler = { request in
+            let authorization = try XCTUnwrap(request.value(forHTTPHeaderField: "Authorization"))
+            requestedTokens.append(authorization)
+            if authorization == "Bearer first-old" {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
+                    Data()
+                )
+            }
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":31,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        _ = try await provider.fetchUsage(for: firstConfiguration)
+        let otherAccount = try await provider.fetchUsage(for: secondConfiguration)
+        XCTAssertEqual(otherAccount.bars.first?.used, 31)
+
+        try secretStore.saveSecret(
+            ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                expiresAt: 2_000_003_600,
+                accessToken: "first-new"
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: firstConfiguration)
+        )
+        let rotatedCredential = try await provider.fetchUsage(for: firstConfiguration)
+
+        XCTAssertEqual(rotatedCredential.bars.first?.used, 31)
+        XCTAssertEqual(
+            requestedTokens,
+            ["Bearer first-old", "Bearer second-access", "Bearer first-new"]
+        )
+    }
+
+    func testClaudeUsageProviderRecoversAfterPermissionBackoffExpires() async throws {
+        let clock = ClaudeUsageTestClock(Date(timeIntervalSince1970: 2_000_000_000))
+        let fixture = try makeLocalClaudeBackoffTestProvider(clock: clock)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        var requestCount = 0
+        MockURLProtocol.handler = { request in
+            requestCount += 1
+            if requestCount == 1 {
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
+                    Data()
+                )
+            }
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":33,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer { MockURLProtocol.handler = nil }
+
+        _ = try await fixture.provider.fetchUsage(for: fixture.configuration)
+        clock.advance(by: (6 * 60 * 60) - 1)
+        _ = try await fixture.provider.fetchUsage(for: fixture.configuration)
+        XCTAssertEqual(requestCount, 1)
+
+        clock.advance(by: 1)
+        let recovered = try await fixture.provider.fetchUsage(for: fixture.configuration)
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertEqual(recovered.bars.first?.used, 33)
+    }
+
+    func testClaudeUsageProviderRejectsStaleBackoffAfterCredentialReplacement() async throws {
+        let clock = ClaudeUsageTestClock(Date(timeIntervalSince1970: 2_000_000_000))
+        let secretStore = InMemorySecretStore()
+        let configuration = ProviderAccountConfiguration(
+            id: "claude.concurrent-rotation",
+            providerID: .claude,
+            authMethod: .browserSession
+        )
+        try secretStore.saveSecret(
+            ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                expiresAt: 2_000_003_600,
+                accessToken: "old-access"
+            )),
+            account: ProviderConfigurationStore.keychainAccount(for: configuration)
+        )
+
+        let oldResponseGate = TestAsyncGate()
+        let requests = ClaudeUsageRequestRecorder()
+        let sessionFixture = IsolatedTestURLSession { request in
+            let authorization = try XCTUnwrap(request.value(forHTTPHeaderField: "Authorization"))
+            await requests.record(authorization)
+            if authorization == "Bearer old-access" {
+                await oldResponseGate.wait()
+                return (
+                    HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 403, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"error":{"message":"OAuth authentication is currently not allowed for this organization"}}"#.utf8)
+                )
+            }
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"five_hour":{"utilization":35,"resets_at":"2030-01-01T00:00:00Z"}}"#.utf8)
+            )
+        }
+        defer {
+            Task { await oldResponseGate.release() }
+            sessionFixture.invalidate()
+        }
+        let provider = ClaudeUsageProvider(
+            secretStore: secretStore,
+            session: sessionFixture.session,
+            credentialsFilePath: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathComponent(".credentials.json").path,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)",
+            now: { clock.now() }
+        )
+
+        let results = try await withTestWatchdog(
+            timeout: .seconds(10),
+            failureMessage: "Claude credential rotation overlap did not finish.",
+            onTimeout: {
+                Task { await oldResponseGate.release() }
+                sessionFixture.invalidate()
+            }
+        ) {
+            let oldFetch = Task { try await provider.fetchUsage(for: configuration) }
+            defer {
+                oldFetch.cancel()
+                Task { await oldResponseGate.release() }
+            }
+            await oldResponseGate.waitUntilBlocked()
+
+            try secretStore.saveSecret(
+                ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+                    expiresAt: 2_000_003_600,
+                    accessToken: "new-access"
+                )),
+                account: ProviderConfigurationStore.keychainAccount(for: configuration)
+            )
+            let replacementResult = try await provider.fetchUsage(for: configuration)
+            await oldResponseGate.release()
+            _ = try await oldFetch.value
+            let nextResult = try await provider.fetchUsage(for: configuration)
+            return [replacementResult, nextResult]
+        }
+
+        XCTAssertTrue(results.allSatisfy { $0.bars.first?.used == 35 })
+        let requestedAuthorizations = await requests.authorizations()
+        XCTAssertEqual(
+            requestedAuthorizations,
+            ["Bearer old-access", "Bearer new-access", "Bearer new-access"]
+        )
+    }
+
+    private func makeLocalClaudeBackoffTestProvider(
+        clock: ClaudeUsageTestClock
+    ) throws -> (
+        provider: ClaudeUsageProvider,
+        configuration: ProviderAccountConfiguration,
+        directory: URL
+    ) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let credentialsPath = directory.appendingPathComponent(".credentials.json").path
+        try Data(ClaudeCredentialsParser.storedCredential(from: ClaudeCredentials(
+            expiresAt: 4_000_000_000_000,
+            accessToken: "claude-access"
+        )).utf8).write(to: URL(fileURLWithPath: credentialsPath))
+        return (
+            makeClaudeBackoffTestProvider(
+                secretStore: InMemorySecretStore(),
+                credentialsFilePath: credentialsPath,
+                clock: clock
+            ),
+            .defaultConfiguration(for: .claude),
+            directory
+        )
+    }
+
+    private func makeClaudeBackoffTestProvider(
+        secretStore: any SecretStore,
+        credentialsFilePath: String,
+        clock: ClaudeUsageTestClock
+    ) -> ClaudeUsageProvider {
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        return ClaudeUsageProvider(
+            secretStore: secretStore,
+            session: URLSession(configuration: sessionConfiguration),
+            credentialsFilePath: credentialsFilePath,
+            keychainAccount: "codexbar-tests-\(UUID().uuidString)",
+            now: { clock.now() }
+        )
+    }
+
+}
+
+private final class ClaudeUsageTestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date: Date
+
+    init(_ date: Date) {
+        self.date = date
+    }
+
+    func now() -> Date {
+        lock.withLock { date }
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.withLock {
+            date = date.addingTimeInterval(interval)
+        }
+    }
+}
+
+private actor ClaudeUsageRequestRecorder {
+    private var values: [String] = []
+
+    func record(_ authorization: String) {
+        values.append(authorization)
+    }
+
+    func authorizations() -> [String] {
+        values
+    }
 }

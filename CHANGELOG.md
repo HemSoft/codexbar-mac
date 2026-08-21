@@ -43,6 +43,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Claude usage refreshes now pause after permission failures and rate limits
+  without a usable retry time, preserving cached usage instead of repeatedly
+  calling Anthropic while the error persists.
 - Warning and Critical notifications now identify the exact current-usage,
   projected-usage, or account-specific spend-limit trigger, include the severity
   threshold, and choose deterministically when multiple metrics qualify.
