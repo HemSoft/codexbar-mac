@@ -803,6 +803,110 @@ final class APIKeyAndCursorProviderTests: XCTestCase {
         XCTAssertEqual(result.bars.first?.usageText, "12%")
     }
 
+    func testCursorProviderDoesNotUseLocalAuthFileForAdditionalAccount() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        let authPath = temporaryDirectory.appendingPathComponent("auth.json").path
+        try Data(#"{"accessToken":"local-cursor-token"}"#.utf8).write(to: URL(fileURLWithPath: authPath))
+        let configuration = ProviderAccountConfiguration(
+            id: "cursor.additional",
+            providerID: .cursor,
+            authMethod: .browserSession
+        )
+        let provider = CursorUsageProvider(
+            secretStore: InMemorySecretStore(),
+            authFilePath: authPath
+        )
+
+        let result = try await provider.fetchUsage(for: configuration)
+
+        XCTAssertEqual(result.accountID, configuration.id)
+        XCTAssertEqual(result.subtitle, "Not configured - sign in with Cursor.")
+        XCTAssertTrue(result.bars.isEmpty)
+    }
+
+    func testCursorProviderKeepsSavedBrowserSessionsIsolated() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        let authPath = temporaryDirectory.appendingPathComponent("auth.json").path
+        try Data(#"{"accessToken":"local-cursor-token"}"#.utf8).write(to: URL(fileURLWithPath: authPath))
+
+        let first = ProviderAccountConfiguration(
+            id: "cursor.first",
+            providerID: .cursor,
+            authMethod: .browserSession
+        )
+        let second = ProviderAccountConfiguration(
+            id: "cursor.second",
+            providerID: .cursor,
+            authMethod: .browserSession
+        )
+        let secretStore = InMemorySecretStore()
+        try secretStore.saveSecret(
+            #"{"accessToken":"first-cursor-token"}"#,
+            account: ProviderConfigurationStore.keychainAccount(for: first)
+        )
+        try secretStore.saveSecret(
+            #"{"accessToken":"second-cursor-token"}"#,
+            account: ProviderConfigurationStore.keychainAccount(for: second)
+        )
+
+        let urlSessionConfiguration = URLSessionConfiguration.ephemeral
+        urlSessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: urlSessionConfiguration)
+        let provider = CursorUsageProvider(
+            secretStore: secretStore,
+            session: session,
+            authFilePath: authPath
+        )
+        defer {
+            MockURLProtocol.handler = nil
+        }
+
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer first-cursor-token")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"planUsage":{"totalPercentUsed":11}}"#.utf8)
+            )
+        }
+        let firstResult = try await provider.fetchUsage(for: first)
+
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer second-cursor-token")
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"planUsage":{"totalPercentUsed":22}}"#.utf8)
+            )
+        }
+        let secondResult = try await provider.fetchUsage(for: second)
+
+        XCTAssertEqual(firstResult.accountID, first.id)
+        XCTAssertEqual(firstResult.bars.first?.usageText, "11%")
+        XCTAssertEqual(secondResult.accountID, second.id)
+        XCTAssertEqual(secondResult.bars.first?.usageText, "22%")
+    }
+
     func testCursorProviderWithoutCredentialIsNotDemoData() async throws {
         let provider = CursorUsageProvider(secretStore: InMemorySecretStore(), authFilePath: "/tmp/missing-cursor-auth.json")
         let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .cursor)

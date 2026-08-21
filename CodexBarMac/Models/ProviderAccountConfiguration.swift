@@ -57,6 +57,10 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         return label.isEmpty ? providerID.displayName : label
     }
 
+    var usesSharedCursorSession: Bool {
+        providerID == .cursor && id == providerID.rawValue
+    }
+
     public func openCodeDisplayName(
         hasGoUsage: Bool,
         hasZenBalance: Bool

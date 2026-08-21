@@ -28,6 +28,86 @@ final class ConfigurationPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testCursorLocalDiscoveryAndSignOutKeepAdditionalAccountUnconfigured() async throws {
+        let suiteName = "CodexBarMacTests.CursorAccountIsolation.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let localAccount = ProviderAccountConfiguration.defaultConfiguration(for: .cursor)
+        var additionalAccount = localAccount.withNewAccountID()
+        additionalAccount.accountLabel = "Work Cursor"
+        defaults.set(
+            try JSONEncoder().encode([localAccount, additionalAccount]),
+            forKey: "providerConfigurations"
+        )
+
+        let secretStore = InMemorySecretStore()
+        try secretStore.saveSecret(
+            #"{"accessToken":"additional-cursor-token"}"#,
+            account: ProviderConfigurationStore.keychainAccount(for: additionalAccount)
+        )
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+        store.applyLocalCredentialDiscoveries(
+            LocalCredentialDiscovery.Result(
+                codexAuthAvailable: false,
+                githubUsernames: [],
+                claudeOAuthAvailable: false,
+                cursorSessionAvailable: true
+            )
+        )
+
+        for _ in 0..<200 where store.credentialReadiness(for: additionalAccount) != .keychainSaved {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(
+            store.credentialReadiness(for: localAccount),
+            .localCLIReady(description: "~/Library/Application Support/Cursor/auth.json")
+        )
+        XCTAssertEqual(store.credentialReadiness(for: additionalAccount), .keychainSaved)
+        XCTAssertNil(store.localCredentialHints[additionalAccount.id])
+
+        let disconnectedAccount = try XCTUnwrap(store.disconnectCursorAccount(additionalAccount))
+        store.applyLocalCredentialDiscoveries(
+            LocalCredentialDiscovery.Result(
+                codexAuthAvailable: false,
+                githubUsernames: [],
+                claudeOAuthAvailable: false,
+                cursorSessionAvailable: true
+            )
+        )
+
+        for _ in 0..<200 where store.credentialReadiness(for: disconnectedAccount) != .missing {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(store.credentialReadiness(for: disconnectedAccount), .missing)
+        XCTAssertNil(store.localCredentialHints[disconnectedAccount.id])
+        XCTAssertNil(
+            try secretStore.readSecret(
+                account: ProviderConfigurationStore.keychainAccount(for: disconnectedAccount)
+            )
+        )
+
+        store.removeAccount(localAccount)
+        let recreatedLocalAccount = store.addAccount(for: .cursor)
+        XCTAssertTrue(recreatedLocalAccount.usesSharedCursorSession)
+        store.applyLocalCredentialDiscoveries(
+            LocalCredentialDiscovery.Result(
+                codexAuthAvailable: false,
+                githubUsernames: [],
+                claudeOAuthAvailable: false,
+                cursorSessionAvailable: true
+            )
+        )
+        XCTAssertEqual(
+            store.credentialReadiness(for: recreatedLocalAccount),
+            .localCLIReady(description: "~/Library/Application Support/Cursor/auth.json")
+        )
+        XCTAssertNil(store.localCredentialHints[disconnectedAccount.id])
+    }
+
+    @MainActor
     func testDashboardTextSizeAndMenuBarSizePersistAcrossStoreInstances() {
         let suiteName = "CodexBarMacTests.DashboardPresentation.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

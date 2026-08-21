@@ -953,7 +953,7 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         if discovery.cursorSessionAvailable {
             let cursorCredentialHint = "~/Library/Application Support/Cursor/auth.json"
-            for index in configurations.indices where configurations[index].providerID == .cursor {
+            for index in configurations.indices where configurations[index].usesSharedCursorSession {
                 if shouldApplyLocalAuthMethod(
                     current: configurations[index].authMethod,
                     localMethod: .browserSession,
@@ -1551,6 +1551,10 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     private func shouldReuseDefaultAccountID(for providerID: ProviderID) -> Bool {
+        if providerID == .cursor {
+            return !configurations.contains(where: \.usesSharedCursorSession)
+        }
+
         guard configurations(for: providerID).isEmpty else {
             return false
         }
