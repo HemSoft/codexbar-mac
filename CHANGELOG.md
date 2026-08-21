@@ -43,6 +43,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Additional Cursor accounts now stay tied to their saved browser sessions
+  instead of silently reusing the default local Cursor app session.
 - Claude usage refreshes now pause after permission failures and rate limits
   without a usable retry time, preserving cached usage instead of repeatedly
   calling Anthropic while the error persists.

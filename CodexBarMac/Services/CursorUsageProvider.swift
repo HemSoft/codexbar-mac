@@ -161,7 +161,7 @@ public final class CursorUsageProvider: UsageProvider {
             return accessToken
         }
 
-        if
+        if configuration.usesSharedCursorSession,
             let credentials = CursorCredentialsParser.parseAuthFile(at: authFilePath),
             let accessToken = Self.normalizedAccessToken(from: credentials.accessToken)
         {

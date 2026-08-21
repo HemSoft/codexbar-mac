@@ -953,7 +953,7 @@ public final class ProviderConfigurationStore: ObservableObject {
 
         if discovery.cursorSessionAvailable {
             let cursorCredentialHint = "~/Library/Application Support/Cursor/auth.json"
-            for index in configurations.indices where configurations[index].providerID == .cursor {
+            for index in configurations.indices where configurations[index].usesSharedCursorSession {
                 if shouldApplyLocalAuthMethod(
                     current: configurations[index].authMethod,
                     localMethod: .browserSession,
