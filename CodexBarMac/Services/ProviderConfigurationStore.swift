@@ -1551,6 +1551,10 @@ public final class ProviderConfigurationStore: ObservableObject {
     }
 
     private func shouldReuseDefaultAccountID(for providerID: ProviderID) -> Bool {
+        if providerID == .cursor {
+            return !configurations.contains(where: \.usesSharedCursorSession)
+        }
+
         guard configurations(for: providerID).isEmpty else {
             return false
         }

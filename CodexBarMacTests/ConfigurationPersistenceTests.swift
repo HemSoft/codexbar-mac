@@ -88,6 +88,23 @@ final class ConfigurationPersistenceTests: XCTestCase {
                 account: ProviderConfigurationStore.keychainAccount(for: disconnectedAccount)
             )
         )
+
+        store.removeAccount(localAccount)
+        let recreatedLocalAccount = store.addAccount(for: .cursor)
+        XCTAssertTrue(recreatedLocalAccount.usesSharedCursorSession)
+        store.applyLocalCredentialDiscoveries(
+            LocalCredentialDiscovery.Result(
+                codexAuthAvailable: false,
+                githubUsernames: [],
+                claudeOAuthAvailable: false,
+                cursorSessionAvailable: true
+            )
+        )
+        XCTAssertEqual(
+            store.credentialReadiness(for: recreatedLocalAccount),
+            .localCLIReady(description: "~/Library/Application Support/Cursor/auth.json")
+        )
+        XCTAssertNil(store.localCredentialHints[disconnectedAccount.id])
     }
 
     @MainActor
