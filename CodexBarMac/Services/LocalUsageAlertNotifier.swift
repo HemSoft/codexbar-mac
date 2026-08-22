@@ -32,14 +32,7 @@ public final class LocalUsageAlertNotifier: NSObject, UsageAlertNotifying, UNUse
 
     @MainActor
     public func deliver(_ notification: UsageAlertNotification) async throws {
-        let content = UNMutableNotificationContent()
-        content.title = notification.title
-        content.body = notification.body
-        content.sound = .default
-        content.userInfo = [
-            "accountID": notification.accountID,
-            "kind": notification.kind.rawValue,
-        ]
+        let content = Self.content(for: notification)
 
         let request = UNNotificationRequest(
             identifier: notification.id,
@@ -48,6 +41,18 @@ public final class LocalUsageAlertNotifier: NSObject, UsageAlertNotifying, UNUse
         )
 
         try await center.add(request)
+    }
+
+    static func content(for notification: UsageAlertNotification) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = notification.title
+        content.body = notification.body
+        content.sound = .default
+        content.userInfo = [
+            "accountID": notification.accountID,
+            "kind": notification.kind.rawValue,
+        ]
+        return content
     }
 
     public nonisolated func userNotificationCenter(
