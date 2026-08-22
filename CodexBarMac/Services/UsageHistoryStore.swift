@@ -48,6 +48,15 @@ public struct UsageHistoryBarSnapshot: Equatable, Codable, Sendable {
             forKey: .effectiveSeverity
         ) ?? UsageSeverity(fractionUsed: fractionUsed)
     }
+
+    var historyFractionUsed: Double {
+        guard limit > 0 else {
+            return fractionUsed
+        }
+
+        let rawFraction = used / limit
+        return rawFraction.isFinite ? max(rawFraction, 0) : fractionUsed
+    }
 }
 
 public struct UsageHistoryMonetaryMetricSnapshot: Equatable, Codable, Sendable {
@@ -141,10 +150,10 @@ public struct UsageHistorySnapshot: Identifiable, Equatable, Codable, Sendable {
                        ))
            })
         {
-            return total.fractionUsed
+            return total.historyFractionUsed
         }
 
-        if let usage = bars.map(\.fractionUsed).max() {
+        if let usage = bars.map(\.historyFractionUsed).max() {
             return usage
         }
 
@@ -335,7 +344,12 @@ public struct UsageHistorySeries: Equatable, Sendable {
 
     public var chartDomain: ClosedRange<Double> {
         guard isBalance else {
-            return 0...1
+            guard let maximum = points.map(\.value).max(), maximum > 1 else {
+                return 0...1
+            }
+
+            let padding = max((maximum - 1) * 0.15, 0.01)
+            return 0...(maximum + padding)
         }
 
         guard
@@ -515,7 +529,7 @@ public final class UsageHistoryStore: ObservableObject {
                     UsageHistoryPoint(
                         id: snapshot.id,
                         capturedAt: snapshot.capturedAt,
-                        value: $0.fractionUsed,
+                        value: $0.historyFractionUsed,
                         severity: $0.effectiveSeverity
                     )
                 }
@@ -533,7 +547,7 @@ public final class UsageHistoryStore: ObservableObject {
                 guard !snapshot.bars.isEmpty else {
                     return nil
                 }
-                value = snapshot.bars.map(\.fractionUsed).max()
+                value = snapshot.bars.map(\.historyFractionUsed).max()
             }
             return value.map { UsageHistoryPoint(snapshot: snapshot, value: $0) }
         }
@@ -625,7 +639,7 @@ public final class UsageHistoryStore: ObservableObject {
                         $0.label,
                         stableKey: CursorUsageIdentity.totalStableKey
                     ))
-        }) ?? snapshot.bars.max(by: { $0.fractionUsed < $1.fractionUsed })
+        }) ?? snapshot.bars.max(by: { $0.historyFractionUsed < $1.historyFractionUsed })
     }
 
     private func cursorUsageSeries(
@@ -647,7 +661,7 @@ public final class UsageHistoryStore: ObservableObject {
                     UsageHistoryPoint(
                         id: snapshot.id,
                         capturedAt: snapshot.capturedAt,
-                        value: $0.fractionUsed,
+                        value: $0.historyFractionUsed,
                         severity: $0.effectiveSeverity
                     )
                 }
@@ -667,7 +681,7 @@ public final class UsageHistoryStore: ObservableObject {
                     UsageHistoryPoint(
                         id: snapshot.id,
                         capturedAt: snapshot.capturedAt,
-                        value: $0.fractionUsed,
+                        value: $0.historyFractionUsed,
                         severity: $0.effectiveSeverity
                     )
                 }

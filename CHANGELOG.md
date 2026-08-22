@@ -43,6 +43,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Percentage history charts now preserve usage above 100% and expand to show
+  over-limit values while keeping the dotted 100% allowance reference.
+  ([#161](https://github.com/HemSoft/codexbar-mac/issues/161))
 - Additional Cursor accounts now stay tied to their saved browser sessions
   instead of silently reusing the default local Cursor app session.
 - Claude usage refreshes now pause after permission failures and rate limits

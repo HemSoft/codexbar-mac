@@ -977,17 +977,104 @@ final class UsageHistoryTests: XCTestCase {
         XCTAssertEqual(balanceSeries.direction, .down)
     }
 
+    @MainActor
+    func testPercentageChartDomainExpandsPastHighestOverLimitValue() {
+        let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let now = Date(timeIntervalSince1970: 1_788_475_200)
+        let store = UsageHistoryStore(defaults: defaults)
+        let samples = [
+            ProviderUsageResult(
+                accountID: "copilot.organization",
+                providerID: .copilot,
+                title: "GitHub Copilot",
+                subtitle: "Organization usage",
+                bars: [UsageBar(label: "AI credits", used: 80, limit: 100)],
+                fetchedAt: now.addingTimeInterval(-60)
+            ),
+            ProviderUsageResult(
+                accountID: "copilot.organization",
+                providerID: .copilot,
+                title: "GitHub Copilot",
+                subtitle: "Organization usage",
+                bars: [UsageBar(label: "AI credits", used: 125, limit: 100)],
+                fetchedAt: now
+            ),
+        ]
+
+        for sample in samples {
+            store.record(results: [sample], now: now)
+        }
+
+        let reloadedStore = UsageHistoryStore(defaults: defaults)
+        let series = reloadedStore.historySeries(for: samples[1])
+
+        XCTAssertEqual(reloadedStore.snapshots.last?.bars.first?.fractionUsed, 1)
+        XCTAssertEqual(series.points.map(\.value), [0.8, 1.25])
+        XCTAssertEqual(series.chartDomain.lowerBound, 0)
+        XCTAssertGreaterThan(series.chartDomain.upperBound, 1.25)
+        XCTAssertEqual(series.latestValueDescription, "125%")
+        XCTAssertEqual(series.maximumValueDescription, "125%")
+        XCTAssertEqual(series.rangeDescription, "Range 80% to 125%")
+    }
+
+    func testPercentageChartDomainStaysAtOneHundredPercentAtOrBelowLimit() {
+        let now = Date(timeIntervalSince1970: 1_788_475_200)
+        let series = UsageHistorySeries(
+            accountID: "copilot.organization",
+            points: [
+                UsageHistoryPoint(
+                    id: "under",
+                    capturedAt: now.addingTimeInterval(-60),
+                    value: 0.8,
+                    severity: .normal
+                ),
+                UsageHistoryPoint(
+                    id: "limit",
+                    capturedAt: now,
+                    value: 1,
+                    severity: .critical
+                ),
+            ],
+            isBalance: false
+        )
+
+        XCTAssertEqual(series.chartDomain, 0...1)
+        XCTAssertEqual(series.latestValueDescription, "100%")
+    }
+
+    func testPercentageChartDomainPadsSmallOveragesWithoutLargeRescalingJump() {
+        let series = UsageHistorySeries(
+            accountID: "copilot.organization",
+            points: [
+                UsageHistoryPoint(
+                    id: "barely-over",
+                    capturedAt: Date(timeIntervalSince1970: 1_788_475_200),
+                    value: 1.01,
+                    severity: .critical
+                ),
+            ],
+            isBalance: false
+        )
+
+        XCTAssertEqual(series.chartDomain.lowerBound, 0)
+        XCTAssertEqual(series.chartDomain.upperBound, 1.02, accuracy: 0.0001)
+    }
+
     func testUsageHistoryBarSnapshotDecodesLegacyLabelOnlyData() throws {
         let data = Data(
-            #"{"label":"Total","fractionUsed":0.38,"used":38,"limit":100}"#.utf8
+            #"{"label":"Total","fractionUsed":1,"used":125,"limit":100}"#.utf8
         )
 
         let snapshot = try JSONDecoder().decode(UsageHistoryBarSnapshot.self, from: data)
 
         XCTAssertNil(snapshot.stableKey)
         XCTAssertEqual(snapshot.label, "Total")
-        XCTAssertEqual(snapshot.fractionUsed, 0.38)
-        XCTAssertEqual(snapshot.effectiveSeverity, .normal)
+        XCTAssertEqual(snapshot.fractionUsed, 1)
+        XCTAssertEqual(snapshot.historyFractionUsed, 1.25)
+        XCTAssertEqual(snapshot.effectiveSeverity, .critical)
     }
 
     @MainActor
@@ -1003,9 +1090,9 @@ final class UsageHistoryTests: XCTestCase {
             title: "Cursor",
             subtitle: "Current",
             bars: [
-                UsageBar(stableKey: "total", label: "Total", used: 38, limit: 100),
+                UsageBar(stableKey: "total", label: "Total", used: 125, limit: 100),
                 UsageBar(stableKey: "auto", label: "Auto", used: 29, limit: 100),
-                UsageBar(stableKey: "api", label: "API", used: 100, limit: 100),
+                UsageBar(stableKey: "api", label: "API", used: 150, limit: 100),
                 UsageBar(
                     stableKey: "on-demand",
                     label: "On-demand $0.00 / $20.00",
@@ -1021,9 +1108,9 @@ final class UsageHistoryTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(store.snapshots.first)
         XCTAssertEqual(snapshot.bars.map(\.stableKey), ["total", "auto", "api", "on-demand"])
-        XCTAssertEqual(snapshot.primaryValue, 0.38)
-        XCTAssertEqual(store.historySeries(for: result).points.map(\.value), [0.38])
-        XCTAssertEqual(store.historySeries(for: result).points.map(\.severity), [.normal])
+        XCTAssertEqual(snapshot.primaryValue, 1.25)
+        XCTAssertEqual(store.historySeries(for: result).points.map(\.value), [1.25])
+        XCTAssertEqual(store.historySeries(for: result).points.map(\.severity), [.critical])
 
         let options = store.historySeriesOptions(for: result)
         XCTAssertEqual(options.map(\.id), [
@@ -1034,9 +1121,9 @@ final class UsageHistoryTests: XCTestCase {
         ])
         XCTAssertEqual(options.map(\.label), ["Total", "Auto", "API", "On-demand"])
         XCTAssertEqual(options.map { $0.series.points.map(\.value) }, [
-            [0.38],
+            [1.25],
             [0.29],
-            [1],
+            [1.5],
             [0],
         ])
 
@@ -1056,7 +1143,7 @@ final class UsageHistoryTests: XCTestCase {
 
         XCTAssertEqual(
             store.historySeries(for: reorderedAndRelabeledResult).points.map(\.value),
-            [0.38]
+            [1.25]
         )
         XCTAssertEqual(
             store.historySeriesOptions(for: reorderedAndRelabeledResult).map(\.id),
