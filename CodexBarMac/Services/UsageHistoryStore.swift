@@ -348,7 +348,7 @@ public struct UsageHistorySeries: Equatable, Sendable {
                 return 0...1
             }
 
-            let padding = max(maximum * 0.08, 0.05)
+            let padding = max((maximum - 1) * 0.15, 0.01)
             return 0...(maximum + padding)
         }
 

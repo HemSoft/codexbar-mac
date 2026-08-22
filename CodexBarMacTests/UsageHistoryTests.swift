@@ -1045,6 +1045,24 @@ final class UsageHistoryTests: XCTestCase {
         XCTAssertEqual(series.latestValueDescription, "100%")
     }
 
+    func testPercentageChartDomainPadsSmallOveragesWithoutLargeRescalingJump() {
+        let series = UsageHistorySeries(
+            accountID: "copilot.organization",
+            points: [
+                UsageHistoryPoint(
+                    id: "barely-over",
+                    capturedAt: Date(timeIntervalSince1970: 1_788_475_200),
+                    value: 1.01,
+                    severity: .critical
+                ),
+            ],
+            isBalance: false
+        )
+
+        XCTAssertEqual(series.chartDomain.lowerBound, 0)
+        XCTAssertEqual(series.chartDomain.upperBound, 1.02, accuracy: 0.0001)
+    }
+
     func testUsageHistoryBarSnapshotDecodesLegacyLabelOnlyData() throws {
         let data = Data(
             #"{"label":"Total","fractionUsed":1,"used":125,"limit":100}"#.utf8
