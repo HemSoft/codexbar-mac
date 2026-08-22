@@ -43,6 +43,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Warning and Critical notification bodies now include the saved-account label
+  and provider, so relayed previews identify the triggering account without the
+  notification title. ([#162](https://github.com/HemSoft/codexbar-mac/issues/162))
 - Percentage history charts now preserve usage above 100% and expand to show
   over-limit values while keeping the dotted 100% allowance reference.
   ([#161](https://github.com/HemSoft/codexbar-mac/issues/161))
