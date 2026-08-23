@@ -6,12 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-### Changed
-
-- Added a saved History Sampling setting, defaulting to two hours, so usage
-  refreshes no longer create unnecessarily dense history.
-  ([#165](https://github.com/HemSoft/codexbar-mac/issues/165))
-
 ### Added
 
 - Xcode project `CodexBarMac` with a `MenuBarExtra` menu bar shell (no Dock icon) and empty popover window.
@@ -44,6 +38,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Added a saved History Sampling setting, defaulting to two hours, so usage
+  refreshes no longer create unnecessarily dense history.
+  ([#165](https://github.com/HemSoft/codexbar-mac/issues/165))
 - The menu bar popover uses a narrower, content-friendlier frame, tighter card spacing, and a single compact header for refresh, settings, and quit actions.
 - The README provider table now documents OpenCode Go subscription usage alongside the independent ZEN credit balance.
 

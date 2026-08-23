@@ -951,7 +951,7 @@ public final class UsageHistoryStore: ObservableObject {
 
         do {
             let snapshots = try JSONDecoder().decode([UsageHistorySnapshot].self, from: data)
-            return .success(snapshots.sorted { $0.capturedAt < $1.capturedAt })
+            return .success(snapshots.sorted(by: snapshotOrder))
         } catch {
             return .failure(error)
         }

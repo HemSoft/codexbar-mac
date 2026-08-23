@@ -106,6 +106,46 @@ final class UsageHistoryTests: XCTestCase {
     }
 
     @MainActor
+    func testUsageHistoryStoreDoesNotRewriteEqualTimeSnapshotsAfterReload() throws {
+        let suiteName = "CodexBarMacTests.HistorySamplingReload.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let firstFetch = Date(timeIntervalSince1970: 1_788_475_200)
+        let persistedSnapshots = [
+            UsageHistorySnapshot(
+                result: makeHistoryResult(accountID: "codex.work", fetchedAt: firstFetch, used: 30)
+            ),
+            UsageHistorySnapshot(
+                result: makeHistoryResult(accountID: "codex.personal", fetchedAt: firstFetch, used: 20)
+            ),
+        ]
+        defaults.set(
+            try JSONEncoder().encode(persistedSnapshots),
+            forKey: "usageHistorySnapshots"
+        )
+        var encodingCount = 0
+        let store = UsageHistoryStore(defaults: defaults) { snapshots in
+            encodingCount += 1
+            return try JSONEncoder().encode(snapshots)
+        }
+        let skippedFetch = firstFetch.addingTimeInterval(60 * 60)
+
+        XCTAssertEqual(store.snapshots.map(\.accountID), ["codex.personal", "codex.work"])
+
+        store.record(
+            results: [
+                makeHistoryResult(accountID: "codex.work", fetchedAt: skippedFetch, used: 40),
+                makeHistoryResult(accountID: "codex.personal", fetchedAt: skippedFetch, used: 50),
+            ],
+            now: skippedFetch,
+            samplingInterval: HistorySamplingInterval.twoHours.seconds
+        )
+
+        XCTAssertEqual(encodingCount, 0)
+        XCTAssertEqual(store.snapshots.map(\.accountID), ["codex.personal", "codex.work"])
+    }
+
+    @MainActor
     func testUsageHistoryStoreAppliesIntervalChangesToFutureSamplesOnly() {
         let suiteName = "CodexBarMacTests.HistorySamplingChange.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
