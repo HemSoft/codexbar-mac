@@ -33,6 +33,12 @@ struct SettingsView: View {
                         }
                     }
 
+                    Picker("History Sampling", selection: historySamplingIntervalBinding) {
+                        ForEach(HistorySamplingInterval.allCases) { interval in
+                            Text(interval.displayName).tag(interval)
+                        }
+                    }
+
                     Picker("Dashboard Order", selection: dashboardOrderingModeBinding) {
                         ForEach(DashboardOrderingMode.allCases) { mode in
                             Text(mode.displayName).tag(mode)
@@ -330,6 +336,13 @@ struct SettingsView: View {
                 configurationStore.updateAutoRefreshInterval(newValue)
                 model.updateAutoRefresh()
             }
+        )
+    }
+
+    private var historySamplingIntervalBinding: Binding<HistorySamplingInterval> {
+        Binding(
+            get: { configurationStore.historySamplingInterval },
+            set: { configurationStore.updateHistorySamplingInterval($0) }
         )
     }
 

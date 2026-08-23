@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Changed
+
+- Added a saved History Sampling setting, defaulting to two hours, so usage
+  refreshes no longer create unnecessarily dense history.
+  ([#165](https://github.com/HemSoft/codexbar-mac/issues/165))
+
 ### Added
 
 - Xcode project `CodexBarMac` with a `MenuBarExtra` menu bar shell (no Dock icon) and empty popover window.

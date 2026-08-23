@@ -35,6 +35,274 @@ final class UsageHistoryTests: XCTestCase {
     }
 
     @MainActor
+    func testUsageHistoryStoreEnforcesSamplingIntervalPerAccountAndAtBoundary() {
+        let suiteName = "CodexBarMacTests.HistorySampling.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let firstFetch = Date(timeIntervalSince1970: 1_788_475_200)
+        var encodingCount = 0
+        let store = UsageHistoryStore(defaults: defaults) { snapshots in
+            encodingCount += 1
+            return try JSONEncoder().encode(snapshots)
+        }
+
+        store.record(
+            results: [makeHistoryResult(accountID: "codex.personal", fetchedAt: firstFetch, used: 20)],
+            now: firstFetch,
+            samplingInterval: HistorySamplingInterval.twoHours.seconds
+        )
+        store.record(
+            results: [
+                makeHistoryResult(
+                    accountID: "codex.personal",
+                    fetchedAt: firstFetch.addingTimeInterval(60 * 60),
+                    used: 30
+                ),
+                makeHistoryResult(
+                    accountID: "codex.work",
+                    fetchedAt: firstFetch.addingTimeInterval(60 * 60),
+                    used: 40
+                ),
+            ],
+            now: firstFetch.addingTimeInterval(60 * 60),
+            samplingInterval: HistorySamplingInterval.twoHours.seconds
+        )
+        XCTAssertEqual(encodingCount, 2)
+
+        store.record(
+            results: [
+                makeHistoryResult(
+                    accountID: "codex.personal",
+                    fetchedAt: firstFetch.addingTimeInterval(90 * 60),
+                    used: 45
+                ),
+            ],
+            now: firstFetch.addingTimeInterval(90 * 60),
+            samplingInterval: HistorySamplingInterval.twoHours.seconds
+        )
+        XCTAssertEqual(encodingCount, 2, "A skipped sample must not rewrite unchanged history.")
+
+        store.record(
+            results: [
+                makeHistoryResult(
+                    accountID: "codex.personal",
+                    fetchedAt: firstFetch.addingTimeInterval(2 * 60 * 60),
+                    used: 50
+                ),
+            ],
+            now: firstFetch.addingTimeInterval(2 * 60 * 60),
+            samplingInterval: HistorySamplingInterval.twoHours.seconds
+        )
+
+        XCTAssertEqual(encodingCount, 3)
+        XCTAssertEqual(
+            store.snapshots(for: "codex.personal").compactMap { $0.bars.first?.used },
+            [20, 50]
+        )
+        XCTAssertEqual(
+            store.snapshots(for: "codex.work").compactMap { $0.bars.first?.used },
+            [40]
+        )
+    }
+
+    @MainActor
+    func testUsageHistoryStoreAppliesIntervalChangesToFutureSamplesOnly() {
+        let suiteName = "CodexBarMacTests.HistorySamplingChange.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let firstFetch = Date(timeIntervalSince1970: 1_788_475_200)
+        let changedFetch = firstFetch.addingTimeInterval(3 * 60 * 60)
+        let store = UsageHistoryStore(defaults: defaults)
+
+        store.record(
+            results: [makeHistoryResult(accountID: "codex.personal", fetchedAt: firstFetch, used: 20)],
+            now: firstFetch,
+            samplingInterval: HistorySamplingInterval.fourHours.seconds
+        )
+        store.record(
+            results: [makeHistoryResult(accountID: "codex.personal", fetchedAt: changedFetch, used: 30)],
+            now: changedFetch,
+            samplingInterval: HistorySamplingInterval.fourHours.seconds
+        )
+        XCTAssertEqual(store.snapshots(for: "codex.personal").count, 1)
+
+        store.record(
+            results: [makeHistoryResult(accountID: "codex.personal", fetchedAt: changedFetch, used: 30)],
+            now: changedFetch,
+            samplingInterval: HistorySamplingInterval.twoHours.seconds
+        )
+
+        XCTAssertEqual(
+            store.snapshots(for: "codex.personal").compactMap { $0.bars.first?.used },
+            [20, 30]
+        )
+    }
+
+    @MainActor
+    func testUsageHistoryStoreRecordsAccountAfterSuccessfulSamplingGap() {
+        let suiteName = "CodexBarMacTests.HistorySamplingRecovery.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let firstFetch = Date(timeIntervalSince1970: 1_788_475_200)
+        let store = UsageHistoryStore(defaults: defaults)
+
+        store.record(
+            results: [
+                makeHistoryResult(accountID: "codex.personal", fetchedAt: firstFetch, used: 20),
+                makeHistoryResult(accountID: "codex.work", fetchedAt: firstFetch, used: 30),
+            ],
+            now: firstFetch,
+            samplingInterval: HistorySamplingInterval.twoHours.seconds
+        )
+        store.record(
+            results: [
+                makeHistoryResult(
+                    accountID: "codex.personal",
+                    fetchedAt: firstFetch.addingTimeInterval(60 * 60),
+                    used: 40
+                ),
+            ],
+            now: firstFetch.addingTimeInterval(60 * 60),
+            samplingInterval: HistorySamplingInterval.twoHours.seconds
+        )
+        store.record(
+            results: [
+                makeHistoryResult(
+                    accountID: "codex.work",
+                    fetchedAt: firstFetch.addingTimeInterval(3 * 60 * 60),
+                    used: 50
+                ),
+            ],
+            now: firstFetch.addingTimeInterval(3 * 60 * 60),
+            samplingInterval: HistorySamplingInterval.twoHours.seconds
+        )
+
+        XCTAssertEqual(
+            store.snapshots(for: "codex.work").compactMap { $0.bars.first?.used },
+            [30, 50]
+        )
+    }
+
+    @MainActor
+    func testAppModelAppliesSamplingToManualAndSingleAccountRefreshes() async throws {
+        let suiteName = "CodexBarMacTests.HistorySamplingAppModel.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        defaults.set(
+            try JSONEncoder().encode([configuration]),
+            forKey: "providerConfigurations"
+        )
+        let firstFetch = Date()
+        let provider = SequencedUsageProvider(
+            providerID: .codex,
+            steps: [
+                .result(makeHistoryResult(accountID: configuration.id, fetchedAt: firstFetch, used: 20)),
+                .result(
+                    makeHistoryResult(
+                        accountID: configuration.id,
+                        fetchedAt: firstFetch.addingTimeInterval(60 * 60),
+                        used: 30
+                    )
+                ),
+                .result(
+                    makeHistoryResult(
+                        accountID: configuration.id,
+                        fetchedAt: firstFetch.addingTimeInterval(2 * 60 * 60),
+                        used: 40
+                    )
+                ),
+            ]
+        )
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        let historyStore = UsageHistoryStore(defaults: defaults)
+        let model = AppModel(
+            refreshService: UsageRefreshService(providers: [provider]),
+            configurationStore: configurationStore,
+            historyStore: historyStore,
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+
+        await model.refresh()
+        await model.refresh()
+
+        XCTAssertEqual(historyStore.snapshots.count, 1)
+        XCTAssertEqual(model.displayedResults.first?.fetchedAt, firstFetch.addingTimeInterval(60 * 60))
+
+        let singleAccountResult = await model.refreshAccount(configuration)
+
+        XCTAssertEqual(singleAccountResult?.fetchedAt, firstFetch.addingTimeInterval(2 * 60 * 60))
+        XCTAssertEqual(
+            historyStore.snapshots(for: configuration.id).compactMap { $0.bars.first?.used },
+            [20, 40]
+        )
+    }
+
+    @MainActor
+    func testAppModelAppliesSamplingAfterAutomaticRefreshCompletion() async throws {
+        let suiteName = "CodexBarMacTests.HistorySamplingAutoRefresh.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        defaults.set(
+            try JSONEncoder().encode([configuration]),
+            forKey: "providerConfigurations"
+        )
+        let firstFetch = Date()
+        let firstResult = makeHistoryResult(
+            accountID: configuration.id,
+            fetchedAt: firstFetch,
+            used: 20
+        )
+        let automaticResult = makeHistoryResult(
+            accountID: configuration.id,
+            fetchedAt: firstFetch.addingTimeInterval(60 * 60),
+            used: 30
+        )
+        let sleeper = OneShotAutoRefreshSleeper()
+        let refreshService = UsageRefreshService(
+            providers: [StubUsageProvider(providerID: .codex, result: automaticResult)],
+            sleepBeforeAutoRefresh: { seconds in
+                try await sleeper.sleep(for: seconds)
+            }
+        )
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        configurationStore.updateAutoRefreshInterval(.oneMinute)
+        let historyStore = UsageHistoryStore(defaults: defaults)
+        historyStore.record(
+            results: [firstResult],
+            now: firstFetch,
+            samplingInterval: HistorySamplingInterval.twoHours.seconds
+        )
+        let model = AppModel(
+            refreshService: refreshService,
+            configurationStore: configurationStore,
+            historyStore: historyStore,
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+        defer { refreshService.stopAutoRefresh() }
+
+        model.updateAutoRefresh()
+        for _ in 0..<200 where model.displayedResults.first?.fetchedAt != automaticResult.fetchedAt {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(model.displayedResults.first?.fetchedAt, automaticResult.fetchedAt)
+        XCTAssertEqual(
+            historyStore.snapshots(for: configuration.id).compactMap { $0.bars.first?.used },
+            [20]
+        )
+    }
+
+    @MainActor
     func testUsageHistoryStoreTreatsAbsentStorageAsEmptyHistory() {
         let suiteName = "CodexBarMacTests.HistoryAbsent.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -1540,4 +1808,18 @@ final class UsageHistoryTests: XCTestCase {
         XCTAssertTrue(series.points.isEmpty)
     }
 
+    private func makeHistoryResult(
+        accountID: String,
+        fetchedAt: Date,
+        used: Double
+    ) -> ProviderUsageResult {
+        ProviderUsageResult(
+            accountID: accountID,
+            providerID: .codex,
+            title: accountID,
+            subtitle: "Live Codex usage",
+            bars: [UsageBar(label: "5h limit", used: used, limit: 100)],
+            fetchedAt: fetchedAt
+        )
+    }
 }
