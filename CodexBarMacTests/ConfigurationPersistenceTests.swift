@@ -8,6 +8,36 @@ final class ConfigurationPersistenceTests: XCTestCase {
     deinit {}
 
     @MainActor
+    func testHistorySamplingIntervalDefaultsToTwoHoursAndPersists() {
+        let suiteName = "CodexBarMacTests.HistorySamplingInterval.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        XCTAssertEqual(store.historySamplingInterval, .twoHours)
+
+        store.updateHistorySamplingInterval(.fourHours)
+
+        let reloadedStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        XCTAssertEqual(reloadedStore.historySamplingInterval, .fourHours)
+
+        defaults.set(Int.max, forKey: "historySamplingInterval")
+        let invalidValueStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        XCTAssertEqual(invalidValueStore.historySamplingInterval, .twoHours)
+    }
+
+    @MainActor
     func testProviderConfigurationStoreTreatsAbsentStorageAsFirstLaunch() {
         let suiteName = "CodexBarMacTests.ConfigurationAbsent.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

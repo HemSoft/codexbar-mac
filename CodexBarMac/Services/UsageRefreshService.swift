@@ -8,6 +8,7 @@ public final class UsageRefreshService: ObservableObject {
     @Published public private(set) var incompleteRefreshAccountIDs: Set<String> = []
 
     private let providers: [any UsageProvider]
+    private let sleepBeforeAutoRefresh: @Sendable (TimeInterval) async throws -> Void
     private var autoRefreshTask: Task<Void, Never>?
     private var hasCurrentConfigurationSnapshot = false
     private var currentConfigurationsByAccountID: [String: ProviderAccountConfiguration] = [:]
@@ -18,12 +19,27 @@ public final class UsageRefreshService: ObservableObject {
         results.filter { !incompleteRefreshAccountIDs.contains($0.accountID) }
     }
 
-    public init(
+    public convenience init(
         providers: [any UsageProvider],
         initialResults: [ProviderUsageResult] = []
     ) {
+        self.init(
+            providers: providers,
+            initialResults: initialResults,
+            sleepBeforeAutoRefresh: { seconds in
+                try await Task.sleep(for: .seconds(seconds))
+            }
+        )
+    }
+
+    init(
+        providers: [any UsageProvider],
+        initialResults: [ProviderUsageResult] = [],
+        sleepBeforeAutoRefresh: @escaping @Sendable (TimeInterval) async throws -> Void
+    ) {
         self.providers = providers
         self.results = initialResults
+        self.sleepBeforeAutoRefresh = sleepBeforeAutoRefresh
     }
 
     deinit {
@@ -157,10 +173,11 @@ public final class UsageRefreshService: ObservableObject {
             return
         }
 
+        let sleepBeforeAutoRefresh = self.sleepBeforeAutoRefresh
         autoRefreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(for: .seconds(seconds))
+                    try await sleepBeforeAutoRefresh(seconds)
                 } catch {
                     return
                 }

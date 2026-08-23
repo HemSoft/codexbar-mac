@@ -320,7 +320,10 @@ final class AppModel: ObservableObject {
     }
 
     private func recordUsageHistory() {
-        historyStore.record(results: alertEligibleResults())
+        historyStore.record(
+            results: alertEligibleResults(),
+            samplingInterval: configurationStore.historySamplingInterval.seconds
+        )
     }
 
     private func refreshInputsChanged(

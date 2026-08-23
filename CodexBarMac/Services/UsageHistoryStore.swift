@@ -450,7 +450,11 @@ public final class UsageHistoryStore: ObservableObject {
         self.requiresRecovery = state.requiresRecovery
     }
 
-    public func record(results: [ProviderUsageResult], now: Date = Date()) {
+    public func record(
+        results: [ProviderUsageResult],
+        now: Date = Date(),
+        samplingInterval: TimeInterval = 0
+    ) {
         guard !requiresRecovery else {
             return
         }
@@ -464,11 +468,31 @@ public final class UsageHistoryStore: ObservableObject {
 
         let previousSnapshots = snapshots
         var snapshotsByID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
+        var latestCaptureByAccountID = snapshots.reduce(into: [String: Date]()) {
+            latestCaptureByAccountID,
+            snapshot in
+            latestCaptureByAccountID[snapshot.accountID] = max(
+                latestCaptureByAccountID[snapshot.accountID] ?? snapshot.capturedAt,
+                snapshot.capturedAt
+            )
+        }
         for snapshot in recordableResults.map({ UsageHistorySnapshot(result: $0) }) {
+            if samplingInterval > 0,
+               let latestCapture = latestCaptureByAccountID[snapshot.accountID],
+               snapshot.capturedAt.timeIntervalSince(latestCapture) < samplingInterval {
+                continue
+            }
             snapshotsByID[snapshot.id] = snapshot
+            latestCaptureByAccountID[snapshot.accountID] = max(
+                latestCaptureByAccountID[snapshot.accountID] ?? snapshot.capturedAt,
+                snapshot.capturedAt
+            )
         }
         snapshots = Array(snapshotsByID.values)
         prune(now: now, validAccountIDs: Set(recordableResults.map(\.accountID)), removeMissingAccounts: false)
+        guard snapshots != previousSnapshots else {
+            return
+        }
         save(restoringOnFailure: previousSnapshots)
     }
 
@@ -927,7 +951,7 @@ public final class UsageHistoryStore: ObservableObject {
 
         do {
             let snapshots = try JSONDecoder().decode([UsageHistorySnapshot].self, from: data)
-            return .success(snapshots.sorted { $0.capturedAt < $1.capturedAt })
+            return .success(snapshots.sorted(by: snapshotOrder))
         } catch {
             return .failure(error)
         }

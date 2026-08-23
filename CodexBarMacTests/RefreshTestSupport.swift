@@ -230,6 +230,18 @@ actor SequencedUsageProvider: UsageProvider {
     }
 }
 
+actor OneShotAutoRefreshSleeper {
+    private var hasReturned = false
+
+    func sleep(for _: TimeInterval) async throws {
+        guard !hasReturned else {
+            throw CancellationError()
+        }
+
+        hasReturned = true
+    }
+}
+
 actor BlockingUsageProvider: UsageProvider {
     nonisolated let providerID: ProviderID
     private var started = false
