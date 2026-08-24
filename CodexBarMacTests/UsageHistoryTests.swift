@@ -418,6 +418,66 @@ final class UsageHistoryTests: XCTestCase {
     }
 
     @MainActor
+    func testUsageHistoryStorePreservesDuplicateSnapshotIDsUntilExplicitReset() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let originalSnapshot = UsageHistorySnapshot(
+            result: makeHistoryResult(
+                accountID: "codex.personal",
+                fetchedAt: fetchedAt,
+                used: 20
+            )
+        )
+        let conflictingSnapshot = UsageHistorySnapshot(
+            result: makeHistoryResult(
+                accountID: "codex.personal",
+                fetchedAt: fetchedAt,
+                used: 80
+            )
+        )
+
+        for (scenario, snapshots) in [
+            ("identical", [originalSnapshot, originalSnapshot]),
+            ("conflicting", [originalSnapshot, conflictingSnapshot]),
+        ] {
+            let suiteName = "CodexBarMacTests.HistoryDuplicateIDs.\(scenario).\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            let damagedData = try JSONEncoder().encode(snapshots)
+            defaults.set(damagedData, forKey: "usageHistorySnapshots")
+            let store = UsageHistoryStore(defaults: defaults)
+
+            XCTAssertTrue(store.snapshots.isEmpty, scenario)
+            XCTAssertTrue(store.requiresRecovery, scenario)
+            XCTAssertEqual(
+                store.lastError,
+                "Saved usage history could not be read. Reset history to resume recording.",
+                scenario
+            )
+
+            let replacementDate = fetchedAt.addingTimeInterval(60)
+            let replacementResult = makeHistoryResult(
+                accountID: "codex.personal",
+                fetchedAt: replacementDate,
+                used: 40
+            )
+            store.record(results: [replacementResult], now: replacementDate)
+            store.removeSnapshotsForMissingAccounts(validAccountIDs: [], now: replacementDate)
+
+            XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), damagedData, scenario)
+            XCTAssertTrue(store.snapshots.isEmpty, scenario)
+            XCTAssertTrue(store.requiresRecovery, scenario)
+
+            store.discardCorruptedHistory()
+            store.record(results: [replacementResult], now: replacementDate)
+
+            XCTAssertFalse(store.requiresRecovery, scenario)
+            XCTAssertNil(store.lastError, scenario)
+            XCTAssertEqual(store.snapshots, [UsageHistorySnapshot(result: replacementResult)], scenario)
+            XCTAssertNotEqual(defaults.data(forKey: "usageHistorySnapshots"), damagedData, scenario)
+        }
+    }
+
+    @MainActor
     func testUsageHistoryStorePreservesNonDataValueUntilExplicitReset() {
         let suiteName = "CodexBarMacTests.HistoryNonData.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -487,6 +547,90 @@ final class UsageHistoryTests: XCTestCase {
         XCTAssertTrue(historyStore.snapshots.isEmpty)
         XCTAssertTrue(historyStore.requiresRecovery)
         XCTAssertNotNil(historyStore.lastError)
+    }
+
+    @MainActor
+    func testAppModelRefreshPathsPreserveDuplicateSnapshotIDs() async throws {
+        let suiteName = "CodexBarMacTests.HistoryDuplicateIDsAppModel.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        defaults.set(try JSONEncoder().encode([configuration]), forKey: "providerConfigurations")
+        let damagedDate = Date(timeIntervalSince1970: 1_788_475_200)
+        let damagedSnapshot = UsageHistorySnapshot(
+            result: makeHistoryResult(
+                accountID: configuration.id,
+                fetchedAt: damagedDate,
+                used: 10
+            )
+        )
+        let damagedData = try JSONEncoder().encode([damagedSnapshot, damagedSnapshot])
+        defaults.set(damagedData, forKey: "usageHistorySnapshots")
+        let manualResult = makeHistoryResult(
+            accountID: configuration.id,
+            fetchedAt: damagedDate.addingTimeInterval(60),
+            used: 20
+        )
+        let singleAccountResult = makeHistoryResult(
+            accountID: configuration.id,
+            fetchedAt: damagedDate.addingTimeInterval(120),
+            used: 30
+        )
+        let automaticResult = makeHistoryResult(
+            accountID: configuration.id,
+            fetchedAt: damagedDate.addingTimeInterval(180),
+            used: 40
+        )
+        let sleeper = OneShotAutoRefreshSleeper()
+        let refreshService = UsageRefreshService(
+            providers: [
+                SequencedUsageProvider(
+                    providerID: .codex,
+                    steps: [
+                        .result(manualResult),
+                        .result(singleAccountResult),
+                        .result(automaticResult),
+                    ]
+                ),
+            ],
+            sleepBeforeAutoRefresh: { seconds in
+                try await sleeper.sleep(for: seconds)
+            }
+        )
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        configurationStore.updateAutoRefreshInterval(.oneMinute)
+        let historyStore = UsageHistoryStore(defaults: defaults)
+        let model = AppModel(
+            refreshService: refreshService,
+            configurationStore: configurationStore,
+            historyStore: historyStore,
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+        defer { refreshService.stopAutoRefresh() }
+
+        XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), damagedData)
+        XCTAssertTrue(historyStore.requiresRecovery)
+
+        await model.refresh()
+        XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), damagedData)
+
+        let refreshedAccount = await model.refreshAccount(configuration)
+        XCTAssertEqual(refreshedAccount?.fetchedAt, singleAccountResult.fetchedAt)
+        XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), damagedData)
+
+        model.updateAutoRefresh()
+        for _ in 0..<200 where model.displayedResults.first?.fetchedAt != automaticResult.fetchedAt {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(model.displayedResults.first?.fetchedAt, automaticResult.fetchedAt)
+        XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), damagedData)
+        XCTAssertTrue(historyStore.snapshots.isEmpty)
+        XCTAssertTrue(historyStore.requiresRecovery)
     }
 
     @MainActor

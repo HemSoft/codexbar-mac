@@ -951,6 +951,9 @@ public final class UsageHistoryStore: ObservableObject {
 
         do {
             let snapshots = try JSONDecoder().decode([UsageHistorySnapshot].self, from: data)
+            guard Set(snapshots.map(\.id)).count == snapshots.count else {
+                return .failure(UsageHistoryLoadError.duplicateSnapshotIDs)
+            }
             return .success(snapshots.sorted(by: snapshotOrder))
         } catch {
             return .failure(error)
@@ -972,4 +975,5 @@ public final class UsageHistoryStore: ObservableObject {
 
 private enum UsageHistoryLoadError: Error {
     case invalidStoredValue
+    case duplicateSnapshotIDs
 }
