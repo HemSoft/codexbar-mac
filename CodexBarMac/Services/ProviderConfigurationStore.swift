@@ -1240,6 +1240,13 @@ public final class ProviderConfigurationStore: ObservableObject {
             )
         }
 
+        guard Set(decoded.map(\.id)).count == decoded.count else {
+            return ConfigurationLoadResult(
+                configurations: [],
+                error: configurationLoadErrorMessage
+            )
+        }
+
         return ConfigurationLoadResult(
             configurations: decoded
                 .map { normalizedConfiguration($0, validGroupIDs: validGroupIDs) }

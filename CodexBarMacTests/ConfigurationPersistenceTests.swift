@@ -358,6 +358,105 @@ final class ConfigurationPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testProviderConfigurationStoreRecoversDuplicateAccountIDsWithoutChangingSavedData() throws {
+        var enabledAccount = ProviderAccountConfiguration(
+            id: "duplicate-account",
+            providerID: .openRouter,
+            authMethod: .apiKey
+        )
+        enabledAccount.accountLabel = "Saved OpenRouter"
+
+        var conflictingEnabledAccount = ProviderAccountConfiguration(
+            id: enabledAccount.id,
+            providerID: .claude,
+            authMethod: .browserSession
+        )
+        conflictingEnabledAccount.accountLabel = "Saved Claude"
+
+        var disabledAccount = enabledAccount
+        disabledAccount.isEnabled = false
+        var conflictingDisabledAccount = conflictingEnabledAccount
+        conflictingDisabledAccount.isEnabled = false
+
+        let fixtures: [(name: String, configurations: [ProviderAccountConfiguration])] = [
+            ("IdenticalEnabled", [enabledAccount, enabledAccount]),
+            ("ConflictingEnabled", [enabledAccount, conflictingEnabledAccount]),
+            ("IdenticalDisabled", [disabledAccount, disabledAccount]),
+            ("ConflictingDisabled", [disabledAccount, conflictingDisabledAccount]),
+        ]
+
+        for fixture in fixtures {
+            let suiteName = "CodexBarMacTests.DuplicateAccounts.\(fixture.name).\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+            let secretStore = InMemorySecretStore()
+            let savedData = try JSONEncoder().encode(fixture.configurations)
+            let savedKeychainAccount = ProviderConfigurationStore.keychainAccount(
+                for: enabledAccount
+            )
+            defaults.set(savedData, forKey: "providerConfigurations")
+            try secretStore.saveSecret("preserved-secret", account: savedKeychainAccount)
+
+            let store = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+
+            XCTAssertTrue(store.configurations.isEmpty, fixture.name)
+            XCTAssertTrue(store.isConfigurationRecoveryRequired, fixture.name)
+            XCTAssertEqual(defaults.data(forKey: "providerConfigurations"), savedData, fixture.name)
+            XCTAssertEqual(
+                try secretStore.readSecret(account: savedKeychainAccount),
+                "preserved-secret",
+                fixture.name
+            )
+            XCTAssertEqual(
+                store.lastError,
+                "Saved account data couldn't be read. Replace the damaged account list "
+                    + "in Settings to resume saving configurations.",
+                fixture.name
+            )
+
+            store.seedDefaultConfigurationsIfNeeded()
+            XCTAssertNil(store.addGroup(named: "Blocked Group"), fixture.name)
+            _ = store.addAccount(for: .codex)
+            store.applyLocalCredentialDiscoveries(
+                LocalCredentialDiscovery.Result(
+                    codexAuthAvailable: true,
+                    githubUsernames: ["blocked-user"],
+                    claudeOAuthAvailable: true,
+                    geminiOAuthAvailable: true
+                )
+            )
+            XCTAssertTrue(store.configurations.isEmpty, fixture.name)
+            XCTAssertTrue(store.groups.isEmpty, fixture.name)
+            XCTAssertTrue(store.localCredentialHints.isEmpty, fixture.name)
+            XCTAssertEqual(defaults.data(forKey: "providerConfigurations"), savedData, fixture.name)
+
+            XCTAssertTrue(store.replaceCorruptedConfigurations(), fixture.name)
+            XCTAssertFalse(store.isConfigurationRecoveryRequired, fixture.name)
+            XCTAssertEqual(
+                try JSONDecoder().decode(
+                    [ProviderAccountConfiguration].self,
+                    from: try XCTUnwrap(defaults.data(forKey: "providerConfigurations"))
+                ),
+                [],
+                fixture.name
+            )
+            XCTAssertEqual(
+                try secretStore.readSecret(account: savedKeychainAccount),
+                "preserved-secret",
+                fixture.name
+            )
+
+            var replacement = store.addAccount(for: .openRouter)
+            replacement.accountLabel = "Recovered OpenRouter"
+            XCTAssertTrue(store.update(replacement), fixture.name)
+            let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: secretStore)
+            XCTAssertEqual(reloadedStore.configurations, [replacement], fixture.name)
+            XCTAssertFalse(reloadedStore.isConfigurationRecoveryRequired, fixture.name)
+
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+    }
+
+    @MainActor
     func testProviderConfigurationStorePreservesMalformedDataCredentialsAndBlocksMutations() throws {
         let suiteName = "CodexBarMacTests.ConfigurationRecovery.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

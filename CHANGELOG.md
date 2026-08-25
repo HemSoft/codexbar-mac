@@ -46,6 +46,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Duplicate IDs in saved accounts now preserve the damaged account data and
+  enter the existing recovery flow instead of crashing the dashboard.
 - Duplicate IDs in saved usage history now enter the existing recovery flow
   instead of crashing after a successful refresh.
 - Warning and Critical notification bodies now include the saved-account label

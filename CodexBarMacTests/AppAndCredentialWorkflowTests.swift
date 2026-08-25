@@ -7,6 +7,59 @@ import Security
 final class AppAndCredentialWorkflowTests: XCTestCase {
     deinit {}
 
+    @MainActor
+    func testAppModelDoesNotRefreshOrRenderDuplicateSavedAccountIDs() async throws {
+        let suiteName = "CodexBarMacTests.DuplicateAccountStartup.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let duplicateID = "duplicate-dashboard-account"
+        let configurations = [
+            ProviderAccountConfiguration(
+                id: duplicateID,
+                providerID: .openRouter,
+                authMethod: .apiKey
+            ),
+            ProviderAccountConfiguration(
+                id: duplicateID,
+                providerID: .claude,
+                authMethod: .browserSession
+            ),
+        ]
+        let savedData = try JSONEncoder().encode(configurations)
+        defaults.set(savedData, forKey: "providerConfigurations")
+        let cachedResult = ProviderUsageResult(
+            accountID: duplicateID,
+            providerID: .openRouter,
+            title: "Cached duplicate account",
+            subtitle: "Cached usage",
+            bars: [UsageBar(label: "Weekly", used: 50, limit: 100)],
+            fetchedAt: Date(timeIntervalSince1970: 1_784_980_800)
+        )
+        let refreshService = UsageRefreshService(providers: [], initialResults: [cachedResult])
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        let model = AppModel(
+            refreshService: refreshService,
+            configurationStore: configurationStore,
+            historyStore: UsageHistoryStore(defaults: defaults),
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+
+        XCTAssertTrue(configurationStore.isConfigurationRecoveryRequired)
+        XCTAssertTrue(model.displayedResults.isEmpty)
+        XCTAssertEqual(model.mostUrgentSeverity, .normal)
+
+        await model.refresh()
+
+        XCTAssertTrue(model.displayedResults.isEmpty)
+        XCTAssertEqual(defaults.data(forKey: "providerConfigurations"), savedData)
+    }
+
     func testStatusBarRightClickRoutingConsumesOnlyClicksInsideMatchingButtonWindow() {
         XCTAssertEqual(
             StatusBarRightClickRoute.resolve(
