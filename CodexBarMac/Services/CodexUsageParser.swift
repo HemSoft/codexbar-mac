@@ -203,8 +203,7 @@ public enum CodexUsageParser {
         if let resetEpoch = intValue(window["reset_at"]) {
             resetsAt = Date(timeIntervalSince1970: TimeInterval(resetEpoch))
         } else if let resetAfterSeconds = intValue(window["reset_after_seconds"]) {
-            let relativeReset = fetchedAt.addingTimeInterval(TimeInterval(resetAfterSeconds))
-            resetsAt = bucketOrder == 0 ? relativeReset : stableRelativeReset(relativeReset)
+            resetsAt = fetchedAt.addingTimeInterval(TimeInterval(resetAfterSeconds))
         } else {
             return
         }
@@ -246,11 +245,6 @@ public enum CodexUsageParser {
         default:
             return nil
         }
-    }
-
-    private static func stableRelativeReset(_ resetAt: Date) -> Date {
-        let minute = 60.0
-        return Date(timeIntervalSince1970: (resetAt.timeIntervalSince1970 / minute).rounded() * minute)
     }
 
     private static func additionalRateLimits(from value: Any?) -> [CodexAdditionalRateLimit] {

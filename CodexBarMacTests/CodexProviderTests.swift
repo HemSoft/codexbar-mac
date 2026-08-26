@@ -208,15 +208,13 @@ final class CodexProviderTests: XCTestCase {
             "Additional Codex usage · 2 hour usage limit",
             "Spark · 5 hour usage limit",
         ])
-        let expectedReset = Date(
-            timeIntervalSince1970: ((fetchedAt.timeIntervalSince1970 + 600) / 60).rounded() * 60
-        )
+        let expectedReset = fetchedAt.addingTimeInterval(600)
         XCTAssertEqual(result.bars.first?.resetsAt, expectedReset)
         let delayedFetch = try XCTUnwrap(CodexUsageParser.parse(
             Data(payload.utf8),
             fetchedAt: fetchedAt.addingTimeInterval(5)
         ))
-        XCTAssertEqual(delayedFetch.bars.first?.resetsAt, expectedReset)
+        XCTAssertEqual(delayedFetch.bars.first?.resetsAt, expectedReset.addingTimeInterval(5))
     }
 
     func testCodexUsageParserKeepsArrayIdentityWhenDisplayNameChanges() throws {

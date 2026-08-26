@@ -1232,4 +1232,48 @@ final class UsageAlertTests: XCTestCase {
         XCTAssertNotEqual(first.activeAlertIDs, second.activeAlertIDs)
     }
 
+    func testUsageAlertEvaluatorIgnoresAdditionalCodexRelativeResetJitter() {
+        let settings = UsageAlertSettings(
+            isEnabled: true,
+            usageThreshold: 0.80,
+            includesSeverityAlerts: false
+        )
+        func result(resetEpoch: TimeInterval) -> ProviderUsageResult {
+            ProviderUsageResult(
+                accountID: "codex.personal",
+                providerID: .codex,
+                title: "Codex",
+                subtitle: "Live usage",
+                bars: [
+                    UsageBar(
+                        stableKey: "bucket-future.window-7200.instance-object-future",
+                        label: "Additional Codex usage · 2 hour usage limit",
+                        used: 90,
+                        limit: 100,
+                        resetsAt: Date(timeIntervalSince1970: resetEpoch)
+                    ),
+                ],
+                fetchedAt: Date(timeIntervalSince1970: 1_893_455_000)
+            )
+        }
+
+        let first = UsageAlertEvaluator.evaluate(
+            results: [result(resetEpoch: 1_893_456_001)],
+            settings: settings,
+            activeAlertIDs: []
+        )
+        let delayed = UsageAlertEvaluator.evaluate(
+            results: [result(resetEpoch: 1_893_456_006)],
+            settings: settings,
+            activeAlertIDs: first.activeAlertIDs
+        )
+
+        XCTAssertEqual(first.notifications.count, 1)
+        XCTAssertTrue(delayed.notifications.isEmpty)
+        XCTAssertEqual(first.activeAlertIDs, delayed.activeAlertIDs)
+        XCTAssertEqual(first.activeAlertIDs, [
+            "usage.codex.personal.bucket-future-window-7200-instance-object-future.1893456000",
+        ])
+    }
+
 }

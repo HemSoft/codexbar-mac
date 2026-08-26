@@ -325,9 +325,26 @@ public enum UsageAlertEvaluator {
     private static func alertID(for result: ProviderUsageResult, bar: UsageBar) -> String {
         let stableKey = stableUsageKey(for: bar, providerID: result.providerID)
         if let resetsAt = bar.resetsAt {
-            return "usage.\(result.accountID).\(stableKey).\(Int(resetsAt.timeIntervalSince1970))"
+            let resetEpoch = stableAlertResetEpoch(
+                resetsAt,
+                providerID: result.providerID,
+                metricStableKey: bar.stableKey
+            )
+            return "usage.\(result.accountID).\(stableKey).\(resetEpoch)"
         }
         return "usage.\(result.accountID).\(stableKey)"
+    }
+
+    private static func stableAlertResetEpoch(
+        _ resetsAt: Date,
+        providerID: ProviderID,
+        metricStableKey: String?
+    ) -> Int {
+        guard providerID == .codex, metricStableKey?.hasPrefix("bucket-") == true else {
+            return Int(resetsAt.timeIntervalSince1970)
+        }
+        let minute = 60.0
+        return Int((resetsAt.timeIntervalSince1970 / minute).rounded() * minute)
     }
 
     private static func stableUsageKey(for bar: UsageBar, providerID: ProviderID) -> String {
