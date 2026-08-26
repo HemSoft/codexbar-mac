@@ -66,6 +66,7 @@ public enum CodexUsageParser {
                 bucketLabel: nonemptyString(rateLimit["limit_name"]) ?? "Additional Codex usage",
                 bucketOrder: 2,
                 bucketInstanceStableKey: additionalRateLimit.instanceStableKey,
+                windowInstanceStableKeys: additionalRateLimit.windowInstanceStableKeys,
                 fetchedAt: fetchedAt,
                 to: &windows
             )
@@ -106,9 +107,8 @@ public enum CodexUsageParser {
                 : instanceStableKey(for: window)
             let occurrence = stableKeyOccurrences[semanticStableKey, default: 0]
             stableKeyOccurrences[semanticStableKey] = occurrence + 1
-            // The provider supplies no per-window ID. A lone window must be role-agnostic so it
-            // can move between primary and secondary; only an additional indistinguishable slot
-            // can use the provider role as a last-resort discriminator.
+            // Any remaining collision has no provider-supplied discriminator. The provider role
+            // is therefore the last-resort slot identity for otherwise indistinguishable windows.
             let stableKey = occurrence == 0
                 ? semanticStableKey
                 : "\(semanticStableKey).slot-\(window.windowOrder)"
@@ -147,6 +147,7 @@ public enum CodexUsageParser {
         bucketLabel: String?,
         bucketOrder: Int,
         bucketInstanceStableKey: String,
+        windowInstanceStableKeys: [String: String] = [:],
         fetchedAt: Date,
         to windows: inout [CodexUsageWindow]
     ) {
@@ -157,7 +158,7 @@ public enum CodexUsageParser {
             bucketStableKey: bucketStableKey,
             bucketLabel: bucketLabel,
             bucketOrder: bucketOrder,
-            bucketInstanceStableKey: bucketInstanceStableKey,
+            bucketInstanceStableKey: windowInstanceStableKeys["primary_window"] ?? bucketInstanceStableKey,
             fetchedAt: fetchedAt,
             to: &windows
         )
@@ -168,7 +169,7 @@ public enum CodexUsageParser {
             bucketStableKey: bucketStableKey,
             bucketLabel: bucketLabel,
             bucketOrder: bucketOrder,
-            bucketInstanceStableKey: bucketInstanceStableKey,
+            bucketInstanceStableKey: windowInstanceStableKeys["secondary_window"] ?? bucketInstanceStableKey,
             fetchedAt: fetchedAt,
             to: &windows
         )
@@ -251,13 +252,20 @@ public enum CodexUsageParser {
                     return nil
                 }
                 let bucketIdentity = arrayBucketIdentity(for: rateLimit)
-                let windowIdentity = arrayBucketWindowIdentity(for: rateLimit)
-                let identity = "\(bucketIdentity).windows-\(windowIdentity)"
-                let occurrence = identityOccurrences[identity, default: 0]
-                identityOccurrences[identity] = occurrence + 1
+                var windowInstanceStableKeys: [String: String] = [:]
+                // The API has no window ID. Role+duration distinguishes concurrent peers and
+                // keeps each emitted window independent of sibling presence; exact peers must
+                // use provider array order as their final discriminator.
+                for (name, windowIdentity) in arrayBucketWindowIdentities(for: rateLimit) {
+                    let identity = "\(bucketIdentity).\(windowIdentity)"
+                    let occurrence = identityOccurrences[identity, default: 0]
+                    identityOccurrences[identity] = occurrence + 1
+                    windowInstanceStableKeys[name] = "array-\(identity).occurrence-\(occurrence)"
+                }
                 return CodexAdditionalRateLimit(
                     value: rateLimit,
-                    instanceStableKey: "array-\(identity).occurrence-\(occurrence)",
+                    instanceStableKey: "array-\(bucketIdentity)",
+                    windowInstanceStableKeys: windowInstanceStableKeys,
                     bucketStableComponent: nil
                 )
             }
@@ -273,6 +281,7 @@ public enum CodexUsageParser {
             return CodexAdditionalRateLimit(
                 value: rateLimit,
                 instanceStableKey: "object-\(encodedKey)",
+                windowInstanceStableKeys: [:],
                 bucketStableComponent: encodedKey
             )
         }
@@ -296,9 +305,9 @@ public enum CodexUsageParser {
         return "name-\(encodedLimitName)"
     }
 
-    private static func arrayBucketWindowIdentity(for rateLimit: [String: Any]) -> String {
+    private static func arrayBucketWindowIdentities(for rateLimit: [String: Any]) -> [(String, String)] {
         let rateLimitWindows = rateLimit["rate_limit"] as? [String: Any] ?? rateLimit
-        let durations = ["primary_window", "secondary_window"].compactMap { name -> Int? in
+        return ["primary_window", "secondary_window"].compactMap { name -> (String, String)? in
             guard
                 let window = rateLimitWindows[name] as? [String: Any],
                 doubleValue(window["used_percent"]) != nil,
@@ -309,11 +318,8 @@ public enum CodexUsageParser {
             else {
                 return nil
             }
-            return canonicalDuration(duration)
-        }.sorted()
-        return durations.isEmpty
-            ? "none"
-            : durations.map(String.init).joined(separator: "-")
+            return (name, "\(name)-\(canonicalDuration(duration))")
+        }
     }
 
     private static func stableKeyComponent(_ value: String) -> String? {
@@ -495,5 +501,6 @@ private struct CodexUsageWindow {
 private struct CodexAdditionalRateLimit {
     let value: [String: Any]
     let instanceStableKey: String
+    let windowInstanceStableKeys: [String: String]
     let bucketStableComponent: String?
 }

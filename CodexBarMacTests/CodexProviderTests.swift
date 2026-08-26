@@ -155,10 +155,10 @@ final class CodexProviderTests: XCTestCase {
             [
                 "window-604800",
                 "bucket-named-code_5Freview.window-18000.instance-top-named-code_5Freview",
-                "bucket-codex_5Fbengalfox.window-18000.instance-array-feature-codex_5Fbengalfox.windows-18000-604800.occurrence-0",
-                "bucket-codex_5Fbengalfox.window-604800.instance-array-feature-codex_5Fbengalfox.windows-18000-604800.occurrence-0",
-                "bucket-codex_5Ffuture.window-7200.instance-array-feature-codex_5Ffuture.windows-7200.occurrence-0",
-                "bucket-codex_5Fquiet.window-9000.instance-array-feature-codex_5Fquiet.windows-9000.occurrence-0",
+                "bucket-codex_5Fbengalfox.window-18000.instance-array-feature-codex_5Fbengalfox.primary_window-18000.occurrence-0",
+                "bucket-codex_5Fbengalfox.window-604800.instance-array-feature-codex_5Fbengalfox.secondary_window-604800.occurrence-0",
+                "bucket-codex_5Ffuture.window-7200.instance-array-feature-codex_5Ffuture.primary_window-7200.occurrence-0",
+                "bucket-codex_5Fquiet.window-9000.instance-array-feature-codex_5Fquiet.primary_window-9000.occurrence-0",
             ]
         )
         XCTAssertEqual(
@@ -254,12 +254,8 @@ final class CodexProviderTests: XCTestCase {
             try stableKey(limitName: "Original", limitID: "optional")
         )
         XCTAssertEqual(
-            try stableKey(limitName: "Original", windowName: "primary_window"),
-            try stableKey(limitName: "Original", windowName: "secondary_window")
-        )
-        XCTAssertEqual(
             try stableKey(limitName: "Original"),
-            "bucket-stable.window-3600.instance-array-feature-stable.windows-3600.occurrence-0"
+            "bucket-stable.window-3600.instance-array-feature-stable.primary_window-3600.occurrence-0"
         )
     }
 
@@ -286,8 +282,8 @@ final class CodexProviderTests: XCTestCase {
         }
 
         let expectedKeys = [
-            "bucket-stable.window-18000.instance-array-feature-stable.windows-18000-18000.occurrence-0",
-            "bucket-stable.window-18000.instance-array-feature-stable.windows-18000-18000.occurrence-0.slot-1",
+            "bucket-stable.window-18000.instance-array-feature-stable.primary_window-18000.occurrence-0",
+            "bucket-stable.window-18000.instance-array-feature-stable.secondary_window-18000.occurrence-0",
         ]
         XCTAssertEqual(try stableKeys(secondaryDuration: 17_999), expectedKeys)
         XCTAssertEqual(try stableKeys(secondaryDuration: 18_000), expectedKeys)
@@ -477,11 +473,11 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(result.bars.count, 5)
         XCTAssertEqual(Set(result.bars.compactMap(\.stableKey)), [
-            "bucket-additional.window-3600.instance-array-unnamed.windows-3600.occurrence-0",
-            "bucket-additional.window-3600.instance-array-unnamed.windows-3600.occurrence-1",
-            "bucket-foo_2Dbar.window-3600.instance-array-feature-foo_2Dbar.windows-3600.occurrence-0",
-            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.windows-3600.occurrence-0",
-            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.windows-3600.occurrence-1",
+            "bucket-additional.window-3600.instance-array-unnamed.primary_window-3600.occurrence-0",
+            "bucket-additional.window-3600.instance-array-unnamed.primary_window-3600.occurrence-1",
+            "bucket-foo_2Dbar.window-3600.instance-array-feature-foo_2Dbar.primary_window-3600.occurrence-0",
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-0",
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-1",
         ])
 
         var refreshedRoot = try XCTUnwrap(
@@ -510,11 +506,11 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(Set(refreshed.bars.compactMap(\.stableKey)), Set(result.bars.compactMap(\.stableKey)))
         XCTAssertEqual(
-            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.windows-3600.occurrence-0"],
+            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-0"],
             91
         )
         XCTAssertEqual(
-            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.windows-3600.occurrence-1"],
+            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-1"],
             8
         )
 
@@ -525,7 +521,7 @@ final class CodexProviderTests: XCTestCase {
         ))
         XCTAssertEqual(
             surviving.bars.first(where: { $0.used == 91 })?.stableKey,
-            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.windows-3600.occurrence-0"
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-0"
         )
 
         buckets = try XCTUnwrap(refreshedRoot["additional_rate_limits"] as? [Any])
@@ -543,15 +539,19 @@ final class CodexProviderTests: XCTestCase {
         ))
         XCTAssertEqual(
             shifted.bars.first(where: { $0.used == 91 })?.stableKey,
-            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.windows-3600.occurrence-0"
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-0"
         )
     }
 
     func testCodexUsageParserKeepsDistinctArrayWindowStructuresStableAcrossReordering() throws {
-        func bucket(duration: Int, usedPercent: Double) -> [String: Any] {
+        func bucket(
+            windowName: String = "primary_window",
+            duration: Int,
+            usedPercent: Double
+        ) -> [String: Any] {
             [
                 "metered_feature": "shared",
-                "primary_window": [
+                windowName: [
                     "used_percent": usedPercent,
                     "reset_at": 1_893_456_000,
                     "limit_window_seconds": duration,
@@ -570,12 +570,51 @@ final class CodexProviderTests: XCTestCase {
         let oneHour = bucket(duration: 3_600, usedPercent: 11)
         let twoHours = bucket(duration: 7_200, usedPercent: 22)
         let expected: [String: Double] = [
-            "bucket-shared.window-3600.instance-array-feature-shared.windows-3600.occurrence-0": 11,
-            "bucket-shared.window-7200.instance-array-feature-shared.windows-7200.occurrence-0": 22,
+            "bucket-shared.window-3600.instance-array-feature-shared.primary_window-3600.occurrence-0": 11,
+            "bucket-shared.window-7200.instance-array-feature-shared.primary_window-7200.occurrence-0": 22,
         ]
 
         XCTAssertEqual(try keyedUsage([oneHour, twoHours]), expected)
         XCTAssertEqual(try keyedUsage([twoHours, oneHour]), expected)
+
+        let primary = bucket(duration: 3_600, usedPercent: 33)
+        let secondary = bucket(windowName: "secondary_window", duration: 3_600, usedPercent: 44)
+        let roleExpected: [String: Double] = [
+            "bucket-shared.window-3600.instance-array-feature-shared.primary_window-3600.occurrence-0": 33,
+            "bucket-shared.window-3600.instance-array-feature-shared.secondary_window-3600.occurrence-0": 44,
+        ]
+        XCTAssertEqual(try keyedUsage([primary, secondary]), roleExpected)
+        XCTAssertEqual(try keyedUsage([secondary, primary]), roleExpected)
+    }
+
+    func testCodexUsageParserKeepsSurvivingArrayWindowIndependentOfSiblingPresence() throws {
+        let primaryWindow: [String: Any] = [
+            "used_percent": 33,
+            "reset_at": 1_893_456_000,
+            "limit_window_seconds": 3_600,
+        ]
+        let secondaryWindow: [String: Any] = [
+            "used_percent": 44,
+            "reset_at": 1_893_456_000,
+            "limit_window_seconds": 7_200,
+        ]
+
+        func primaryStableKey(secondary: Any?) throws -> String {
+            var bucket: [String: Any] = [
+                "metered_feature": "shared",
+                "primary_window": primaryWindow,
+            ]
+            if let secondary {
+                bucket["secondary_window"] = secondary
+            }
+            let data = try JSONSerialization.data(withJSONObject: ["additional_rate_limits": [bucket]])
+            let result = try XCTUnwrap(CodexUsageParser.parse(data))
+            return try XCTUnwrap(result.bars.first(where: { $0.used == 33 })?.stableKey)
+        }
+
+        let stableKey = try primaryStableKey(secondary: secondaryWindow)
+        XCTAssertEqual(try primaryStableKey(secondary: nil), stableKey)
+        XCTAssertEqual(try primaryStableKey(secondary: "malformed"), stableKey)
     }
 
     func testCodexUsageParserUsesKeyedObjectIdentityForMalformedAndDuplicateMetadata() throws {
@@ -728,7 +767,7 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(
             result.bars.map(\.stableKey),
-            ["bucket-valid.window-3600.instance-array-feature-valid.windows-3600.occurrence-0"]
+            ["bucket-valid.window-3600.instance-array-feature-valid.primary_window-3600.occurrence-0"]
         )
         XCTAssertEqual(result.bars.map(\.used), [5])
     }
