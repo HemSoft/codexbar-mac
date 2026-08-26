@@ -326,15 +326,10 @@ public enum UsageAlertEvaluator {
     }
 
     private static func stableUsageKey(for bar: UsageBar, providerID: ProviderID) -> String {
-        if providerID == .codex {
-            switch bar.stableKey {
-            case "window-18000":
-                return "hour-usage-limit"
-            case "window-604800":
-                return "weekly-usage-limit"
-            default:
-                break
-            }
+        if providerID == .codex,
+           let stableKey = bar.stableKey,
+           stableKey.range(of: #"^window-\d+$"#, options: .regularExpression) != nil {
+            return legacyUsageKey(for: bar)
         }
 
         if bar.stableKey == ClaudeUsageIdentity.allModelsWeeklyStableKey {
@@ -348,6 +343,10 @@ public enum UsageAlertEvaluator {
             }
         }
 
+        return legacyUsageKey(for: bar)
+    }
+
+    private static func legacyUsageKey(for bar: UsageBar) -> String {
         let withoutParentheticalValues = bar.label
             .replacingOccurrences(of: #"\([^)]*\)"#, with: "", options: .regularExpression)
         let withoutRatios = withoutParentheticalValues
