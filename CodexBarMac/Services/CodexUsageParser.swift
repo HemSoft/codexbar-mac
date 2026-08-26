@@ -230,13 +230,17 @@ public enum CodexUsageParser {
 
     private static func additionalRateLimits(from value: Any?) -> [CodexAdditionalRateLimit] {
         if let rateLimits = value as? [Any] {
-            return rateLimits.enumerated().compactMap { index, value in
+            var identityOccurrences: [String: Int] = [:]
+            return rateLimits.compactMap { value in
                 guard let rateLimit = value as? [String: Any] else {
                     return nil
                 }
+                let identity = arrayBucketIdentity(for: rateLimit)
+                let occurrence = identityOccurrences[identity, default: 0]
+                identityOccurrences[identity] = occurrence + 1
                 return CodexAdditionalRateLimit(
                     value: rateLimit,
-                    instanceStableKey: "array-\(index)"
+                    instanceStableKey: "array-\(identity).occurrence-\(occurrence)"
                 )
             }
         }
@@ -255,6 +259,20 @@ public enum CodexUsageParser {
                 instanceStableKey: "object-\(stableKeyComponent(key) ?? "other")"
             )
         }
+    }
+
+    private static func arrayBucketIdentity(for rateLimit: [String: Any]) -> String {
+        let identityComponents = [
+            ("feature", nonemptyString(rateLimit["metered_feature"])),
+            ("limit", nonemptyString(rateLimit["limit_id"])),
+            ("name", nonemptyString(rateLimit["limit_name"])),
+        ].compactMap { label, value -> String? in
+            guard let value, let encodedValue = stableKeyComponent(value) else {
+                return nil
+            }
+            return "\(label)-\(encodedValue)"
+        }
+        return identityComponents.isEmpty ? "unnamed" : identityComponents.joined(separator: ".")
     }
 
     private static func stableKeyComponent(_ value: String) -> String? {

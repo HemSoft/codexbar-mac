@@ -149,10 +149,10 @@ final class CodexProviderTests: XCTestCase {
             [
                 "window-604800",
                 "bucket-named-code_5Freview.window-18000.instance-top-named-code_5Freview.window-0",
-                "bucket-codex_5Fbengalfox.window-18000.instance-array-3.window-0",
-                "bucket-codex_5Fbengalfox.window-604800.instance-array-3.window-1",
-                "bucket-codex_5Ffuture.window-7200.instance-array-1.window-0",
-                "bucket-codex_5Fquiet.window-9000.instance-array-4.window-0",
+                "bucket-codex_5Fbengalfox.window-18000.instance-array-feature-codex_5Fbengalfox.name-GPT_2D5_2E3_2DCodex_2DSpark.occurrence-0.window-0",
+                "bucket-codex_5Fbengalfox.window-604800.instance-array-feature-codex_5Fbengalfox.name-GPT_2D5_2E3_2DCodex_2DSpark.occurrence-0.window-1",
+                "bucket-codex_5Ffuture.window-7200.instance-array-feature-codex_5Ffuture.name-Future_20model.occurrence-0.window-0",
+                "bucket-codex_5Fquiet.window-9000.instance-array-feature-codex_5Fquiet.occurrence-0.window-0",
             ]
         )
         XCTAssertEqual(
@@ -310,11 +310,11 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(result.bars.count, 5)
         XCTAssertEqual(Set(result.bars.compactMap(\.stableKey)), [
-            "bucket-additional.window-3600.instance-array-2.window-0",
-            "bucket-additional.window-3600.instance-array-3.window-0",
-            "bucket-foo_2Dbar.window-3600.instance-array-1.window-0",
-            "bucket-foo_5Fbar.window-3600.instance-array-0.window-0",
-            "bucket-foo_5Fbar.window-3600.instance-array-4.window-0",
+            "bucket-additional.window-3600.instance-array-unnamed.occurrence-0.window-0",
+            "bucket-additional.window-3600.instance-array-unnamed.occurrence-1.window-0",
+            "bucket-foo_2Dbar.window-3600.instance-array-feature-foo_2Dbar.occurrence-0.window-0",
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.occurrence-0.window-0",
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.occurrence-1.window-0",
         ])
 
         var refreshedRoot = try XCTUnwrap(
@@ -343,11 +343,11 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(Set(refreshed.bars.compactMap(\.stableKey)), Set(result.bars.compactMap(\.stableKey)))
         XCTAssertEqual(
-            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-0.window-0"],
+            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.occurrence-0.window-0"],
             91
         )
         XCTAssertEqual(
-            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-4.window-0"],
+            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.occurrence-1.window-0"],
             8
         )
 
@@ -358,7 +358,25 @@ final class CodexProviderTests: XCTestCase {
         ))
         XCTAssertEqual(
             surviving.bars.first(where: { $0.used == 91 })?.stableKey,
-            "bucket-foo_5Fbar.window-3600.instance-array-0.window-0"
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.occurrence-0.window-0"
+        )
+
+        buckets = try XCTUnwrap(refreshedRoot["additional_rate_limits"] as? [Any])
+        buckets.insert([
+            "metered_feature": "inserted",
+            "primary_window": [
+                "used_percent": 6,
+                "reset_at": 1_893_456_000,
+                "limit_window_seconds": 3_600,
+            ],
+        ], at: 0)
+        refreshedRoot["additional_rate_limits"] = buckets
+        let shifted = try XCTUnwrap(CodexUsageParser.parse(
+            try JSONSerialization.data(withJSONObject: refreshedRoot)
+        ))
+        XCTAssertEqual(
+            shifted.bars.first(where: { $0.used == 91 })?.stableKey,
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.occurrence-0.window-0"
         )
     }
 
@@ -497,7 +515,7 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(
             result.bars.map(\.stableKey),
-            ["bucket-valid.window-3600.instance-array-6.window-0"]
+            ["bucket-valid.window-3600.instance-array-feature-valid.occurrence-0.window-0"]
         )
         XCTAssertEqual(result.bars.map(\.used), [5])
     }
