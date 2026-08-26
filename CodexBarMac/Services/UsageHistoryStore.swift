@@ -135,6 +135,50 @@ public struct UsageHistorySnapshot: Identifiable, Equatable, Codable, Sendable {
         self.highestSeverity = result.highestSeverity(at: capturedAt)
     }
 
+    fileprivate init(
+        presenting current: UsageHistorySnapshot,
+        preservingMissingValuesFrom stored: UsageHistorySnapshot
+    ) {
+        let bars = current.bars.isEmpty ? stored.bars : current.bars
+        let currentMonetaryMetrics = current.monetaryMetrics ?? []
+        var monetaryMetrics = stored.monetaryMetrics ?? []
+        for metric in currentMonetaryMetrics {
+            if let matchingIndex = monetaryMetrics.firstIndex(where: {
+                $0.kind == metric.kind && $0.currencyCode == metric.currencyCode
+            }) {
+                monetaryMetrics[matchingIndex] = metric
+            } else {
+                monetaryMetrics.append(metric)
+            }
+        }
+
+        self.id = current.id
+        self.accountID = current.accountID
+        self.providerID = current.providerID
+        self.title = current.title
+        self.subtitle = current.subtitle
+        self.capturedAt = current.capturedAt
+        self.bars = bars
+        self.creditsRemaining = current.creditsRemaining ?? stored.creditsRemaining
+        self.monetaryMetrics = monetaryMetrics.isEmpty ? nil : monetaryMetrics
+        let currentBarSeverity = current.bars.map(\.effectiveSeverity).max() ?? .normal
+        let storedBarSeverity = stored.bars.map(\.effectiveSeverity).max() ?? .normal
+        let currentMonetarySeverity = current.highestSeverity > currentBarSeverity
+            ? current.highestSeverity
+            : .normal
+        let storedMonetarySeverity = stored.highestSeverity > storedBarSeverity
+            ? stored.highestSeverity
+            : .normal
+        let preservedMonetarySeverity = determinesSpendLimit(in: currentMonetaryMetrics)
+            ? currentMonetarySeverity
+            : max(currentMonetarySeverity, storedMonetarySeverity)
+        self.highestSeverity = max(
+            bars.map(\.effectiveSeverity).max() ?? .normal,
+            preservedMonetarySeverity,
+            hasReachedSpendLimit(in: monetaryMetrics) ? .critical : .normal
+        )
+    }
+
     public var primaryValue: Double? {
         if let creditsRemaining {
             return creditsRemaining
@@ -171,6 +215,34 @@ public struct UsageHistorySnapshot: Identifiable, Equatable, Codable, Sendable {
 private func primaryBalanceLikeMetric<T>(in metrics: [T]) -> T? where T: MonetaryMetricSnapshot {
     metrics.first(where: { $0.metricKind == .balance })
         ?? metrics.first(where: { $0.metricKind == .remainingHeadroom })
+}
+
+private func hasReachedSpendLimit<T>(in metrics: [T]) -> Bool where T: MonetaryMetricSnapshot {
+    metrics.contains { spent in
+        guard spent.metricKind == .spent else {
+            return false
+        }
+        return metrics.contains { limit in
+            limit.metricKind == .spendLimit
+                && limit.currencyCode == spent.currencyCode
+                && limit.decimalPlaces == spent.decimalPlaces
+                && limit.minorUnits > 0
+                && spent.minorUnits >= limit.minorUnits
+        }
+    }
+}
+
+private func determinesSpendLimit<T>(in metrics: [T]) -> Bool where T: MonetaryMetricSnapshot {
+    metrics.contains { spent in
+        guard spent.metricKind == .spent else {
+            return false
+        }
+        return metrics.contains { limit in
+            limit.metricKind == .spendLimit
+                && limit.currencyCode == spent.currencyCode
+                && limit.decimalPlaces == spent.decimalPlaces
+        }
+    }
 }
 
 private struct PrimaryMonetarySeriesIdentity {
@@ -529,7 +601,7 @@ public final class UsageHistoryStore: ObservableObject {
         for result: ProviderUsageResult,
         since start: Date? = nil
     ) -> UsageHistorySeries {
-        let accountSnapshots = snapshots(for: result.accountID, since: start)
+        let accountSnapshots = presentationSnapshots(for: result, since: start)
         let primaryMonetaryIdentity = primaryMonetarySeriesIdentity(
             for: result,
             snapshots: accountSnapshots
@@ -589,7 +661,7 @@ public final class UsageHistoryStore: ObservableObject {
         for result: ProviderUsageResult,
         since start: Date? = nil
     ) -> [UsageHistorySeriesOption] {
-        let accountSnapshots = snapshots(for: result.accountID, since: start)
+        let accountSnapshots = presentationSnapshots(for: result, since: start)
         var options: [UsageHistorySeriesOption] = []
         let primaryMonetaryIdentity = primaryMonetarySeriesIdentity(
             for: result,
@@ -651,6 +723,41 @@ public final class UsageHistoryStore: ObservableObject {
                 series: historySeries(for: result, since: start)
             )]
             : options
+    }
+
+    private func presentationSnapshots(
+        for result: ProviderUsageResult,
+        since start: Date?
+    ) -> [UsageHistorySnapshot] {
+        var accountSnapshots = snapshots(for: result.accountID, since: start)
+        guard
+            !result.isIncompleteRefresh,
+            start.map({ result.fetchedAt >= $0 }) != false,
+            accountSnapshots.last.map({ result.fetchedAt >= $0.capturedAt }) != false
+        else {
+            return accountSnapshots
+        }
+
+        let currentSnapshot = UsageHistorySnapshot(result: result)
+        guard
+            !currentSnapshot.bars.isEmpty
+                || currentSnapshot.creditsRemaining != nil
+                || currentSnapshot.monetaryMetrics?.isEmpty == false
+        else {
+            return accountSnapshots
+        }
+
+        if let matchingIndex = accountSnapshots.lastIndex(where: {
+            $0.capturedAt == currentSnapshot.capturedAt
+        }) {
+            accountSnapshots[matchingIndex] = UsageHistorySnapshot(
+                presenting: currentSnapshot,
+                preservingMissingValuesFrom: accountSnapshots[matchingIndex]
+            )
+        } else {
+            accountSnapshots.append(currentSnapshot)
+        }
+        return accountSnapshots
     }
 
     private static func cursorPrimaryBar(
