@@ -32,12 +32,13 @@ public enum CodexUsageParser {
                 continue
             }
             let identity = String(key.dropLast("_rate_limit".count))
+            let identityStableKey = topLevelBucketStableKey(for: identity)
             addWindows(
                 from: rateLimit,
-                bucketStableKey: "bucket-\(stableKeyComponent(identity) ?? "other")",
+                bucketStableKey: "bucket-\(identityStableKey)",
                 bucketLabel: bucketLabel(from: identity),
                 bucketOrder: 1,
-                bucketInstanceStableKey: "top-\(stableKeyComponent(identity) ?? "other")",
+                bucketInstanceStableKey: "top-\(identityStableKey)",
                 fetchedAt: fetchedAt,
                 to: &windows
             )
@@ -90,14 +91,12 @@ public enum CodexUsageParser {
             }
             return $0.windowOrder < $1.windowOrder
         }
-        let stableKeyCounts = Dictionary(grouping: windows) { stableKey(for: $0) }
-            .mapValues(\.count)
         let bars = windows.map { window in
             let baseStableKey = stableKey(for: window)
             let duplicateIdentity = duplicateIdentity(for: window)
-            let stableKey = stableKeyCounts[baseStableKey] == 1
+            let stableKey = window.bucketOrder == 0
                 ? baseStableKey
-                : "\(baseStableKey).duplicate-\(duplicateIdentity)"
+                : "\(baseStableKey).instance-\(duplicateIdentity)"
             let usedFraction = window.usedPercent / 100
             return UsageBar(
                 stableKey: stableKey,
@@ -270,6 +269,13 @@ public enum CodexUsageParser {
                 String(format: "_%02X", byte)
             }
         }.joined()
+    }
+
+    private static func topLevelBucketStableKey(for identity: String) -> String {
+        guard let encodedIdentity = stableKeyComponent(identity) else {
+            return "empty"
+        }
+        return "named-\(encodedIdentity)"
     }
 
     private static func bucketLabel(from identity: String) -> String {

@@ -148,11 +148,11 @@ final class CodexProviderTests: XCTestCase {
             result.bars.map(\.stableKey),
             [
                 "window-604800",
-                "bucket-code_5Freview.window-18000",
-                "bucket-codex_5Fbengalfox.window-18000",
-                "bucket-codex_5Fbengalfox.window-604800",
-                "bucket-codex_5Ffuture.window-7200",
-                "bucket-codex_5Fquiet.window-9000",
+                "bucket-named-code_5Freview.window-18000.instance-top-named-code_5Freview.window-0",
+                "bucket-codex_5Fbengalfox.window-18000.instance-array-3.window-0",
+                "bucket-codex_5Fbengalfox.window-604800.instance-array-3.window-1",
+                "bucket-codex_5Ffuture.window-7200.instance-array-1.window-0",
+                "bucket-codex_5Fquiet.window-9000.instance-array-4.window-0",
             ]
         )
         XCTAssertEqual(
@@ -167,18 +167,6 @@ final class CodexProviderTests: XCTestCase {
             ]
         )
         XCTAssertEqual(result.bars.map(\.used), [30, 12, 44, 66, 7, 9])
-
-        var reorderedRoot = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
-        )
-        let additionalRateLimits = try XCTUnwrap(reorderedRoot["additional_rate_limits"] as? [Any])
-        reorderedRoot["additional_rate_limits"] = Array(additionalRateLimits.reversed())
-        let reorderedData = try JSONSerialization.data(withJSONObject: reorderedRoot)
-        let reordered = try XCTUnwrap(CodexUsageParser.parse(reorderedData))
-
-        XCTAssertEqual(reordered.bars.map(\.stableKey), result.bars.map(\.stableKey))
-        XCTAssertEqual(reordered.bars.map(\.label), result.bars.map(\.label))
-        XCTAssertEqual(reordered.bars.map(\.used), result.bars.map(\.used))
     }
 
     func testCodexUsageParserReadsKeyedAdditionalRateLimits() throws {
@@ -213,14 +201,63 @@ final class CodexProviderTests: XCTestCase {
         let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8), fetchedAt: fetchedAt))
 
         XCTAssertEqual(result.bars.map(\.stableKey), [
-            "bucket-future.limit-future_2Did.window-7200",
-            "bucket-spark.window-18000",
+            "bucket-future.limit-future_2Did.window-7200.instance-object-future.window-1",
+            "bucket-spark.window-18000.instance-object-spark.window-0",
         ])
         XCTAssertEqual(result.bars.map(\.label), [
             "Additional Codex usage · 2 hour usage limit",
             "Spark · 5 hour usage limit",
         ])
         XCTAssertEqual(result.bars.first?.resetsAt, fetchedAt.addingTimeInterval(600))
+    }
+
+    func testCodexUsageParserKeepsEmptyAndNamedTopLevelBucketsDistinct() throws {
+        let emptyFirstPayload = """
+        {
+          "_rate_limit": {
+            "primary_window": {
+              "used_percent": 10,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            }
+          },
+          "other_rate_limit": {
+            "primary_window": {
+              "used_percent": 20,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            }
+          }
+        }
+        """
+        let namedFirstPayload = """
+        {
+          "other_rate_limit": {
+            "primary_window": {
+              "used_percent": 20,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            }
+          },
+          "_rate_limit": {
+            "primary_window": {
+              "used_percent": 10,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            }
+          }
+        }
+        """
+
+        let emptyFirst = try XCTUnwrap(CodexUsageParser.parse(Data(emptyFirstPayload.utf8)))
+        let namedFirst = try XCTUnwrap(CodexUsageParser.parse(Data(namedFirstPayload.utf8)))
+
+        XCTAssertEqual(emptyFirst.bars.map(\.stableKey), [
+            "bucket-empty.window-3600.instance-top-empty.window-0",
+            "bucket-named-other.window-3600.instance-top-named-other.window-0",
+        ])
+        XCTAssertEqual(namedFirst.bars.map(\.stableKey), emptyFirst.bars.map(\.stableKey))
+        XCTAssertEqual(namedFirst.bars.map(\.used), emptyFirst.bars.map(\.used))
     }
 
     func testCodexUsageParserDisambiguatesDuplicateBucketIdentities() throws {
@@ -273,11 +310,11 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(result.bars.count, 5)
         XCTAssertEqual(Set(result.bars.compactMap(\.stableKey)), [
-            "bucket-additional.window-3600.duplicate-array-2.window-0",
-            "bucket-additional.window-3600.duplicate-array-3.window-0",
-            "bucket-foo_2Dbar.window-3600",
-            "bucket-foo_5Fbar.window-3600.duplicate-array-0.window-0",
-            "bucket-foo_5Fbar.window-3600.duplicate-array-4.window-0",
+            "bucket-additional.window-3600.instance-array-2.window-0",
+            "bucket-additional.window-3600.instance-array-3.window-0",
+            "bucket-foo_2Dbar.window-3600.instance-array-1.window-0",
+            "bucket-foo_5Fbar.window-3600.instance-array-0.window-0",
+            "bucket-foo_5Fbar.window-3600.instance-array-4.window-0",
         ])
 
         var refreshedRoot = try XCTUnwrap(
@@ -306,12 +343,22 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(Set(refreshed.bars.compactMap(\.stableKey)), Set(result.bars.compactMap(\.stableKey)))
         XCTAssertEqual(
-            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.duplicate-array-0.window-0"],
+            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-0.window-0"],
             91
         )
         XCTAssertEqual(
-            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.duplicate-array-4.window-0"],
+            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-4.window-0"],
             8
+        )
+
+        buckets.remove(at: 4)
+        refreshedRoot["additional_rate_limits"] = buckets
+        let surviving = try XCTUnwrap(CodexUsageParser.parse(
+            try JSONSerialization.data(withJSONObject: refreshedRoot)
+        ))
+        XCTAssertEqual(
+            surviving.bars.first(where: { $0.used == 91 })?.stableKey,
+            "bucket-foo_5Fbar.window-3600.instance-array-0.window-0"
         )
     }
 
@@ -350,11 +397,11 @@ final class CodexProviderTests: XCTestCase {
         let order = ["wrong-type", "blank", "null", "beta", "alpha"]
         let initial = try parse(order: order, alphaUsage: 10, betaUsage: 20)
         XCTAssertEqual(Set(initial.bars.compactMap(\.stableKey)), [
-            "bucket-blank.window-3600",
-            "bucket-null.window-3600",
-            "bucket-shared.window-3600.duplicate-object-alpha.window-0",
-            "bucket-shared.window-3600.duplicate-object-beta.window-0",
-            "bucket-wrong_2Dtype.window-3600",
+            "bucket-blank.window-3600.instance-object-blank.window-0",
+            "bucket-null.window-3600.instance-object-null.window-0",
+            "bucket-shared.window-3600.instance-object-alpha.window-0",
+            "bucket-shared.window-3600.instance-object-beta.window-0",
+            "bucket-wrong_2Dtype.window-3600.instance-object-wrong_2Dtype.window-0",
         ])
 
         let reordered = try parse(order: Array(order.reversed()), alphaUsage: 10, betaUsage: 20)
@@ -373,11 +420,11 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(Set(refreshed.bars.compactMap(\.stableKey)), Set(initial.bars.compactMap(\.stableKey)))
         XCTAssertEqual(
-            keyedUsage["bucket-shared.window-3600.duplicate-object-alpha.window-0"],
+            keyedUsage["bucket-shared.window-3600.instance-object-alpha.window-0"],
             75
         )
         XCTAssertEqual(
-            keyedUsage["bucket-shared.window-3600.duplicate-object-beta.window-0"],
+            keyedUsage["bucket-shared.window-3600.instance-object-beta.window-0"],
             25
         )
     }
@@ -448,7 +495,10 @@ final class CodexProviderTests: XCTestCase {
 
         let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
 
-        XCTAssertEqual(result.bars.map(\.stableKey), ["bucket-valid.window-3600"])
+        XCTAssertEqual(
+            result.bars.map(\.stableKey),
+            ["bucket-valid.window-3600.instance-array-6.window-0"]
+        )
         XCTAssertEqual(result.bars.map(\.used), [5])
     }
 
