@@ -262,17 +262,25 @@ public enum CodexUsageParser {
     }
 
     private static func arrayBucketIdentity(for rateLimit: [String: Any]) -> String {
-        let identityComponents = [
+        let providerIdentityComponents = [
             ("feature", nonemptyString(rateLimit["metered_feature"])),
             ("limit", nonemptyString(rateLimit["limit_id"])),
-            ("name", nonemptyString(rateLimit["limit_name"])),
         ].compactMap { label, value -> String? in
             guard let value, let encodedValue = stableKeyComponent(value) else {
                 return nil
             }
             return "\(label)-\(encodedValue)"
         }
-        return identityComponents.isEmpty ? "unnamed" : identityComponents.joined(separator: ".")
+        if !providerIdentityComponents.isEmpty {
+            return providerIdentityComponents.joined(separator: ".")
+        }
+        guard
+            let limitName = nonemptyString(rateLimit["limit_name"]),
+            let encodedLimitName = stableKeyComponent(limitName)
+        else {
+            return "unnamed"
+        }
+        return "name-\(encodedLimitName)"
     }
 
     private static func stableKeyComponent(_ value: String) -> String? {
@@ -398,10 +406,11 @@ public enum CodexUsageParser {
 
     private static func doubleValue(_ value: Any?) -> Double? {
         let parsed: Double?
-        if let value = value as? Double {
-            parsed = value
-        } else if let value = value as? Int {
-            parsed = Double(value)
+        if let number = value as? NSNumber {
+            guard CFGetTypeID(number) != CFBooleanGetTypeID() else {
+                return nil
+            }
+            parsed = number.doubleValue
         } else if let value = value as? String {
             parsed = Double(value)
         } else {

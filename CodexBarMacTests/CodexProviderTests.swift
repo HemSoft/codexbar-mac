@@ -149,9 +149,9 @@ final class CodexProviderTests: XCTestCase {
             [
                 "window-604800",
                 "bucket-named-code_5Freview.window-18000.instance-top-named-code_5Freview.window-0",
-                "bucket-codex_5Fbengalfox.window-18000.instance-array-feature-codex_5Fbengalfox.name-GPT_2D5_2E3_2DCodex_2DSpark.occurrence-0.window-0",
-                "bucket-codex_5Fbengalfox.window-604800.instance-array-feature-codex_5Fbengalfox.name-GPT_2D5_2E3_2DCodex_2DSpark.occurrence-0.window-1",
-                "bucket-codex_5Ffuture.window-7200.instance-array-feature-codex_5Ffuture.name-Future_20model.occurrence-0.window-0",
+                "bucket-codex_5Fbengalfox.window-18000.instance-array-feature-codex_5Fbengalfox.occurrence-0.window-0",
+                "bucket-codex_5Fbengalfox.window-604800.instance-array-feature-codex_5Fbengalfox.occurrence-0.window-1",
+                "bucket-codex_5Ffuture.window-7200.instance-array-feature-codex_5Ffuture.occurrence-0.window-0",
                 "bucket-codex_5Fquiet.window-9000.instance-array-feature-codex_5Fquiet.occurrence-0.window-0",
             ]
         )
@@ -209,6 +209,32 @@ final class CodexProviderTests: XCTestCase {
             "Spark · 5 hour usage limit",
         ])
         XCTAssertEqual(result.bars.first?.resetsAt, fetchedAt.addingTimeInterval(600))
+    }
+
+    func testCodexUsageParserKeepsArrayIdentityWhenDisplayNameChanges() throws {
+        func stableKey(limitName: String) throws -> String {
+            let payload = """
+            {
+              "additional_rate_limits": [{
+                "metered_feature": "stable",
+                "limit_name": "\(limitName)",
+                "primary_window": {
+                  "used_percent": 25,
+                  "reset_at": 1893456000,
+                  "limit_window_seconds": 3600
+                }
+              }]
+            }
+            """
+            let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+            return try XCTUnwrap(result.bars[0].stableKey)
+        }
+
+        XCTAssertEqual(try stableKey(limitName: "Original"), try stableKey(limitName: "Renamed"))
+        XCTAssertEqual(
+            try stableKey(limitName: "Original"),
+            "bucket-stable.window-3600.instance-array-feature-stable.occurrence-0.window-0"
+        )
     }
 
     func testCodexUsageParserKeepsEmptyAndNamedTopLevelBucketsDistinct() throws {
@@ -495,6 +521,14 @@ final class CodexProviderTests: XCTestCase {
               "metered_feature": "missing_reset",
               "primary_window": {
                 "used_percent": 6,
+                "limit_window_seconds": 3600
+              }
+            },
+            {
+              "metered_feature": "boolean_usage",
+              "primary_window": {
+                "used_percent": true,
+                "reset_at": 1893456000,
                 "limit_window_seconds": 3600
               }
             },
