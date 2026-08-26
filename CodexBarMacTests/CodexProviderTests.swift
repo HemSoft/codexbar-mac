@@ -79,6 +79,12 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(outsideTolerance.bars.map(\.label), ["315 minute usage limit"])
         XCTAssertEqual(outsideTolerance.bars.map(\.stableKey), ["window-18901"])
+
+        let subMinutePayload = #"{"rate_limit":{"primary_window":{"used_percent":10,"reset_at":1893456000,"limit_window_seconds":10}}}"#
+        let subMinute = try XCTUnwrap(CodexUsageParser.parse(Data(subMinutePayload.utf8)))
+
+        XCTAssertEqual(subMinute.bars.map(\.label), ["10 second usage limit"])
+        XCTAssertEqual(subMinute.bars.map(\.stableKey), ["window-10"])
     }
 
     func testCodexUsageParserReadsEveryRateLimitBucketDeterministically() throws {
