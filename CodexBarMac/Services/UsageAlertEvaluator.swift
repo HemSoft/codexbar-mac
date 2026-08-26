@@ -111,7 +111,12 @@ public enum UsageAlertEvaluator {
                 )
                 activeAlerts.append(detail)
 
-                guard !activeAlertIDs.contains(alertID) else {
+                guard !wasUsageAlertActive(
+                    alertID,
+                    result: result,
+                    bar: bar,
+                    activeAlertIDs: activeAlertIDs
+                ) else {
                     continue
                 }
 
@@ -326,10 +331,15 @@ public enum UsageAlertEvaluator {
     }
 
     private static func stableUsageKey(for bar: UsageBar, providerID: ProviderID) -> String {
-        if providerID == .codex,
-           let stableKey = bar.stableKey,
-           stableKey.range(of: #"^window-\d+$"#, options: .regularExpression) != nil {
-            return legacyUsageKey(for: bar)
+        if providerID == .codex {
+            switch bar.stableKey {
+            case "window-18000":
+                return "hour-usage-limit"
+            case "window-604800":
+                return "weekly-usage-limit"
+            default:
+                break
+            }
         }
 
         if bar.stableKey == ClaudeUsageIdentity.allModelsWeeklyStableKey {
@@ -344,6 +354,35 @@ public enum UsageAlertEvaluator {
         }
 
         return legacyUsageKey(for: bar)
+    }
+
+    private static func wasUsageAlertActive(
+        _ alertID: String,
+        result: ProviderUsageResult,
+        bar: UsageBar,
+        activeAlertIDs: Set<String>
+    ) -> Bool {
+        if activeAlertIDs.contains(alertID) {
+            return true
+        }
+        guard
+            result.providerID == .codex,
+            let stableKey = bar.stableKey,
+            stableKey != "window-18000",
+            stableKey != "window-604800",
+            stableKey.range(of: #"^window-\d+$"#, options: .regularExpression) != nil
+        else {
+            return false
+        }
+
+        let legacyComponent = legacyUsageKey(for: bar)
+        let legacyAlertID: String
+        if let resetsAt = bar.resetsAt {
+            legacyAlertID = "usage.\(result.accountID).\(legacyComponent).\(Int(resetsAt.timeIntervalSince1970))"
+        } else {
+            legacyAlertID = "usage.\(result.accountID).\(legacyComponent)"
+        }
+        return activeAlertIDs.contains(legacyAlertID)
     }
 
     private static func legacyUsageKey(for bar: UsageBar) -> String {

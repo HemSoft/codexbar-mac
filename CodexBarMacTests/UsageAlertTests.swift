@@ -1043,7 +1043,54 @@ final class UsageAlertTests: XCTestCase {
         )
 
         XCTAssertTrue(evaluation.notifications.isEmpty)
-        XCTAssertEqual(evaluation.activeAlertIDs, legacyAlertIDs)
+        XCTAssertEqual(evaluation.activeAlertIDs, [
+            "usage.codex.personal.hour-usage-limit.1893456000",
+            "usage.codex.personal.weekly-usage-limit.1893456000",
+            "usage.codex.personal.window-18901.1893456000",
+        ])
+    }
+
+    func testUsageAlertEvaluatorMigratesCollidingNoncanonicalCodexRootAlerts() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "window-21600",
+                    label: "6 hour usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+                UsageBar(
+                    stableKey: "window-25200",
+                    label: "7 hour usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_369_600)
+        )
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: ["usage.codex.personal.hour-usage-limit.1893456000"]
+        )
+
+        XCTAssertTrue(evaluation.notifications.isEmpty)
+        XCTAssertEqual(evaluation.activeAlertIDs, [
+            "usage.codex.personal.window-21600.1893456000",
+            "usage.codex.personal.window-25200.1893456000",
+        ])
     }
 
     func testUsageAlertEvaluatorKeepsCollidingCodexRootAlertsDistinct() {

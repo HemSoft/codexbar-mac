@@ -49,15 +49,21 @@ public enum CodexUsageParser {
                 .flatMap(stableKeyComponent)
             let limitID = nonemptyString(rateLimit["limit_id"])
                 .flatMap(stableKeyComponent)
-            let stableComponent = additionalRateLimit.bucketStableComponent ?? {
+            let stableComponent = if let objectKey = additionalRateLimit.bucketStableComponent,
+                                     let limitID {
+                "\(objectKey).limit-\(limitID)"
+            } else if let objectKey = additionalRateLimit.bucketStableComponent {
+                objectKey
+            } else {
                 if let meteredFeature, let limitID {
-                    return "\(meteredFeature).limit-\(limitID)"
+                    "\(meteredFeature).limit-\(limitID)"
+                } else {
+                    meteredFeature
+                        ?? limitID
+                        ?? nonemptyString(rateLimit["limit_name"]).flatMap(stableKeyComponent)
+                        ?? "additional"
                 }
-                return meteredFeature
-                    ?? limitID
-                    ?? nonemptyString(rateLimit["limit_name"]).flatMap(stableKeyComponent)
-                    ?? "additional"
-            }()
+            }
             let rateLimitWindows = rateLimit["rate_limit"] as? [String: Any] ?? rateLimit
             addWindows(
                 from: rateLimitWindows,
@@ -105,6 +111,9 @@ public enum CodexUsageParser {
                 : instanceStableKey(for: window)
             let occurrence = stableKeyOccurrences[semanticStableKey, default: 0]
             stableKeyOccurrences[semanticStableKey] = occurrence + 1
+            // The provider supplies no per-window ID. A lone window must be role-agnostic so it
+            // can move between primary and secondary; only an additional indistinguishable slot
+            // can use the provider role as a last-resort discriminator.
             let stableKey = occurrence == 0
                 ? semanticStableKey
                 : "\(semanticStableKey).slot-\(window.windowOrder)"
@@ -195,7 +204,8 @@ public enum CodexUsageParser {
         if let resetEpoch = intValue(window["reset_at"]) {
             resetsAt = Date(timeIntervalSince1970: TimeInterval(resetEpoch))
         } else if let resetAfterSeconds = intValue(window["reset_after_seconds"]) {
-            resetsAt = fetchedAt.addingTimeInterval(TimeInterval(resetAfterSeconds))
+            let relativeReset = fetchedAt.addingTimeInterval(TimeInterval(resetAfterSeconds))
+            resetsAt = bucketOrder == 0 ? relativeReset : stableRelativeReset(relativeReset)
         } else {
             return
         }
@@ -237,6 +247,11 @@ public enum CodexUsageParser {
         default:
             return nil
         }
+    }
+
+    private static func stableRelativeReset(_ resetAt: Date) -> Date {
+        let minute = 60.0
+        return Date(timeIntervalSince1970: (resetAt.timeIntervalSince1970 / minute).rounded() * minute)
     }
 
     private static func additionalRateLimits(from value: Any?) -> [CodexAdditionalRateLimit] {

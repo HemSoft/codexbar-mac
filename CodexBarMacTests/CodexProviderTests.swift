@@ -201,14 +201,22 @@ final class CodexProviderTests: XCTestCase {
         let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8), fetchedAt: fetchedAt))
 
         XCTAssertEqual(result.bars.map(\.stableKey), [
-            "bucket-future.window-7200.instance-object-future",
+            "bucket-future.limit-future_2Did.window-7200.instance-object-future",
             "bucket-spark.window-18000.instance-object-spark",
         ])
         XCTAssertEqual(result.bars.map(\.label), [
             "Additional Codex usage · 2 hour usage limit",
             "Spark · 5 hour usage limit",
         ])
-        XCTAssertEqual(result.bars.first?.resetsAt, fetchedAt.addingTimeInterval(600))
+        let expectedReset = Date(
+            timeIntervalSince1970: ((fetchedAt.timeIntervalSince1970 + 600) / 60).rounded() * 60
+        )
+        XCTAssertEqual(result.bars.first?.resetsAt, expectedReset)
+        let delayedFetch = try XCTUnwrap(CodexUsageParser.parse(
+            Data(payload.utf8),
+            fetchedAt: fetchedAt.addingTimeInterval(5)
+        ))
+        XCTAssertEqual(delayedFetch.bars.first?.resetsAt, expectedReset)
     }
 
     func testCodexUsageParserKeepsArrayIdentityWhenDisplayNameChanges() throws {
