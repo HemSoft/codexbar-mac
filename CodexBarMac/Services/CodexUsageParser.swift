@@ -250,7 +250,9 @@ public enum CodexUsageParser {
                 guard let rateLimit = value as? [String: Any] else {
                     return nil
                 }
-                let identity = arrayBucketIdentity(for: rateLimit)
+                let bucketIdentity = arrayBucketIdentity(for: rateLimit)
+                let windowIdentity = arrayBucketWindowIdentity(for: rateLimit)
+                let identity = "\(bucketIdentity).windows-\(windowIdentity)"
                 let occurrence = identityOccurrences[identity, default: 0]
                 identityOccurrences[identity] = occurrence + 1
                 return CodexAdditionalRateLimit(
@@ -292,6 +294,26 @@ public enum CodexUsageParser {
             return "unnamed"
         }
         return "name-\(encodedLimitName)"
+    }
+
+    private static func arrayBucketWindowIdentity(for rateLimit: [String: Any]) -> String {
+        let rateLimitWindows = rateLimit["rate_limit"] as? [String: Any] ?? rateLimit
+        let durations = ["primary_window", "secondary_window"].compactMap { name -> Int? in
+            guard
+                let window = rateLimitWindows[name] as? [String: Any],
+                doubleValue(window["used_percent"]) != nil,
+                let duration = durationSeconds(for: window, windowName: name),
+                duration > 0,
+                duration <= maximumWindowDurationSeconds,
+                intValue(window["reset_at"]) != nil || intValue(window["reset_after_seconds"]) != nil
+            else {
+                return nil
+            }
+            return canonicalDuration(duration)
+        }.sorted()
+        return durations.isEmpty
+            ? "none"
+            : durations.map(String.init).joined(separator: "-")
     }
 
     private static func stableKeyComponent(_ value: String) -> String? {
