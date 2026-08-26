@@ -268,6 +268,32 @@ final class CodexProviderTests: XCTestCase {
         ])
     }
 
+    func testCodexUsageParserDisambiguatesSameDurationRootWindowSlots() throws {
+        let payload = """
+        {
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 25,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            },
+            "secondary_window": {
+              "used_percent": 50,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(result.bars.map(\.stableKey), [
+            "window-3600.slot-0",
+            "window-3600.slot-1",
+        ])
+    }
+
     func testCodexUsageParserKeepsEmptyAndNamedTopLevelBucketsDistinct() throws {
         let emptyFirstPayload = """
         {

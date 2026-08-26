@@ -91,6 +91,9 @@ public enum CodexUsageParser {
             }
             return $0.windowOrder < $1.windowOrder
         }
+        let rootKeyCounts = Dictionary(grouping: windows.filter { $0.bucketOrder == 0 }) {
+            stableKey(for: $0)
+        }.mapValues(\.count)
         let instanceKeyCounts = Dictionary(grouping: windows.filter { $0.bucketOrder != 0 }) {
             instanceStableKey(for: $0)
         }.mapValues(\.count)
@@ -98,7 +101,9 @@ public enum CodexUsageParser {
             let baseStableKey = stableKey(for: window)
             let stableKey: String
             if window.bucketOrder == 0 {
-                stableKey = baseStableKey
+                stableKey = rootKeyCounts[baseStableKey] == 1
+                    ? baseStableKey
+                    : "\(baseStableKey).slot-\(window.windowOrder)"
             } else {
                 let instanceKey = instanceStableKey(for: window)
                 stableKey = instanceKeyCounts[instanceKey] == 1
