@@ -1278,6 +1278,69 @@ final class UsageAlertTests: XCTestCase {
         ])
     }
 
+    func testUsageAlertEvaluatorMigratesLoneCodexArrayWindowAcrossRolesWithoutMergingPeers() {
+        let settings = UsageAlertSettings(
+            isEnabled: true,
+            usageThreshold: 0.80,
+            includesSeverityAlerts: false
+        )
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        func bar(role: String, used: Double = 90) -> UsageBar {
+            UsageBar(
+                stableKey: "bucket-shared.window-3600.instance-array-feature-shared.\(role)-3600.occurrence-0",
+                label: "Shared · 1 hour usage limit",
+                used: used,
+                limit: 100,
+                resetsAt: resetAt
+            )
+        }
+        func result(_ bars: [UsageBar]) -> ProviderUsageResult {
+            ProviderUsageResult(
+                accountID: "codex.personal",
+                providerID: .codex,
+                title: "Codex",
+                subtitle: "Live usage",
+                bars: bars,
+                fetchedAt: resetAt.addingTimeInterval(-600)
+            )
+        }
+
+        let primary = bar(role: "primary_window")
+        let secondary = bar(role: "secondary_window")
+        let firstPrimary = UsageAlertEvaluator.evaluate(
+            results: [result([primary])],
+            settings: settings,
+            activeAlertIDs: []
+        )
+        let movedToSecondary = UsageAlertEvaluator.evaluate(
+            results: [result([secondary])],
+            settings: settings,
+            activeAlertIDs: firstPrimary.activeAlertIDs
+        )
+        XCTAssertEqual(firstPrimary.notifications.count, 1)
+        XCTAssertTrue(movedToSecondary.notifications.isEmpty)
+
+        let firstSecondary = UsageAlertEvaluator.evaluate(
+            results: [result([secondary])],
+            settings: settings,
+            activeAlertIDs: []
+        )
+        let movedToPrimary = UsageAlertEvaluator.evaluate(
+            results: [result([primary])],
+            settings: settings,
+            activeAlertIDs: firstSecondary.activeAlertIDs
+        )
+        XCTAssertTrue(movedToPrimary.notifications.isEmpty)
+
+        let simultaneous = UsageAlertEvaluator.evaluate(
+            results: [result([primary, secondary])],
+            settings: settings,
+            activeAlertIDs: firstPrimary.activeAlertIDs
+        )
+        XCTAssertEqual(simultaneous.notifications.count, 1)
+        XCTAssertEqual(simultaneous.activeAlertIDs.count, 2)
+    }
+
     func testUsageAlertEvaluatorKeepsAdjacentShortCodexWindowsDistinct() {
         let settings = UsageAlertSettings(
             isEnabled: true,

@@ -339,9 +339,7 @@ public enum UsageAlertEvaluator {
             case "window-604800":
                 return "weekly-usage-limit"
             case let stableKey?:
-                return requiresInjectiveCodexAlertKey(stableKey)
-                    ? "case-\(stableKey.utf8.map { String(format: "%02X", $0) }.joined())"
-                    : normalizedKeyComponent(stableKey)
+                return codexStableUsageKey(stableKey)
             default:
                 break
             }
@@ -369,6 +367,23 @@ public enum UsageAlertEvaluator {
     ) -> Bool {
         if activeAlertIDs.contains(alertID) {
             return true
+        }
+        if result.providerID == .codex,
+           let metricStableKey = bar.stableKey,
+           let alternateRoleStableKey = alternateCodexArrayRoleStableKey(metricStableKey),
+           let resetsAt = bar.resetsAt {
+            let hasAlternateRolePeer = result.bars.contains {
+                $0.stableKey == alternateRoleStableKey
+            }
+            if !hasAlternateRolePeer,
+               containsActiveResetID(
+                   prefix: "usage.\(result.accountID).\(codexStableUsageKey(alternateRoleStableKey)).",
+                   resetsAt: resetsAt,
+                   activeAlertIDs: activeAlertIDs,
+                   tolerance: codexResetJitterTolerance(for: metricStableKey)
+               ) {
+                return true
+            }
         }
         if result.providerID == .codex,
            let metricStableKey = bar.stableKey,
@@ -453,6 +468,25 @@ public enum UsageAlertEvaluator {
 
     private static func requiresInjectiveCodexAlertKey(_ stableKey: String) -> Bool {
         stableKey.contains(where: { $0.isUppercase || $0 == "_" })
+    }
+
+    private static func codexStableUsageKey(_ stableKey: String) -> String {
+        requiresInjectiveCodexAlertKey(stableKey)
+            ? "case-\(stableKey.utf8.map { String(format: "%02X", $0) }.joined())"
+            : normalizedKeyComponent(stableKey)
+    }
+
+    private static func alternateCodexArrayRoleStableKey(_ stableKey: String) -> String? {
+        guard stableKey.contains(".instance-array-") else {
+            return nil
+        }
+        if let range = stableKey.range(of: ".primary_window-") {
+            return stableKey.replacingCharacters(in: range, with: ".secondary_window-")
+        }
+        if let range = stableKey.range(of: ".secondary_window-") {
+            return stableKey.replacingCharacters(in: range, with: ".primary_window-")
+        }
+        return nil
     }
 
     private static func legacyUsageKey(for bar: UsageBar) -> String {
