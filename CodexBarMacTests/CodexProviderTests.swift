@@ -201,7 +201,7 @@ final class CodexProviderTests: XCTestCase {
         let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8), fetchedAt: fetchedAt))
 
         XCTAssertEqual(result.bars.map(\.stableKey), [
-            "bucket-future.limit-future_2Did.window-7200.instance-object-future",
+            "bucket-future.window-7200.instance-object-future",
             "bucket-spark.window-18000.instance-object-spark",
         ])
         XCTAssertEqual(result.bars.map(\.label), [
@@ -242,30 +242,33 @@ final class CodexProviderTests: XCTestCase {
     }
 
     func testCodexUsageParserDisambiguatesSameDurationWindowSlots() throws {
-        let payload = """
-        {
-          "additional_rate_limits": [{
-            "metered_feature": "stable",
-            "primary_window": {
-              "used_percent": 25,
-              "reset_at": 1893456000,
-              "limit_window_seconds": 3600
-            },
-            "secondary_window": {
-              "used_percent": 50,
-              "reset_at": 1893456000,
-              "limit_window_seconds": 3600
+        func stableKeys(secondaryDuration: Int) throws -> [String] {
+            let payload = """
+            {
+              "additional_rate_limits": [{
+                "metered_feature": "stable",
+                "primary_window": {
+                  "used_percent": 25,
+                  "reset_at": 1893456000,
+                  "limit_window_seconds": 18000
+                },
+                "secondary_window": {
+                  "used_percent": 50,
+                  "reset_at": 1893456000,
+                  "limit_window_seconds": \(secondaryDuration)
+                }
+              }]
             }
-          }]
+            """
+            return try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8))).bars.compactMap(\.stableKey)
         }
-        """
 
-        let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
-
-        XCTAssertEqual(result.bars.map(\.stableKey), [
-            "bucket-stable.window-3600.instance-array-feature-stable.occurrence-0",
-            "bucket-stable.window-3600.instance-array-feature-stable.occurrence-0.slot-1",
-        ])
+        let expectedKeys = [
+            "bucket-stable.window-18000.instance-array-feature-stable.occurrence-0",
+            "bucket-stable.window-18000.instance-array-feature-stable.occurrence-0.slot-1",
+        ]
+        XCTAssertEqual(try stableKeys(secondaryDuration: 17_999), expectedKeys)
+        XCTAssertEqual(try stableKeys(secondaryDuration: 18_000), expectedKeys)
     }
 
     func testCodexUsageParserDisambiguatesSameDurationRootWindowSlots() throws {
@@ -478,11 +481,12 @@ final class CodexProviderTests: XCTestCase {
         func parse(
             order: [String],
             alphaUsage: Double,
-            betaUsage: Double
+            betaUsage: Double,
+            blankFeature: Any = "  "
         ) throws -> ProviderUsageResult {
             let buckets: [String: [String: Any]] = [
                 "wrong-type": bucket(meteredFeature: 42, usedPercent: 50),
-                "blank": bucket(meteredFeature: "  ", usedPercent: 40),
+                "blank": bucket(meteredFeature: blankFeature, usedPercent: 40),
                 "null": bucket(meteredFeature: NSNull(), usedPercent: 30),
                 "beta": bucket(meteredFeature: "shared", usedPercent: betaUsage),
                 "alpha": bucket(meteredFeature: "shared", usedPercent: alphaUsage),
@@ -500,8 +504,8 @@ final class CodexProviderTests: XCTestCase {
         XCTAssertEqual(Set(initial.bars.compactMap(\.stableKey)), [
             "bucket-blank.window-3600.instance-object-blank",
             "bucket-null.window-3600.instance-object-null",
-            "bucket-shared.window-3600.instance-object-alpha",
-            "bucket-shared.window-3600.instance-object-beta",
+            "bucket-alpha.window-3600.instance-object-alpha",
+            "bucket-beta.window-3600.instance-object-beta",
             "bucket-wrong_2Dtype.window-3600.instance-object-wrong_2Dtype",
         ])
 
@@ -514,20 +518,26 @@ final class CodexProviderTests: XCTestCase {
         })
         XCTAssertEqual(reorderedKeyedUsage, initialKeyedUsage)
 
-        let refreshed = try parse(order: Array(order.reversed()), alphaUsage: 75, betaUsage: 25)
+        let refreshed = try parse(
+            order: Array(order.reversed()),
+            alphaUsage: 75,
+            betaUsage: 25,
+            blankFeature: "appeared-later"
+        )
         let keyedUsage = Dictionary(uniqueKeysWithValues: refreshed.bars.compactMap { bar in
             bar.stableKey.map { ($0, bar.used) }
         })
 
         XCTAssertEqual(Set(refreshed.bars.compactMap(\.stableKey)), Set(initial.bars.compactMap(\.stableKey)))
         XCTAssertEqual(
-            keyedUsage["bucket-shared.window-3600.instance-object-alpha"],
+            keyedUsage["bucket-alpha.window-3600.instance-object-alpha"],
             75
         )
         XCTAssertEqual(
-            keyedUsage["bucket-shared.window-3600.instance-object-beta"],
+            keyedUsage["bucket-beta.window-3600.instance-object-beta"],
             25
         )
+        XCTAssertEqual(keyedUsage["bucket-blank.window-3600.instance-object-blank"], 40)
     }
 
     func testCodexUsageParserRejectsUnsafeWindowsWithoutDroppingValidNeighbors() throws {
