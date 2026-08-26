@@ -54,14 +54,10 @@ public enum CodexUsageParser {
             let stableComponent = if let objectKey = additionalRateLimit.bucketStableComponent {
                 objectKey
             } else {
-                if let meteredFeature, let limitID {
-                    "\(meteredFeature).limit-\(limitID)"
-                } else {
-                    meteredFeature
-                        ?? limitID
-                        ?? nonemptyString(rateLimit["limit_name"]).flatMap(stableKeyComponent)
-                        ?? "additional"
-                }
+                meteredFeature
+                    ?? limitID
+                    ?? nonemptyString(rateLimit["limit_name"]).flatMap(stableKeyComponent)
+                    ?? "additional"
             }
             let rateLimitWindows = rateLimit["rate_limit"] as? [String: Any] ?? rateLimit
             addWindows(
@@ -280,17 +276,13 @@ public enum CodexUsageParser {
     }
 
     private static func arrayBucketIdentity(for rateLimit: [String: Any]) -> String {
-        let providerIdentityComponents = [
-            ("feature", nonemptyString(rateLimit["metered_feature"])),
-            ("limit", nonemptyString(rateLimit["limit_id"])),
-        ].compactMap { label, value -> String? in
-            guard let value, let encodedValue = stableKeyComponent(value) else {
-                return nil
-            }
-            return "\(label)-\(encodedValue)"
+        if let meteredFeature = nonemptyString(rateLimit["metered_feature"]),
+           let encodedFeature = stableKeyComponent(meteredFeature) {
+            return "feature-\(encodedFeature)"
         }
-        if !providerIdentityComponents.isEmpty {
-            return providerIdentityComponents.joined(separator: ".")
+        if let limitID = nonemptyString(rateLimit["limit_id"]),
+           let encodedLimitID = stableKeyComponent(limitID) {
+            return "limit-\(encodedLimitID)"
         }
         guard
             let limitName = nonemptyString(rateLimit["limit_name"]),

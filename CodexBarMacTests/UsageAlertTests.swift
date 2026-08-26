@@ -1359,4 +1359,40 @@ final class UsageAlertTests: XCTestCase {
         XCTAssertEqual(evaluation.activeAlertIDs.count, 2)
     }
 
+    func testUsageAlertEvaluatorMigratesUnambiguousUppercaseCodexBucketAlert() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "bucket-Foo.window-3600.instance-object-Foo",
+                    label: "Foo usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_455_000)
+        )
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: [
+                "usage.codex.personal.bucket-foo-window-3600-instance-object-foo.1893456000",
+            ]
+        )
+
+        XCTAssertTrue(evaluation.notifications.isEmpty)
+        XCTAssertEqual(evaluation.activeAlertIDs.count, 1)
+        XCTAssertTrue(evaluation.activeAlertIDs.first?.contains(".case-") == true)
+    }
+
 }

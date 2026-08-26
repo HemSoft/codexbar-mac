@@ -218,11 +218,17 @@ final class CodexProviderTests: XCTestCase {
     }
 
     func testCodexUsageParserKeepsArrayIdentityWhenDisplayNameChanges() throws {
-        func stableKey(limitName: String, windowName: String = "primary_window") throws -> String {
+        func stableKey(
+            limitName: String,
+            limitID: String? = nil,
+            windowName: String = "primary_window"
+        ) throws -> String {
+            let limitIDField = limitID.map { "\"limit_id\": \"\($0)\"," } ?? ""
             let payload = """
             {
               "additional_rate_limits": [{
                 "metered_feature": "stable",
+                \(limitIDField)
                 "limit_name": "\(limitName)",
                 "\(windowName)": {
                   "used_percent": 25,
@@ -237,6 +243,10 @@ final class CodexProviderTests: XCTestCase {
         }
 
         XCTAssertEqual(try stableKey(limitName: "Original"), try stableKey(limitName: "Renamed"))
+        XCTAssertEqual(
+            try stableKey(limitName: "Original"),
+            try stableKey(limitName: "Original", limitID: "optional")
+        )
         XCTAssertEqual(
             try stableKey(limitName: "Original", windowName: "primary_window"),
             try stableKey(limitName: "Original", windowName: "secondary_window")

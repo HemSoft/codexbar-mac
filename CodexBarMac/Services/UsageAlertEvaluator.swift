@@ -371,20 +371,34 @@ public enum UsageAlertEvaluator {
             return true
         }
         if result.providerID == .codex,
+           let metricStableKey = bar.stableKey,
+           metricStableKey.contains(where: { $0.isUppercase }),
+           let resetsAt = bar.resetsAt {
+            let legacyKey = normalizedKeyComponent(metricStableKey)
+            let hasCaseCollidingPeer = result.bars.contains { peer in
+                guard peer.stableKey != metricStableKey, let peerKey = peer.stableKey else {
+                    return false
+                }
+                return normalizedKeyComponent(peerKey) == legacyKey
+            }
+            if !hasCaseCollidingPeer,
+               containsActiveResetID(
+                   prefix: "usage.\(result.accountID).\(legacyKey).",
+                   resetsAt: resetsAt,
+                   activeAlertIDs: activeAlertIDs
+               ) {
+                return true
+            }
+        }
+        if result.providerID == .codex,
            bar.stableKey?.hasPrefix("bucket-") == true,
            let resetsAt = bar.resetsAt {
             let key = stableUsageKey(for: bar, providerID: result.providerID)
-            let prefix = "usage.\(result.accountID).\(key)."
-            let resetEpoch = Int(resetsAt.timeIntervalSince1970)
-            let isWithinJitterTolerance = activeAlertIDs.contains { activeID in
-                guard activeID.hasPrefix(prefix),
-                      let activeResetEpoch = Int(activeID.dropFirst(prefix.count)) else {
-                    return false
-                }
-                return abs(Double(activeResetEpoch) - Double(resetEpoch))
-                    <= codexAdditionalResetJitterToleranceSeconds
-            }
-            if isWithinJitterTolerance {
+            if containsActiveResetID(
+                prefix: "usage.\(result.accountID).\(key).",
+                resetsAt: resetsAt,
+                activeAlertIDs: activeAlertIDs
+            ) {
                 return true
             }
         }
@@ -406,6 +420,22 @@ public enum UsageAlertEvaluator {
             legacyAlertID = "usage.\(result.accountID).\(legacyComponent)"
         }
         return activeAlertIDs.contains(legacyAlertID)
+    }
+
+    private static func containsActiveResetID(
+        prefix: String,
+        resetsAt: Date,
+        activeAlertIDs: Set<String>
+    ) -> Bool {
+        let resetEpoch = Int(resetsAt.timeIntervalSince1970)
+        return activeAlertIDs.contains { activeID in
+            guard activeID.hasPrefix(prefix),
+                  let activeResetEpoch = Int(activeID.dropFirst(prefix.count)) else {
+                return false
+            }
+            return abs(Double(activeResetEpoch) - Double(resetEpoch))
+                <= codexAdditionalResetJitterToleranceSeconds
+        }
     }
 
     private static func legacyUsageKey(for bar: UsageBar) -> String {
