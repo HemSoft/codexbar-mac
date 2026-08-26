@@ -91,25 +91,17 @@ public enum CodexUsageParser {
             }
             return $0.windowOrder < $1.windowOrder
         }
-        let rootKeyCounts = Dictionary(grouping: windows.filter { $0.bucketOrder == 0 }) {
-            stableKey(for: $0)
-        }.mapValues(\.count)
-        let instanceKeyCounts = Dictionary(grouping: windows.filter { $0.bucketOrder != 0 }) {
-            instanceStableKey(for: $0)
-        }.mapValues(\.count)
+        var stableKeyOccurrences: [String: Int] = [:]
         let bars = windows.map { window in
             let baseStableKey = stableKey(for: window)
-            let stableKey: String
-            if window.bucketOrder == 0 {
-                stableKey = rootKeyCounts[baseStableKey] == 1
-                    ? baseStableKey
-                    : "\(baseStableKey).slot-\(window.windowOrder)"
-            } else {
-                let instanceKey = instanceStableKey(for: window)
-                stableKey = instanceKeyCounts[instanceKey] == 1
-                    ? instanceKey
-                    : "\(instanceKey).slot-\(window.windowOrder)"
-            }
+            let semanticStableKey = window.bucketOrder == 0
+                ? baseStableKey
+                : instanceStableKey(for: window)
+            let occurrence = stableKeyOccurrences[semanticStableKey, default: 0]
+            stableKeyOccurrences[semanticStableKey] = occurrence + 1
+            let stableKey = occurrence == 0
+                ? semanticStableKey
+                : "\(semanticStableKey).slot-\(window.windowOrder)"
             let usedFraction = window.usedPercent / 100
             return UsageBar(
                 stableKey: stableKey,

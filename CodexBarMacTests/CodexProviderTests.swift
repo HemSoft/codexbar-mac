@@ -263,7 +263,7 @@ final class CodexProviderTests: XCTestCase {
         let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
 
         XCTAssertEqual(result.bars.map(\.stableKey), [
-            "bucket-stable.window-3600.instance-array-feature-stable.occurrence-0.slot-0",
+            "bucket-stable.window-3600.instance-array-feature-stable.occurrence-0",
             "bucket-stable.window-3600.instance-array-feature-stable.occurrence-0.slot-1",
         ])
     }
@@ -289,7 +289,7 @@ final class CodexProviderTests: XCTestCase {
         let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
 
         XCTAssertEqual(result.bars.map(\.stableKey), [
-            "window-3600.slot-0",
+            "window-3600",
             "window-3600.slot-1",
         ])
     }
