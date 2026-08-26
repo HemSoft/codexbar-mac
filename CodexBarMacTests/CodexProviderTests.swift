@@ -38,6 +38,7 @@ final class CodexProviderTests: XCTestCase {
         ))
 
         XCTAssertEqual(result.title, "ChatGPT / Codex (Pro)")
+        XCTAssertEqual(result.bars.map(\.stableKey), ["window-18000", "window-604800"])
         XCTAssertEqual(result.bars.map(\.label), ["5 hour usage limit", "Weekly usage limit"])
         XCTAssertEqual(result.bars.map(\.used), [42, 81])
         XCTAssertEqual(result.bars.map(\.usageText), ["42%", "81%"])
@@ -65,16 +66,710 @@ final class CodexProviderTests: XCTestCase {
         let weeklyOnly = try XCTUnwrap(CodexUsageParser.parse(Data(weeklyOnlyPayload.utf8)))
 
         XCTAssertEqual(weeklyOnly.bars.map(\.label), ["Weekly usage limit"])
+        XCTAssertEqual(weeklyOnly.bars.map(\.stableKey), ["window-604800"])
 
         let driftedPayload = #"{"rate_limit":{"primary_window":{"used_percent":20,"reset_at":1894060800,"limit_window_seconds":604800},"secondary_window":{"used_percent":10,"reset_at":1893456000,"limit_window_seconds":17999}}}"#
         let drifted = try XCTUnwrap(CodexUsageParser.parse(Data(driftedPayload.utf8)))
 
         XCTAssertEqual(drifted.bars.map(\.label), ["5 hour usage limit", "Weekly usage limit"])
+        XCTAssertEqual(drifted.bars.map(\.stableKey), ["window-18000", "window-604800"])
 
         let outsideTolerancePayload = #"{"rate_limit":{"primary_window":{"used_percent":10,"reset_at":1893456000,"limit_window_seconds":18901}}}"#
         let outsideTolerance = try XCTUnwrap(CodexUsageParser.parse(Data(outsideTolerancePayload.utf8)))
 
         XCTAssertEqual(outsideTolerance.bars.map(\.label), ["315 minute usage limit"])
+        XCTAssertEqual(outsideTolerance.bars.map(\.stableKey), ["window-18901"])
+
+        let subMinutePayload = #"{"rate_limit":{"primary_window":{"used_percent":10,"reset_at":1893456000,"limit_window_seconds":10}}}"#
+        let subMinute = try XCTUnwrap(CodexUsageParser.parse(Data(subMinutePayload.utf8)))
+
+        XCTAssertEqual(subMinute.bars.map(\.label), ["10 second usage limit"])
+        XCTAssertEqual(subMinute.bars.map(\.stableKey), ["window-10"])
+    }
+
+    func testCodexUsageParserReadsEveryRateLimitBucketDeterministically() throws {
+        let payload = """
+        {
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 30,
+              "reset_at": 1894060800,
+              "limit_window_seconds": 604800
+            },
+            "secondary_window": null
+          },
+          "code_review_rate_limit": {
+            "primary_window": {
+              "used_percent": 12,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 18000
+            }
+          },
+          "additional_rate_limits": [
+            null,
+            {
+              "metered_feature": "codex_future",
+              "limit_name": "Future model",
+              "rate_limit": {
+                "primary_window": {
+                  "used_percent": 7,
+                  "reset_at": 1893456000,
+                  "limit_window_seconds": 7200
+                }
+              }
+            },
+            {"metered_feature": "malformed", "rate_limit": "unexpected"},
+            {
+              "metered_feature": "codex_bengalfox",
+              "limit_name": "GPT-5.3-Codex-Spark",
+              "rate_limit": {
+                "secondary_window": {
+                  "used_percent": 66,
+                  "reset_at": 1894060800,
+                  "limit_window_seconds": 604800
+                },
+                "primary_window": {
+                  "used_percent": 44,
+                  "reset_at": 1893456000,
+                  "limit_window_seconds": 18000
+                }
+              }
+            },
+            {
+              "metered_feature": "codex_quiet",
+              "primary_window": {
+                "used_percent": 9,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 9000
+              },
+              "secondary_window": {"used_percent": "nan"}
+            }
+          ]
+        }
+        """
+
+        let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(
+            result.bars.map(\.stableKey),
+            [
+                "window-604800",
+                "bucket-named-code_5Freview.window-18000.instance-top-named-code_5Freview",
+                "bucket-codex_5Fbengalfox.window-18000.instance-array-feature-codex_5Fbengalfox.primary_window-18000.occurrence-0",
+                "bucket-codex_5Fbengalfox.window-604800.instance-array-feature-codex_5Fbengalfox.secondary_window-604800.occurrence-0",
+                "bucket-codex_5Ffuture.window-7200.instance-array-feature-codex_5Ffuture.primary_window-7200.occurrence-0",
+                "bucket-codex_5Fquiet.window-9000.instance-array-feature-codex_5Fquiet.primary_window-9000.occurrence-0",
+            ]
+        )
+        XCTAssertEqual(
+            result.bars.map(\.label),
+            [
+                "Weekly usage limit",
+                "Code review · 5 hour usage limit",
+                "GPT-5.3-Codex-Spark · 5 hour usage limit",
+                "GPT-5.3-Codex-Spark · Weekly usage limit",
+                "Future model · 2 hour usage limit",
+                "Additional Codex usage · 150 minute usage limit",
+            ]
+        )
+        XCTAssertEqual(result.bars.map(\.used), [30, 12, 44, 66, 7, 9])
+    }
+
+    func testCodexUsageParserReadsKeyedAdditionalRateLimits() throws {
+        let payload = """
+        {
+          "additional_rate_limits": {
+            "spark": {
+              "limit_name": "Spark",
+              "rate_limit": {
+                "primary_window": {
+                  "used_percent": 25,
+                  "reset_at": 1893456000,
+                  "limit_window_seconds": 18000
+                }
+              }
+            },
+            "future": {
+              "limit_id": "future-id",
+              "rate_limit": {
+                "secondary_window": {
+                  "used_percent": 35,
+                  "reset_after_seconds": 600,
+                  "window_minutes": 120
+                }
+              }
+            }
+          }
+        }
+        """
+
+        let fetchedAt = Date(timeIntervalSince1970: 2_000_000_000)
+        let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8), fetchedAt: fetchedAt))
+
+        XCTAssertEqual(result.bars.map(\.stableKey), [
+            "bucket-named-future.window-7200.instance-object-named-future",
+            "bucket-named-spark.window-18000.instance-object-named-spark",
+        ])
+        XCTAssertEqual(result.bars.map(\.label), [
+            "Additional Codex usage · 2 hour usage limit",
+            "Spark · 5 hour usage limit",
+        ])
+        let expectedReset = fetchedAt.addingTimeInterval(600)
+        XCTAssertEqual(result.bars.first?.resetsAt, expectedReset)
+        let delayedFetch = try XCTUnwrap(CodexUsageParser.parse(
+            Data(payload.utf8),
+            fetchedAt: fetchedAt.addingTimeInterval(5)
+        ))
+        XCTAssertEqual(delayedFetch.bars.first?.resetsAt, expectedReset.addingTimeInterval(5))
+    }
+
+    func testCodexUsageParserKeepsArrayIdentityWhenDisplayNameChanges() throws {
+        func stableKey(
+            limitName: String,
+            limitID: String? = nil,
+            windowName: String = "primary_window"
+        ) throws -> String {
+            let limitIDField = limitID.map { "\"limit_id\": \"\($0)\"," } ?? ""
+            let payload = """
+            {
+              "additional_rate_limits": [{
+                "metered_feature": "stable",
+                \(limitIDField)
+                "limit_name": "\(limitName)",
+                "\(windowName)": {
+                  "used_percent": 25,
+                  "reset_at": 1893456000,
+                  "limit_window_seconds": 3600
+                }
+              }]
+            }
+            """
+            let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+            return try XCTUnwrap(result.bars[0].stableKey)
+        }
+
+        XCTAssertEqual(try stableKey(limitName: "Original"), try stableKey(limitName: "Renamed"))
+        XCTAssertEqual(
+            try stableKey(limitName: "Original"),
+            try stableKey(limitName: "Original", limitID: "optional")
+        )
+        XCTAssertEqual(
+            try stableKey(limitName: "Original"),
+            "bucket-stable.window-3600.instance-array-feature-stable.primary_window-3600.occurrence-0"
+        )
+    }
+
+    func testCodexUsageParserDisambiguatesSameDurationWindowSlots() throws {
+        func stableKeys(secondaryDuration: Int) throws -> [String] {
+            let payload = """
+            {
+              "additional_rate_limits": [{
+                "metered_feature": "stable",
+                "primary_window": {
+                  "used_percent": 25,
+                  "reset_at": 1893456000,
+                  "limit_window_seconds": 18000
+                },
+                "secondary_window": {
+                  "used_percent": 50,
+                  "reset_at": 1893456000,
+                  "limit_window_seconds": \(secondaryDuration)
+                }
+              }]
+            }
+            """
+            return try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8))).bars.compactMap(\.stableKey)
+        }
+
+        let expectedKeys = [
+            "bucket-stable.window-18000.instance-array-feature-stable.primary_window-18000.occurrence-0",
+            "bucket-stable.window-18000.instance-array-feature-stable.secondary_window-18000.occurrence-0",
+        ]
+        XCTAssertEqual(try stableKeys(secondaryDuration: 17_999), expectedKeys)
+        XCTAssertEqual(try stableKeys(secondaryDuration: 18_000), expectedKeys)
+    }
+
+    func testCodexUsageParserDisambiguatesSameDurationRootWindowSlots() throws {
+        let payload = """
+        {
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 25,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            },
+            "secondary_window": {
+              "used_percent": 50,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(result.bars.map(\.stableKey), [
+            "window-3600",
+            "window-3600.slot-1",
+        ])
+    }
+
+    func testCodexUsageParserKeepsEmptyAndNamedTopLevelBucketsDistinct() throws {
+        let emptyFirstPayload = """
+        {
+          "_rate_limit": {
+            "primary_window": {
+              "used_percent": 10,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            }
+          },
+          "other_rate_limit": {
+            "primary_window": {
+              "used_percent": 20,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            }
+          }
+        }
+        """
+        let namedFirstPayload = """
+        {
+          "other_rate_limit": {
+            "primary_window": {
+              "used_percent": 20,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            }
+          },
+          "_rate_limit": {
+            "primary_window": {
+              "used_percent": 10,
+              "reset_at": 1893456000,
+              "limit_window_seconds": 3600
+            }
+          }
+        }
+        """
+
+        let emptyFirst = try XCTUnwrap(CodexUsageParser.parse(Data(emptyFirstPayload.utf8)))
+        let namedFirst = try XCTUnwrap(CodexUsageParser.parse(Data(namedFirstPayload.utf8)))
+
+        XCTAssertEqual(emptyFirst.bars.map(\.stableKey), [
+            "bucket-empty.window-3600.instance-top-empty",
+            "bucket-named-other.window-3600.instance-top-named-other",
+        ])
+        XCTAssertEqual(namedFirst.bars.map(\.stableKey), emptyFirst.bars.map(\.stableKey))
+        XCTAssertEqual(namedFirst.bars.map(\.used), emptyFirst.bars.map(\.used))
+    }
+
+    func testCodexUsageParserKeepsKeyedEmptyAndOtherBucketsDistinct() throws {
+        let payload = """
+        {
+          "additional_rate_limits": {
+            "": {
+              "primary_window": {
+                "used_percent": 10,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              },
+              "secondary_window": {
+                "used_percent": 20,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            },
+            "empty": {
+              "primary_window": {
+                "used_percent": 30,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              },
+              "secondary_window": {
+                "used_percent": 40,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            },
+            "other": {
+              "primary_window": {
+                "used_percent": 50,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              },
+              "secondary_window": {
+                "used_percent": 60,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+        let stableKeys = result.bars.compactMap(\.stableKey)
+
+        XCTAssertEqual(stableKeys.count, 6)
+        XCTAssertEqual(Set(stableKeys).count, 6)
+        XCTAssertEqual(stableKeys, [
+            "bucket-empty.window-3600.instance-object-empty",
+            "bucket-empty.window-3600.instance-object-empty.slot-1",
+            "bucket-named-empty.window-3600.instance-object-named-empty",
+            "bucket-named-empty.window-3600.instance-object-named-empty.slot-1",
+            "bucket-named-other.window-3600.instance-object-named-other",
+            "bucket-named-other.window-3600.instance-object-named-other.slot-1",
+        ])
+    }
+
+    func testCodexUsageParserDisambiguatesDuplicateBucketIdentities() throws {
+        let payload = """
+        {
+          "additional_rate_limits": [
+            {
+              "metered_feature": "foo_bar",
+              "primary_window": {
+                "used_percent": 1,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            },
+            {
+              "metered_feature": "foo-bar",
+              "primary_window": {
+                "used_percent": 2,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            },
+            {
+              "primary_window": {
+                "used_percent": 3,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            },
+            {
+              "primary_window": {
+                "used_percent": 4,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            },
+            {
+              "metered_feature": "foo_bar",
+              "primary_window": {
+                "used_percent": 5,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            }
+          ]
+        }
+        """
+
+        let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(result.bars.count, 5)
+        XCTAssertEqual(Set(result.bars.compactMap(\.stableKey)), [
+            "bucket-additional.window-3600.instance-array-unnamed.primary_window-3600.occurrence-0",
+            "bucket-additional.window-3600.instance-array-unnamed.primary_window-3600.occurrence-1",
+            "bucket-foo_2Dbar.window-3600.instance-array-feature-foo_2Dbar.primary_window-3600.occurrence-0",
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-0",
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-1",
+        ])
+
+        var refreshedRoot = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
+        )
+        var buckets = try XCTUnwrap(refreshedRoot["additional_rate_limits"] as? [Any])
+        var firstDuplicate = try XCTUnwrap(buckets[0] as? [String: Any])
+        var firstWindow = try XCTUnwrap(firstDuplicate["primary_window"] as? [String: Any])
+        firstWindow["used_percent"] = 91
+        firstWindow["reset_at"] = 1_999_999_999
+        firstDuplicate["primary_window"] = firstWindow
+        buckets[0] = firstDuplicate
+        var secondDuplicate = try XCTUnwrap(buckets[4] as? [String: Any])
+        var secondWindow = try XCTUnwrap(secondDuplicate["primary_window"] as? [String: Any])
+        secondWindow["used_percent"] = 8
+        secondWindow["reset_at"] = 1_800_000_000
+        secondDuplicate["primary_window"] = secondWindow
+        buckets[4] = secondDuplicate
+        refreshedRoot["additional_rate_limits"] = buckets
+        let refreshed = try XCTUnwrap(CodexUsageParser.parse(
+            try JSONSerialization.data(withJSONObject: refreshedRoot)
+        ))
+        let refreshedKeyedUsage = Dictionary(uniqueKeysWithValues: refreshed.bars.compactMap { bar in
+            bar.stableKey.map { ($0, bar.used) }
+        })
+
+        XCTAssertEqual(Set(refreshed.bars.compactMap(\.stableKey)), Set(result.bars.compactMap(\.stableKey)))
+        XCTAssertEqual(
+            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-0"],
+            91
+        )
+        XCTAssertEqual(
+            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-1"],
+            8
+        )
+
+        buckets.remove(at: 4)
+        refreshedRoot["additional_rate_limits"] = buckets
+        let surviving = try XCTUnwrap(CodexUsageParser.parse(
+            try JSONSerialization.data(withJSONObject: refreshedRoot)
+        ))
+        XCTAssertEqual(
+            surviving.bars.first(where: { $0.used == 91 })?.stableKey,
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-0"
+        )
+
+        buckets = try XCTUnwrap(refreshedRoot["additional_rate_limits"] as? [Any])
+        buckets.insert([
+            "metered_feature": "inserted",
+            "primary_window": [
+                "used_percent": 6,
+                "reset_at": 1_893_456_000,
+                "limit_window_seconds": 3_600,
+            ],
+        ], at: 0)
+        refreshedRoot["additional_rate_limits"] = buckets
+        let shifted = try XCTUnwrap(CodexUsageParser.parse(
+            try JSONSerialization.data(withJSONObject: refreshedRoot)
+        ))
+        XCTAssertEqual(
+            shifted.bars.first(where: { $0.used == 91 })?.stableKey,
+            "bucket-foo_5Fbar.window-3600.instance-array-feature-foo_5Fbar.primary_window-3600.occurrence-0"
+        )
+    }
+
+    func testCodexUsageParserKeepsDistinctArrayWindowStructuresStableAcrossReordering() throws {
+        func bucket(
+            windowName: String = "primary_window",
+            duration: Int,
+            usedPercent: Double
+        ) -> [String: Any] {
+            [
+                "metered_feature": "shared",
+                windowName: [
+                    "used_percent": usedPercent,
+                    "reset_at": 1_893_456_000,
+                    "limit_window_seconds": duration,
+                ],
+            ]
+        }
+
+        func keyedUsage(_ buckets: [[String: Any]]) throws -> [String: Double] {
+            let data = try JSONSerialization.data(withJSONObject: ["additional_rate_limits": buckets])
+            let result = try XCTUnwrap(CodexUsageParser.parse(data))
+            return Dictionary(uniqueKeysWithValues: result.bars.compactMap { bar in
+                bar.stableKey.map { ($0, bar.used) }
+            })
+        }
+
+        let oneHour = bucket(duration: 3_600, usedPercent: 11)
+        let twoHours = bucket(duration: 7_200, usedPercent: 22)
+        let expected: [String: Double] = [
+            "bucket-shared.window-3600.instance-array-feature-shared.primary_window-3600.occurrence-0": 11,
+            "bucket-shared.window-7200.instance-array-feature-shared.primary_window-7200.occurrence-0": 22,
+        ]
+
+        XCTAssertEqual(try keyedUsage([oneHour, twoHours]), expected)
+        XCTAssertEqual(try keyedUsage([twoHours, oneHour]), expected)
+
+        let primary = bucket(duration: 3_600, usedPercent: 33)
+        let secondary = bucket(windowName: "secondary_window", duration: 3_600, usedPercent: 44)
+        let roleExpected: [String: Double] = [
+            "bucket-shared.window-3600.instance-array-feature-shared.primary_window-3600.occurrence-0": 33,
+            "bucket-shared.window-3600.instance-array-feature-shared.secondary_window-3600.occurrence-0": 44,
+        ]
+        XCTAssertEqual(try keyedUsage([primary, secondary]), roleExpected)
+        XCTAssertEqual(try keyedUsage([secondary, primary]), roleExpected)
+    }
+
+    func testCodexUsageParserKeepsSurvivingArrayWindowIndependentOfSiblingPresence() throws {
+        let primaryWindow: [String: Any] = [
+            "used_percent": 33,
+            "reset_at": 1_893_456_000,
+            "limit_window_seconds": 3_600,
+        ]
+        let secondaryWindow: [String: Any] = [
+            "used_percent": 44,
+            "reset_at": 1_893_456_000,
+            "limit_window_seconds": 7_200,
+        ]
+
+        func primaryStableKey(secondary: Any?) throws -> String {
+            var bucket: [String: Any] = [
+                "metered_feature": "shared",
+                "primary_window": primaryWindow,
+            ]
+            if let secondary {
+                bucket["secondary_window"] = secondary
+            }
+            let data = try JSONSerialization.data(withJSONObject: ["additional_rate_limits": [bucket]])
+            let result = try XCTUnwrap(CodexUsageParser.parse(data))
+            return try XCTUnwrap(result.bars.first(where: { $0.used == 33 })?.stableKey)
+        }
+
+        let stableKey = try primaryStableKey(secondary: secondaryWindow)
+        XCTAssertEqual(try primaryStableKey(secondary: nil), stableKey)
+        XCTAssertEqual(try primaryStableKey(secondary: "malformed"), stableKey)
+    }
+
+    func testCodexUsageParserUsesKeyedObjectIdentityForMalformedAndDuplicateMetadata() throws {
+        func bucket(meteredFeature: Any, usedPercent: Double) -> [String: Any] {
+            [
+                "metered_feature": meteredFeature,
+                "primary_window": [
+                    "used_percent": usedPercent,
+                    "reset_at": 1_893_456_000,
+                    "limit_window_seconds": 3_600,
+                ],
+            ]
+        }
+
+        func parse(
+            order: [String],
+            alphaUsage: Double,
+            betaUsage: Double,
+            blankFeature: Any = "  "
+        ) throws -> ProviderUsageResult {
+            let buckets: [String: [String: Any]] = [
+                "wrong-type": bucket(meteredFeature: 42, usedPercent: 50),
+                "blank": bucket(meteredFeature: blankFeature, usedPercent: 40),
+                "null": bucket(meteredFeature: NSNull(), usedPercent: 30),
+                "beta": bucket(meteredFeature: "shared", usedPercent: betaUsage),
+                "alpha": bucket(meteredFeature: "shared", usedPercent: alphaUsage),
+            ]
+            let entries = try order.map { key -> String in
+                let data = try JSONSerialization.data(withJSONObject: XCTUnwrap(buckets[key]))
+                return "\"\(key)\":\(try XCTUnwrap(String(data: data, encoding: .utf8)))"
+            }
+            let payload = "{\"additional_rate_limits\":{\(entries.joined(separator: ","))}}"
+            return try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+        }
+
+        let order = ["wrong-type", "blank", "null", "beta", "alpha"]
+        let initial = try parse(order: order, alphaUsage: 10, betaUsage: 20)
+        XCTAssertEqual(Set(initial.bars.compactMap(\.stableKey)), [
+            "bucket-named-blank.window-3600.instance-object-named-blank",
+            "bucket-named-null.window-3600.instance-object-named-null",
+            "bucket-named-alpha.window-3600.instance-object-named-alpha",
+            "bucket-named-beta.window-3600.instance-object-named-beta",
+            "bucket-named-wrong_2Dtype.window-3600.instance-object-named-wrong_2Dtype",
+        ])
+
+        let reordered = try parse(order: Array(order.reversed()), alphaUsage: 10, betaUsage: 20)
+        let initialKeyedUsage = Dictionary(uniqueKeysWithValues: initial.bars.compactMap { bar in
+            bar.stableKey.map { ($0, bar.used) }
+        })
+        let reorderedKeyedUsage = Dictionary(uniqueKeysWithValues: reordered.bars.compactMap { bar in
+            bar.stableKey.map { ($0, bar.used) }
+        })
+        XCTAssertEqual(reorderedKeyedUsage, initialKeyedUsage)
+
+        let refreshed = try parse(
+            order: Array(order.reversed()),
+            alphaUsage: 75,
+            betaUsage: 25,
+            blankFeature: "appeared-later"
+        )
+        let keyedUsage = Dictionary(uniqueKeysWithValues: refreshed.bars.compactMap { bar in
+            bar.stableKey.map { ($0, bar.used) }
+        })
+
+        XCTAssertEqual(Set(refreshed.bars.compactMap(\.stableKey)), Set(initial.bars.compactMap(\.stableKey)))
+        XCTAssertEqual(
+            keyedUsage["bucket-named-alpha.window-3600.instance-object-named-alpha"],
+            75
+        )
+        XCTAssertEqual(
+            keyedUsage["bucket-named-beta.window-3600.instance-object-named-beta"],
+            25
+        )
+        XCTAssertEqual(keyedUsage["bucket-named-blank.window-3600.instance-object-named-blank"], 40)
+    }
+
+    func testCodexUsageParserRejectsUnsafeWindowsWithoutDroppingValidNeighbors() throws {
+        let payload = """
+        {
+          "additional_rate_limits": [
+            {
+              "metered_feature": "zero",
+              "primary_window": {
+                "used_percent": 1,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 0
+              }
+            },
+            {
+              "metered_feature": "negative",
+              "primary_window": {
+                "used_percent": 2,
+                "reset_at": 1893456000,
+                "limit_window_seconds": -1
+              }
+            },
+            {
+              "metered_feature": "extreme",
+              "primary_window": {
+                "used_percent": 3,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 1e100
+              }
+            },
+            {
+              "metered_feature": "implausibly_long",
+              "primary_window": {
+                "used_percent": 4,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 315360001
+              }
+            },
+            {
+              "metered_feature": "nonfinite_usage",
+              "primary_window": {
+                "used_percent": "nan",
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            },
+            {
+              "metered_feature": "missing_reset",
+              "primary_window": {
+                "used_percent": 6,
+                "limit_window_seconds": 3600
+              }
+            },
+            {
+              "metered_feature": "boolean_usage",
+              "primary_window": {
+                "used_percent": true,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            },
+            {
+              "metered_feature": "valid",
+              "primary_window": {
+                "used_percent": 5,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              },
+              "secondary_window": "malformed"
+            }
+          ]
+        }
+        """
+
+        let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+
+        XCTAssertEqual(
+            result.bars.map(\.stableKey),
+            ["bucket-valid.window-3600.instance-array-feature-valid.primary_window-3600.occurrence-0"]
+        )
+        XCTAssertEqual(result.bars.map(\.used), [5])
     }
 
     func testCodexUsageParserAcceptsRelativeResetTimes() throws {

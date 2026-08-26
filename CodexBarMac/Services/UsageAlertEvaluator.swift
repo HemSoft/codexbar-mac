@@ -46,6 +46,7 @@ public struct UsageAlertEvaluation: Equatable, Sendable {
 }
 
 public enum UsageAlertEvaluator {
+    private static let codexAdditionalResetJitterToleranceSeconds = 10.0
     public static func activeAlertIDs(
         _ activeAlertIDs: Set<String>,
         belongingTo preservedAccountIDs: Set<String>,
@@ -111,7 +112,12 @@ public enum UsageAlertEvaluator {
                 )
                 activeAlerts.append(detail)
 
-                guard !activeAlertIDs.contains(alertID) else {
+                guard !wasUsageAlertActive(
+                    alertID,
+                    result: result,
+                    bar: bar,
+                    activeAlertIDs: activeAlertIDs
+                ) else {
                     continue
                 }
 
@@ -318,14 +324,27 @@ public enum UsageAlertEvaluator {
     }
 
     private static func alertID(for result: ProviderUsageResult, bar: UsageBar) -> String {
-        let stableKey = stableUsageKey(for: bar)
+        let stableKey = stableUsageKey(for: bar, providerID: result.providerID)
         if let resetsAt = bar.resetsAt {
             return "usage.\(result.accountID).\(stableKey).\(Int(resetsAt.timeIntervalSince1970))"
         }
         return "usage.\(result.accountID).\(stableKey)"
     }
 
-    private static func stableUsageKey(for bar: UsageBar) -> String {
+    private static func stableUsageKey(for bar: UsageBar, providerID: ProviderID) -> String {
+        if providerID == .codex {
+            switch bar.stableKey {
+            case "window-18000":
+                return "hour-usage-limit"
+            case "window-604800":
+                return "weekly-usage-limit"
+            case let stableKey?:
+                return codexStableUsageKey(stableKey)
+            default:
+                break
+            }
+        }
+
         if bar.stableKey == ClaudeUsageIdentity.allModelsWeeklyStableKey {
             return ClaudeUsageIdentity.allModelsWeeklyLegacyKey
         }
@@ -337,6 +356,140 @@ public enum UsageAlertEvaluator {
             }
         }
 
+        return legacyUsageKey(for: bar)
+    }
+
+    private static func wasUsageAlertActive(
+        _ alertID: String,
+        result: ProviderUsageResult,
+        bar: UsageBar,
+        activeAlertIDs: Set<String>
+    ) -> Bool {
+        if activeAlertIDs.contains(alertID) {
+            return true
+        }
+        if result.providerID == .codex,
+           let metricStableKey = bar.stableKey,
+           let alternateRoleStableKey = alternateCodexArrayRoleStableKey(metricStableKey),
+           let resetsAt = bar.resetsAt {
+            let hasAlternateRolePeer = result.bars.contains {
+                $0.stableKey == alternateRoleStableKey
+            }
+            if !hasAlternateRolePeer,
+               containsActiveResetID(
+                   prefix: "usage.\(result.accountID).\(codexStableUsageKey(alternateRoleStableKey)).",
+                   resetsAt: resetsAt,
+                   activeAlertIDs: activeAlertIDs,
+                   tolerance: codexResetJitterTolerance(for: metricStableKey)
+               ) {
+                return true
+            }
+        }
+        if result.providerID == .codex,
+           let metricStableKey = bar.stableKey,
+           requiresInjectiveCodexAlertKey(metricStableKey),
+           let resetsAt = bar.resetsAt {
+            let legacyKey = normalizedKeyComponent(metricStableKey)
+            let hasCaseCollidingPeer = result.bars.contains { peer in
+                guard peer.stableKey != metricStableKey, let peerKey = peer.stableKey else {
+                    return false
+                }
+                return normalizedKeyComponent(peerKey) == legacyKey
+            }
+            if !hasCaseCollidingPeer,
+               containsActiveResetID(
+                   prefix: "usage.\(result.accountID).\(legacyKey).",
+                   resetsAt: resetsAt,
+                   activeAlertIDs: activeAlertIDs,
+                   tolerance: codexResetJitterTolerance(for: metricStableKey)
+               ) {
+                return true
+            }
+        }
+        if result.providerID == .codex,
+           bar.stableKey?.hasPrefix("bucket-") == true,
+           let resetsAt = bar.resetsAt {
+            let key = stableUsageKey(for: bar, providerID: result.providerID)
+            if containsActiveResetID(
+                prefix: "usage.\(result.accountID).\(key).",
+                resetsAt: resetsAt,
+                activeAlertIDs: activeAlertIDs,
+                tolerance: codexResetJitterTolerance(for: bar.stableKey)
+            ) {
+                return true
+            }
+        }
+        guard
+            result.providerID == .codex,
+            let stableKey = bar.stableKey,
+            stableKey != "window-18000",
+            stableKey != "window-604800",
+            stableKey.range(of: #"^window-\d+$"#, options: .regularExpression) != nil
+        else {
+            return false
+        }
+
+        let legacyComponent = legacyUsageKey(for: bar)
+        let legacyAlertID: String
+        if let resetsAt = bar.resetsAt {
+            legacyAlertID = "usage.\(result.accountID).\(legacyComponent).\(Int(resetsAt.timeIntervalSince1970))"
+        } else {
+            legacyAlertID = "usage.\(result.accountID).\(legacyComponent)"
+        }
+        return activeAlertIDs.contains(legacyAlertID)
+    }
+
+    private static func containsActiveResetID(
+        prefix: String,
+        resetsAt: Date,
+        activeAlertIDs: Set<String>,
+        tolerance: Double
+    ) -> Bool {
+        let resetEpoch = Int(resetsAt.timeIntervalSince1970)
+        return activeAlertIDs.contains { activeID in
+            guard activeID.hasPrefix(prefix),
+                  let activeResetEpoch = Int(activeID.dropFirst(prefix.count)) else {
+                return false
+            }
+            return abs(Double(activeResetEpoch) - Double(resetEpoch))
+                <= tolerance
+        }
+    }
+
+    private static func codexResetJitterTolerance(for stableKey: String?) -> Double {
+        guard let duration = stableKey?
+            .split(separator: ".")
+            .first(where: { $0.hasPrefix("window-") })
+            .flatMap({ Int($0.dropFirst("window-".count)) }) else {
+            return 0
+        }
+        return min(codexAdditionalResetJitterToleranceSeconds, max(Double(duration - 1), 0))
+    }
+
+    private static func requiresInjectiveCodexAlertKey(_ stableKey: String) -> Bool {
+        stableKey.contains(where: { $0.isUppercase || $0 == "_" })
+    }
+
+    private static func codexStableUsageKey(_ stableKey: String) -> String {
+        requiresInjectiveCodexAlertKey(stableKey)
+            ? "case-\(stableKey.utf8.map { String(format: "%02X", $0) }.joined())"
+            : normalizedKeyComponent(stableKey)
+    }
+
+    private static func alternateCodexArrayRoleStableKey(_ stableKey: String) -> String? {
+        guard stableKey.contains(".instance-array-") else {
+            return nil
+        }
+        if let range = stableKey.range(of: ".primary_window-") {
+            return stableKey.replacingCharacters(in: range, with: ".secondary_window-")
+        }
+        if let range = stableKey.range(of: ".secondary_window-") {
+            return stableKey.replacingCharacters(in: range, with: ".primary_window-")
+        }
+        return nil
+    }
+
+    private static func legacyUsageKey(for bar: UsageBar) -> String {
         let withoutParentheticalValues = bar.label
             .replacingOccurrences(of: #"\([^)]*\)"#, with: "", options: .regularExpression)
         let withoutRatios = withoutParentheticalValues

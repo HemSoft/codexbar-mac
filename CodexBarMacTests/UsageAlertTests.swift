@@ -994,6 +994,147 @@ final class UsageAlertTests: XCTestCase {
         XCTAssertEqual(evaluation.activeAlertIDs, [legacyAlertID])
     }
 
+    func testUsageAlertEvaluatorPreservesCodexGeneralWindowAlertIdentities() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "window-18000",
+                    label: "5 hour usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+                UsageBar(
+                    stableKey: "window-604800",
+                    label: "Weekly usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+                UsageBar(
+                    stableKey: "window-18901",
+                    label: "315 minute usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_369_600)
+        )
+        let legacyAlertIDs: Set<String> = [
+            "usage.codex.personal.hour-usage-limit.1893456000",
+            "usage.codex.personal.weekly-usage-limit.1893456000",
+            "usage.codex.personal.minute-usage-limit.1893456000",
+        ]
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: legacyAlertIDs
+        )
+
+        XCTAssertTrue(evaluation.notifications.isEmpty)
+        XCTAssertEqual(evaluation.activeAlertIDs, [
+            "usage.codex.personal.hour-usage-limit.1893456000",
+            "usage.codex.personal.weekly-usage-limit.1893456000",
+            "usage.codex.personal.window-18901.1893456000",
+        ])
+    }
+
+    func testUsageAlertEvaluatorMigratesCollidingNoncanonicalCodexRootAlerts() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "window-21600",
+                    label: "6 hour usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+                UsageBar(
+                    stableKey: "window-25200",
+                    label: "7 hour usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_369_600)
+        )
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: ["usage.codex.personal.hour-usage-limit.1893456000"]
+        )
+
+        XCTAssertTrue(evaluation.notifications.isEmpty)
+        XCTAssertEqual(evaluation.activeAlertIDs, [
+            "usage.codex.personal.window-21600.1893456000",
+            "usage.codex.personal.window-25200.1893456000",
+        ])
+    }
+
+    func testUsageAlertEvaluatorKeepsCollidingCodexRootAlertsDistinct() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "window-18000",
+                    label: "5 hour usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+                UsageBar(
+                    stableKey: "window-18000.slot-1",
+                    label: "5 hour usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_369_600)
+        )
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: ["usage.codex.personal.hour-usage-limit.1893456000"]
+        )
+
+        XCTAssertEqual(
+            evaluation.notifications.map(\.id),
+            ["usage.codex.personal.window-18000-slot-1.1893456000"]
+        )
+    }
+
     func testUsageAlertEvaluatorNotifiesWhenSeverityEscalates() {
         let warningResult = ProviderUsageResult(
             accountID: "codex.personal",
@@ -1089,6 +1230,287 @@ final class UsageAlertTests: XCTestCase {
         XCTAssertEqual(first.notifications.count, 1)
         XCTAssertEqual(second.notifications.count, 1)
         XCTAssertNotEqual(first.activeAlertIDs, second.activeAlertIDs)
+    }
+
+    func testUsageAlertEvaluatorIgnoresAdditionalCodexRelativeResetJitter() {
+        let settings = UsageAlertSettings(
+            isEnabled: true,
+            usageThreshold: 0.80,
+            includesSeverityAlerts: false
+        )
+        func result(resetEpoch: TimeInterval) -> ProviderUsageResult {
+            ProviderUsageResult(
+                accountID: "codex.personal",
+                providerID: .codex,
+                title: "Codex",
+                subtitle: "Live usage",
+                bars: [
+                    UsageBar(
+                        stableKey: "bucket-future.window-7200.instance-object-future",
+                        label: "Additional Codex usage · 2 hour usage limit",
+                        used: 90,
+                        limit: 100,
+                        resetsAt: Date(timeIntervalSince1970: resetEpoch)
+                    ),
+                ],
+                fetchedAt: Date(timeIntervalSince1970: 1_893_455_000)
+            )
+        }
+
+        let first = UsageAlertEvaluator.evaluate(
+            results: [result(resetEpoch: 1_893_456_001)],
+            settings: settings,
+            activeAlertIDs: []
+        )
+        let delayed = UsageAlertEvaluator.evaluate(
+            results: [result(resetEpoch: 1_893_456_006)],
+            settings: settings,
+            activeAlertIDs: first.activeAlertIDs
+        )
+
+        XCTAssertEqual(first.notifications.count, 1)
+        XCTAssertTrue(delayed.notifications.isEmpty)
+        XCTAssertEqual(first.activeAlertIDs, [
+            "usage.codex.personal.bucket-future-window-7200-instance-object-future.1893456001",
+        ])
+        XCTAssertEqual(delayed.activeAlertIDs, [
+            "usage.codex.personal.bucket-future-window-7200-instance-object-future.1893456006",
+        ])
+    }
+
+    func testUsageAlertEvaluatorMigratesLoneCodexArrayWindowAcrossRolesWithoutMergingPeers() {
+        let settings = UsageAlertSettings(
+            isEnabled: true,
+            usageThreshold: 0.80,
+            includesSeverityAlerts: false
+        )
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        func bar(role: String, used: Double = 90) -> UsageBar {
+            UsageBar(
+                stableKey: "bucket-shared.window-3600.instance-array-feature-shared.\(role)-3600.occurrence-0",
+                label: "Shared · 1 hour usage limit",
+                used: used,
+                limit: 100,
+                resetsAt: resetAt
+            )
+        }
+        func result(_ bars: [UsageBar]) -> ProviderUsageResult {
+            ProviderUsageResult(
+                accountID: "codex.personal",
+                providerID: .codex,
+                title: "Codex",
+                subtitle: "Live usage",
+                bars: bars,
+                fetchedAt: resetAt.addingTimeInterval(-600)
+            )
+        }
+
+        let primary = bar(role: "primary_window")
+        let secondary = bar(role: "secondary_window")
+        let firstPrimary = UsageAlertEvaluator.evaluate(
+            results: [result([primary])],
+            settings: settings,
+            activeAlertIDs: []
+        )
+        let movedToSecondary = UsageAlertEvaluator.evaluate(
+            results: [result([secondary])],
+            settings: settings,
+            activeAlertIDs: firstPrimary.activeAlertIDs
+        )
+        XCTAssertEqual(firstPrimary.notifications.count, 1)
+        XCTAssertTrue(movedToSecondary.notifications.isEmpty)
+
+        let firstSecondary = UsageAlertEvaluator.evaluate(
+            results: [result([secondary])],
+            settings: settings,
+            activeAlertIDs: []
+        )
+        let movedToPrimary = UsageAlertEvaluator.evaluate(
+            results: [result([primary])],
+            settings: settings,
+            activeAlertIDs: firstSecondary.activeAlertIDs
+        )
+        XCTAssertTrue(movedToPrimary.notifications.isEmpty)
+
+        let simultaneous = UsageAlertEvaluator.evaluate(
+            results: [result([primary, secondary])],
+            settings: settings,
+            activeAlertIDs: firstPrimary.activeAlertIDs
+        )
+        XCTAssertEqual(simultaneous.notifications.count, 1)
+        XCTAssertEqual(simultaneous.activeAlertIDs.count, 2)
+    }
+
+    func testUsageAlertEvaluatorKeepsAdjacentShortCodexWindowsDistinct() {
+        let settings = UsageAlertSettings(
+            isEnabled: true,
+            usageThreshold: 0.80,
+            includesSeverityAlerts: false
+        )
+        func result(resetEpoch: TimeInterval, duration: Int = 40) -> ProviderUsageResult {
+            ProviderUsageResult(
+                accountID: "codex.personal",
+                providerID: .codex,
+                title: "Codex",
+                subtitle: "Live usage",
+                bars: [
+                    UsageBar(
+                        stableKey: "bucket-short.window-\(duration).instance-object-short",
+                        label: "Short usage limit",
+                        used: 90,
+                        limit: 100,
+                        resetsAt: Date(timeIntervalSince1970: resetEpoch)
+                    ),
+                ],
+                fetchedAt: Date(timeIntervalSince1970: 90)
+            )
+        }
+
+        let first = UsageAlertEvaluator.evaluate(
+            results: [result(resetEpoch: 100)],
+            settings: settings,
+            activeAlertIDs: []
+        )
+        let nextWindow = UsageAlertEvaluator.evaluate(
+            results: [result(resetEpoch: 140)],
+            settings: settings,
+            activeAlertIDs: first.activeAlertIDs
+        )
+
+        XCTAssertEqual(first.notifications.count, 1)
+        XCTAssertEqual(nextWindow.notifications.count, 1)
+        XCTAssertNotEqual(first.activeAlertIDs, nextWindow.activeAlertIDs)
+
+        let shortFirst = UsageAlertEvaluator.evaluate(
+            results: [result(resetEpoch: 200, duration: 10)],
+            settings: settings,
+            activeAlertIDs: []
+        )
+        let shortNext = UsageAlertEvaluator.evaluate(
+            results: [result(resetEpoch: 210, duration: 10)],
+            settings: settings,
+            activeAlertIDs: shortFirst.activeAlertIDs
+        )
+
+        XCTAssertEqual(shortFirst.notifications.count, 1)
+        XCTAssertEqual(shortNext.notifications.count, 1)
+        XCTAssertNotEqual(shortFirst.activeAlertIDs, shortNext.activeAlertIDs)
+    }
+
+    func testUsageAlertEvaluatorKeepsCaseDistinctCodexBucketsDistinct() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "bucket-Foo.window-3600.instance-object-Foo",
+                    label: "Foo usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+                UsageBar(
+                    stableKey: "bucket-foo.window-3600.instance-object-foo",
+                    label: "foo usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_455_000)
+        )
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: []
+        )
+
+        XCTAssertEqual(evaluation.notifications.count, 2)
+        XCTAssertEqual(evaluation.activeAlertIDs.count, 2)
+    }
+
+    func testUsageAlertEvaluatorKeepsEscapedCodexBucketsDistinct() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "bucket-named-_21.window-3600.instance-object-named-_21",
+                    label: "! usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+                UsageBar(
+                    stableKey: "bucket-named-21.window-3600.instance-object-named-21",
+                    label: "21 usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_455_000)
+        )
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: []
+        )
+
+        XCTAssertEqual(evaluation.notifications.count, 2)
+        XCTAssertEqual(evaluation.activeAlertIDs.count, 2)
+    }
+
+    func testUsageAlertEvaluatorMigratesUnambiguousUppercaseCodexBucketAlert() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "bucket-Foo.window-3600.instance-object-Foo",
+                    label: "Foo usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_455_000)
+        )
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: [
+                "usage.codex.personal.bucket-foo-window-3600-instance-object-foo.1893456000",
+            ]
+        )
+
+        XCTAssertTrue(evaluation.notifications.isEmpty)
+        XCTAssertEqual(evaluation.activeAlertIDs.count, 1)
+        XCTAssertTrue(evaluation.activeAlertIDs.first?.contains(".case-") == true)
     }
 
 }
