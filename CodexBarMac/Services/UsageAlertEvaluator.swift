@@ -46,6 +46,7 @@ public struct UsageAlertEvaluation: Equatable, Sendable {
 }
 
 public enum UsageAlertEvaluator {
+    private static let codexAdditionalResetJitterToleranceSeconds = 10.0
     public static func activeAlertIDs(
         _ activeAlertIDs: Set<String>,
         belongingTo preservedAccountIDs: Set<String>,
@@ -325,26 +326,9 @@ public enum UsageAlertEvaluator {
     private static func alertID(for result: ProviderUsageResult, bar: UsageBar) -> String {
         let stableKey = stableUsageKey(for: bar, providerID: result.providerID)
         if let resetsAt = bar.resetsAt {
-            let resetEpoch = stableAlertResetEpoch(
-                resetsAt,
-                providerID: result.providerID,
-                metricStableKey: bar.stableKey
-            )
-            return "usage.\(result.accountID).\(stableKey).\(resetEpoch)"
+            return "usage.\(result.accountID).\(stableKey).\(Int(resetsAt.timeIntervalSince1970))"
         }
         return "usage.\(result.accountID).\(stableKey)"
-    }
-
-    private static func stableAlertResetEpoch(
-        _ resetsAt: Date,
-        providerID: ProviderID,
-        metricStableKey: String?
-    ) -> Int {
-        guard providerID == .codex, metricStableKey?.hasPrefix("bucket-") == true else {
-            return Int(resetsAt.timeIntervalSince1970)
-        }
-        let minute = 60.0
-        return Int((resetsAt.timeIntervalSince1970 / minute).rounded() * minute)
     }
 
     private static func stableUsageKey(for bar: UsageBar, providerID: ProviderID) -> String {
@@ -354,6 +338,10 @@ public enum UsageAlertEvaluator {
                 return "hour-usage-limit"
             case "window-604800":
                 return "weekly-usage-limit"
+            case let stableKey?:
+                return stableKey.contains(where: { $0.isUppercase })
+                    ? "case-\(stableKey.utf8.map { String(format: "%02X", $0) }.joined())"
+                    : normalizedKeyComponent(stableKey)
             default:
                 break
             }
@@ -381,6 +369,24 @@ public enum UsageAlertEvaluator {
     ) -> Bool {
         if activeAlertIDs.contains(alertID) {
             return true
+        }
+        if result.providerID == .codex,
+           bar.stableKey?.hasPrefix("bucket-") == true,
+           let resetsAt = bar.resetsAt {
+            let key = stableUsageKey(for: bar, providerID: result.providerID)
+            let prefix = "usage.\(result.accountID).\(key)."
+            let resetEpoch = Int(resetsAt.timeIntervalSince1970)
+            let isWithinJitterTolerance = activeAlertIDs.contains { activeID in
+                guard activeID.hasPrefix(prefix),
+                      let activeResetEpoch = Int(activeID.dropFirst(prefix.count)) else {
+                    return false
+                }
+                return abs(Double(activeResetEpoch) - Double(resetEpoch))
+                    <= codexAdditionalResetJitterToleranceSeconds
+            }
+            if isWithinJitterTolerance {
+                return true
+            }
         }
         guard
             result.providerID == .codex,
