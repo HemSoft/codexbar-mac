@@ -91,12 +91,20 @@ public enum CodexUsageParser {
             }
             return $0.windowOrder < $1.windowOrder
         }
+        let instanceKeyCounts = Dictionary(grouping: windows.filter { $0.bucketOrder != 0 }) {
+            instanceStableKey(for: $0)
+        }.mapValues(\.count)
         let bars = windows.map { window in
             let baseStableKey = stableKey(for: window)
-            let duplicateIdentity = duplicateIdentity(for: window)
-            let stableKey = window.bucketOrder == 0
-                ? baseStableKey
-                : "\(baseStableKey).instance-\(duplicateIdentity)"
+            let stableKey: String
+            if window.bucketOrder == 0 {
+                stableKey = baseStableKey
+            } else {
+                let instanceKey = instanceStableKey(for: window)
+                stableKey = instanceKeyCounts[instanceKey] == 1
+                    ? instanceKey
+                    : "\(instanceKey).slot-\(window.windowOrder)"
+            }
             let usedFraction = window.usedPercent / 100
             return UsageBar(
                 stableKey: stableKey,
@@ -323,8 +331,8 @@ public enum CodexUsageParser {
         return "\(bucketStableKey).\(durationKey)"
     }
 
-    private static func duplicateIdentity(for window: CodexUsageWindow) -> String {
-        "\(window.bucketInstanceStableKey).window-\(window.windowOrder)"
+    private static func instanceStableKey(for window: CodexUsageWindow) -> String {
+        "\(stableKey(for: window)).instance-\(window.bucketInstanceStableKey)"
     }
 
     private static func label(for window: CodexUsageWindow) -> String {
