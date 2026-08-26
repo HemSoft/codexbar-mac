@@ -22,6 +22,7 @@ public enum CodexUsageParser {
                 bucketStableKey: nil,
                 bucketLabel: nil,
                 bucketOrder: 0,
+                bucketInstanceStableKey: "root",
                 fetchedAt: fetchedAt,
                 to: &windows
             )
@@ -36,11 +37,13 @@ public enum CodexUsageParser {
                 bucketStableKey: "bucket-\(stableKeyComponent(identity) ?? "other")",
                 bucketLabel: bucketLabel(from: identity),
                 bucketOrder: 1,
+                bucketInstanceStableKey: "top-\(stableKeyComponent(identity) ?? "other")",
                 fetchedAt: fetchedAt,
                 to: &windows
             )
         }
-        for rateLimit in additionalRateLimits(from: root["additional_rate_limits"]) {
+        for additionalRateLimit in additionalRateLimits(from: root["additional_rate_limits"]) {
+            let rateLimit = additionalRateLimit.value
             let meteredFeature = nonemptyString(rateLimit["metered_feature"])
                 .flatMap(stableKeyComponent)
             let limitID = nonemptyString(rateLimit["limit_id"])
@@ -59,6 +62,7 @@ public enum CodexUsageParser {
                 bucketStableKey: "bucket-\(stableComponent)",
                 bucketLabel: nonemptyString(rateLimit["limit_name"]) ?? "Additional Codex usage",
                 bucketOrder: 2,
+                bucketInstanceStableKey: additionalRateLimit.instanceStableKey,
                 fetchedAt: fetchedAt,
                 to: &windows
             )
@@ -81,22 +85,19 @@ public enum CodexUsageParser {
             if $0.bucketLabel != $1.bucketLabel {
                 return ($0.bucketLabel ?? "") < ($1.bucketLabel ?? "")
             }
-            if $0.windowOrder != $1.windowOrder {
-                return $0.windowOrder < $1.windowOrder
+            if $0.bucketInstanceStableKey != $1.bucketInstanceStableKey {
+                return $0.bucketInstanceStableKey < $1.bucketInstanceStableKey
             }
-            if $0.resetsAt != $1.resetsAt {
-                return $0.resetsAt < $1.resetsAt
-            }
-            return $0.usedPercent.bitPattern < $1.usedPercent.bitPattern
+            return $0.windowOrder < $1.windowOrder
         }
-        var stableKeyOccurrences: [String: Int] = [:]
+        let stableKeyCounts = Dictionary(grouping: windows) { stableKey(for: $0) }
+            .mapValues(\.count)
         let bars = windows.map { window in
             let baseStableKey = stableKey(for: window)
-            let occurrence = stableKeyOccurrences[baseStableKey, default: 0] + 1
-            stableKeyOccurrences[baseStableKey] = occurrence
-            let stableKey = occurrence == 1
+            let duplicateIdentity = duplicateIdentity(for: window)
+            let stableKey = stableKeyCounts[baseStableKey] == 1
                 ? baseStableKey
-                : "\(baseStableKey).duplicate-\(occurrence)"
+                : "\(baseStableKey).duplicate-\(duplicateIdentity)"
             let usedFraction = window.usedPercent / 100
             return UsageBar(
                 stableKey: stableKey,
@@ -131,6 +132,7 @@ public enum CodexUsageParser {
         bucketStableKey: String?,
         bucketLabel: String?,
         bucketOrder: Int,
+        bucketInstanceStableKey: String,
         fetchedAt: Date,
         to windows: inout [CodexUsageWindow]
     ) {
@@ -141,6 +143,7 @@ public enum CodexUsageParser {
             bucketStableKey: bucketStableKey,
             bucketLabel: bucketLabel,
             bucketOrder: bucketOrder,
+            bucketInstanceStableKey: bucketInstanceStableKey,
             fetchedAt: fetchedAt,
             to: &windows
         )
@@ -151,6 +154,7 @@ public enum CodexUsageParser {
             bucketStableKey: bucketStableKey,
             bucketLabel: bucketLabel,
             bucketOrder: bucketOrder,
+            bucketInstanceStableKey: bucketInstanceStableKey,
             fetchedAt: fetchedAt,
             to: &windows
         )
@@ -163,6 +167,7 @@ public enum CodexUsageParser {
         bucketStableKey: String?,
         bucketLabel: String?,
         bucketOrder: Int,
+        bucketInstanceStableKey: String,
         fetchedAt: Date,
         to windows: inout [CodexUsageWindow]
     ) {
@@ -193,6 +198,7 @@ public enum CodexUsageParser {
                 bucketStableKey: bucketStableKey,
                 bucketLabel: bucketLabel,
                 bucketOrder: bucketOrder,
+                bucketInstanceStableKey: bucketInstanceStableKey,
                 windowOrder: windowOrder
             )
         )
@@ -223,9 +229,17 @@ public enum CodexUsageParser {
         }
     }
 
-    private static func additionalRateLimits(from value: Any?) -> [[String: Any]] {
+    private static func additionalRateLimits(from value: Any?) -> [CodexAdditionalRateLimit] {
         if let rateLimits = value as? [Any] {
-            return rateLimits.compactMap { $0 as? [String: Any] }
+            return rateLimits.enumerated().compactMap { index, value in
+                guard let rateLimit = value as? [String: Any] else {
+                    return nil
+                }
+                return CodexAdditionalRateLimit(
+                    value: rateLimit,
+                    instanceStableKey: "array-\(index)"
+                )
+            }
         }
         guard let rateLimits = value as? [String: Any] else {
             return []
@@ -234,10 +248,13 @@ public enum CodexUsageParser {
             guard var rateLimit = rateLimits[key] as? [String: Any] else {
                 return nil
             }
-            if rateLimit["metered_feature"] == nil {
+            if nonemptyString(rateLimit["metered_feature"]) == nil {
                 rateLimit["metered_feature"] = key
             }
-            return rateLimit
+            return CodexAdditionalRateLimit(
+                value: rateLimit,
+                instanceStableKey: "object-\(stableKeyComponent(key) ?? "other")"
+            )
         }
     }
 
@@ -272,6 +289,10 @@ public enum CodexUsageParser {
             return durationKey
         }
         return "\(bucketStableKey).\(durationKey)"
+    }
+
+    private static func duplicateIdentity(for window: CodexUsageWindow) -> String {
+        "\(window.bucketInstanceStableKey).window-\(window.windowOrder)"
     }
 
     private static func label(for window: CodexUsageWindow) -> String {
@@ -399,5 +420,11 @@ private struct CodexUsageWindow {
     let bucketStableKey: String?
     let bucketLabel: String?
     let bucketOrder: Int
+    let bucketInstanceStableKey: String
     let windowOrder: Int
+}
+
+private struct CodexAdditionalRateLimit {
+    let value: [String: Any]
+    let instanceStableKey: String
 }

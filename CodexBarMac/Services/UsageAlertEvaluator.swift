@@ -318,14 +318,25 @@ public enum UsageAlertEvaluator {
     }
 
     private static func alertID(for result: ProviderUsageResult, bar: UsageBar) -> String {
-        let stableKey = stableUsageKey(for: bar)
+        let stableKey = stableUsageKey(for: bar, providerID: result.providerID)
         if let resetsAt = bar.resetsAt {
             return "usage.\(result.accountID).\(stableKey).\(Int(resetsAt.timeIntervalSince1970))"
         }
         return "usage.\(result.accountID).\(stableKey)"
     }
 
-    private static func stableUsageKey(for bar: UsageBar) -> String {
+    private static func stableUsageKey(for bar: UsageBar, providerID: ProviderID) -> String {
+        if providerID == .codex {
+            switch bar.stableKey {
+            case "window-18000":
+                return "hour-usage-limit"
+            case "window-604800":
+                return "weekly-usage-limit"
+            default:
+                break
+            }
+        }
+
         if bar.stableKey == ClaudeUsageIdentity.allModelsWeeklyStableKey {
             return ClaudeUsageIdentity.allModelsWeeklyLegacyKey
         }

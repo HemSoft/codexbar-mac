@@ -273,29 +273,113 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(result.bars.count, 5)
         XCTAssertEqual(Set(result.bars.compactMap(\.stableKey)), [
-            "bucket-additional.window-3600",
-            "bucket-additional.window-3600.duplicate-2",
+            "bucket-additional.window-3600.duplicate-array-2.window-0",
+            "bucket-additional.window-3600.duplicate-array-3.window-0",
             "bucket-foo_2Dbar.window-3600",
-            "bucket-foo_5Fbar.window-3600",
-            "bucket-foo_5Fbar.window-3600.duplicate-2",
+            "bucket-foo_5Fbar.window-3600.duplicate-array-0.window-0",
+            "bucket-foo_5Fbar.window-3600.duplicate-array-4.window-0",
         ])
 
-        var reorderedRoot = try XCTUnwrap(
+        var refreshedRoot = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
         )
-        let buckets = try XCTUnwrap(reorderedRoot["additional_rate_limits"] as? [Any])
-        reorderedRoot["additional_rate_limits"] = Array(buckets.reversed())
-        let reordered = try XCTUnwrap(CodexUsageParser.parse(
-            try JSONSerialization.data(withJSONObject: reorderedRoot)
+        var buckets = try XCTUnwrap(refreshedRoot["additional_rate_limits"] as? [Any])
+        var firstDuplicate = try XCTUnwrap(buckets[0] as? [String: Any])
+        var firstWindow = try XCTUnwrap(firstDuplicate["primary_window"] as? [String: Any])
+        firstWindow["used_percent"] = 91
+        firstWindow["reset_at"] = 1_999_999_999
+        firstDuplicate["primary_window"] = firstWindow
+        buckets[0] = firstDuplicate
+        var secondDuplicate = try XCTUnwrap(buckets[4] as? [String: Any])
+        var secondWindow = try XCTUnwrap(secondDuplicate["primary_window"] as? [String: Any])
+        secondWindow["used_percent"] = 8
+        secondWindow["reset_at"] = 1_800_000_000
+        secondDuplicate["primary_window"] = secondWindow
+        buckets[4] = secondDuplicate
+        refreshedRoot["additional_rate_limits"] = buckets
+        let refreshed = try XCTUnwrap(CodexUsageParser.parse(
+            try JSONSerialization.data(withJSONObject: refreshedRoot)
         ))
-        let keyedUsage = Dictionary(uniqueKeysWithValues: result.bars.compactMap { bar in
+        let refreshedKeyedUsage = Dictionary(uniqueKeysWithValues: refreshed.bars.compactMap { bar in
+            bar.stableKey.map { ($0, bar.used) }
+        })
+
+        XCTAssertEqual(Set(refreshed.bars.compactMap(\.stableKey)), Set(result.bars.compactMap(\.stableKey)))
+        XCTAssertEqual(
+            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.duplicate-array-0.window-0"],
+            91
+        )
+        XCTAssertEqual(
+            refreshedKeyedUsage["bucket-foo_5Fbar.window-3600.duplicate-array-4.window-0"],
+            8
+        )
+    }
+
+    func testCodexUsageParserUsesKeyedObjectIdentityForMalformedAndDuplicateMetadata() throws {
+        func bucket(meteredFeature: Any, usedPercent: Double) -> [String: Any] {
+            [
+                "metered_feature": meteredFeature,
+                "primary_window": [
+                    "used_percent": usedPercent,
+                    "reset_at": 1_893_456_000,
+                    "limit_window_seconds": 3_600,
+                ],
+            ]
+        }
+
+        func parse(
+            order: [String],
+            alphaUsage: Double,
+            betaUsage: Double
+        ) throws -> ProviderUsageResult {
+            let buckets: [String: [String: Any]] = [
+                "wrong-type": bucket(meteredFeature: 42, usedPercent: 50),
+                "blank": bucket(meteredFeature: "  ", usedPercent: 40),
+                "null": bucket(meteredFeature: NSNull(), usedPercent: 30),
+                "beta": bucket(meteredFeature: "shared", usedPercent: betaUsage),
+                "alpha": bucket(meteredFeature: "shared", usedPercent: alphaUsage),
+            ]
+            let entries = try order.map { key -> String in
+                let data = try JSONSerialization.data(withJSONObject: XCTUnwrap(buckets[key]))
+                return "\"\(key)\":\(try XCTUnwrap(String(data: data, encoding: .utf8)))"
+            }
+            let payload = "{\"additional_rate_limits\":{\(entries.joined(separator: ","))}}"
+            return try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+        }
+
+        let order = ["wrong-type", "blank", "null", "beta", "alpha"]
+        let initial = try parse(order: order, alphaUsage: 10, betaUsage: 20)
+        XCTAssertEqual(Set(initial.bars.compactMap(\.stableKey)), [
+            "bucket-blank.window-3600",
+            "bucket-null.window-3600",
+            "bucket-shared.window-3600.duplicate-object-alpha.window-0",
+            "bucket-shared.window-3600.duplicate-object-beta.window-0",
+            "bucket-wrong_2Dtype.window-3600",
+        ])
+
+        let reordered = try parse(order: Array(order.reversed()), alphaUsage: 10, betaUsage: 20)
+        let initialKeyedUsage = Dictionary(uniqueKeysWithValues: initial.bars.compactMap { bar in
             bar.stableKey.map { ($0, bar.used) }
         })
         let reorderedKeyedUsage = Dictionary(uniqueKeysWithValues: reordered.bars.compactMap { bar in
             bar.stableKey.map { ($0, bar.used) }
         })
+        XCTAssertEqual(reorderedKeyedUsage, initialKeyedUsage)
 
-        XCTAssertEqual(reorderedKeyedUsage, keyedUsage)
+        let refreshed = try parse(order: Array(order.reversed()), alphaUsage: 75, betaUsage: 25)
+        let keyedUsage = Dictionary(uniqueKeysWithValues: refreshed.bars.compactMap { bar in
+            bar.stableKey.map { ($0, bar.used) }
+        })
+
+        XCTAssertEqual(Set(refreshed.bars.compactMap(\.stableKey)), Set(initial.bars.compactMap(\.stableKey)))
+        XCTAssertEqual(
+            keyedUsage["bucket-shared.window-3600.duplicate-object-alpha.window-0"],
+            75
+        )
+        XCTAssertEqual(
+            keyedUsage["bucket-shared.window-3600.duplicate-object-beta.window-0"],
+            25
+        )
     }
 
     func testCodexUsageParserRejectsUnsafeWindowsWithoutDroppingValidNeighbors() throws {

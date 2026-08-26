@@ -994,6 +994,50 @@ final class UsageAlertTests: XCTestCase {
         XCTAssertEqual(evaluation.activeAlertIDs, [legacyAlertID])
     }
 
+    func testUsageAlertEvaluatorPreservesCodexGeneralWindowAlertIdentities() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "window-18000",
+                    label: "5 hour usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+                UsageBar(
+                    stableKey: "window-604800",
+                    label: "Weekly usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_369_600)
+        )
+        let legacyAlertIDs: Set<String> = [
+            "usage.codex.personal.hour-usage-limit.1893456000",
+            "usage.codex.personal.weekly-usage-limit.1893456000",
+        ]
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: legacyAlertIDs
+        )
+
+        XCTAssertTrue(evaluation.notifications.isEmpty)
+        XCTAssertEqual(evaluation.activeAlertIDs, legacyAlertIDs)
+    }
+
     func testUsageAlertEvaluatorNotifiesWhenSeverityEscalates() {
         let warningResult = ProviderUsageResult(
             accountID: "codex.personal",
