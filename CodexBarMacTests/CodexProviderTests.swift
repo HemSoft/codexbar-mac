@@ -362,6 +362,51 @@ final class CodexProviderTests: XCTestCase {
         XCTAssertEqual(namedFirst.bars.map(\.used), emptyFirst.bars.map(\.used))
     }
 
+    func testCodexUsageParserKeepsKeyedEmptyAndOtherBucketsDistinct() throws {
+        let payload = """
+        {
+          "additional_rate_limits": {
+            "": {
+              "primary_window": {
+                "used_percent": 10,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              },
+              "secondary_window": {
+                "used_percent": 20,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            },
+            "other": {
+              "primary_window": {
+                "used_percent": 30,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              },
+              "secondary_window": {
+                "used_percent": 40,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            }
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
+        let stableKeys = result.bars.compactMap(\.stableKey)
+
+        XCTAssertEqual(stableKeys.count, 4)
+        XCTAssertEqual(Set(stableKeys).count, 4)
+        XCTAssertEqual(stableKeys, [
+            "bucket-empty.window-3600.instance-object-empty",
+            "bucket-empty.window-3600.instance-object-empty.slot-1",
+            "bucket-other.window-3600.instance-object-other",
+            "bucket-other.window-3600.instance-object-other.slot-1",
+        ])
+    }
+
     func testCodexUsageParserDisambiguatesDuplicateBucketIdentities() throws {
         let payload = """
         {

@@ -1284,7 +1284,7 @@ final class UsageAlertTests: XCTestCase {
             usageThreshold: 0.80,
             includesSeverityAlerts: false
         )
-        func result(resetEpoch: TimeInterval) -> ProviderUsageResult {
+        func result(resetEpoch: TimeInterval, duration: Int = 40) -> ProviderUsageResult {
             ProviderUsageResult(
                 accountID: "codex.personal",
                 providerID: .codex,
@@ -1292,7 +1292,7 @@ final class UsageAlertTests: XCTestCase {
                 subtitle: "Live usage",
                 bars: [
                     UsageBar(
-                        stableKey: "bucket-short.window-40.instance-object-short",
+                        stableKey: "bucket-short.window-\(duration).instance-object-short",
                         label: "Short usage limit",
                         used: 90,
                         limit: 100,
@@ -1317,6 +1317,21 @@ final class UsageAlertTests: XCTestCase {
         XCTAssertEqual(first.notifications.count, 1)
         XCTAssertEqual(nextWindow.notifications.count, 1)
         XCTAssertNotEqual(first.activeAlertIDs, nextWindow.activeAlertIDs)
+
+        let shortFirst = UsageAlertEvaluator.evaluate(
+            results: [result(resetEpoch: 200, duration: 10)],
+            settings: settings,
+            activeAlertIDs: []
+        )
+        let shortNext = UsageAlertEvaluator.evaluate(
+            results: [result(resetEpoch: 210, duration: 10)],
+            settings: settings,
+            activeAlertIDs: shortFirst.activeAlertIDs
+        )
+
+        XCTAssertEqual(shortFirst.notifications.count, 1)
+        XCTAssertEqual(shortNext.notifications.count, 1)
+        XCTAssertNotEqual(shortFirst.activeAlertIDs, shortNext.activeAlertIDs)
     }
 
     func testUsageAlertEvaluatorKeepsCaseDistinctCodexBucketsDistinct() {

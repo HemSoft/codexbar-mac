@@ -385,7 +385,8 @@ public enum UsageAlertEvaluator {
                containsActiveResetID(
                    prefix: "usage.\(result.accountID).\(legacyKey).",
                    resetsAt: resetsAt,
-                   activeAlertIDs: activeAlertIDs
+                   activeAlertIDs: activeAlertIDs,
+                   tolerance: codexResetJitterTolerance(for: metricStableKey)
                ) {
                 return true
             }
@@ -397,7 +398,8 @@ public enum UsageAlertEvaluator {
             if containsActiveResetID(
                 prefix: "usage.\(result.accountID).\(key).",
                 resetsAt: resetsAt,
-                activeAlertIDs: activeAlertIDs
+                activeAlertIDs: activeAlertIDs,
+                tolerance: codexResetJitterTolerance(for: bar.stableKey)
             ) {
                 return true
             }
@@ -425,7 +427,8 @@ public enum UsageAlertEvaluator {
     private static func containsActiveResetID(
         prefix: String,
         resetsAt: Date,
-        activeAlertIDs: Set<String>
+        activeAlertIDs: Set<String>,
+        tolerance: Double
     ) -> Bool {
         let resetEpoch = Int(resetsAt.timeIntervalSince1970)
         return activeAlertIDs.contains { activeID in
@@ -434,8 +437,18 @@ public enum UsageAlertEvaluator {
                 return false
             }
             return abs(Double(activeResetEpoch) - Double(resetEpoch))
-                <= codexAdditionalResetJitterToleranceSeconds
+                <= tolerance
         }
+    }
+
+    private static func codexResetJitterTolerance(for stableKey: String?) -> Double {
+        guard let duration = stableKey?
+            .split(separator: ".")
+            .first(where: { $0.hasPrefix("window-") })
+            .flatMap({ Int($0.dropFirst("window-".count)) }) else {
+            return 0
+        }
+        return min(codexAdditionalResetJitterToleranceSeconds, max(Double(duration - 1), 0))
     }
 
     private static func legacyUsageKey(for bar: UsageBar) -> String {

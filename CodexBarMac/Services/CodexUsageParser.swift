@@ -267,10 +267,11 @@ public enum CodexUsageParser {
             guard let rateLimit = rateLimits[key] as? [String: Any] else {
                 return nil
             }
+            let encodedKey = stableKeyComponent(key) ?? "empty"
             return CodexAdditionalRateLimit(
                 value: rateLimit,
-                instanceStableKey: "object-\(stableKeyComponent(key) ?? "other")",
-                bucketStableComponent: stableKeyComponent(key) ?? "other"
+                instanceStableKey: "object-\(encodedKey)",
+                bucketStableComponent: encodedKey
             )
         }
     }
