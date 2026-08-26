@@ -46,6 +46,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- History's latest value now matches a successful dashboard refresh without
+  saving extra samples inside the configured sampling interval.
+  ([#171](https://github.com/HemSoft/codexbar-mac/issues/171))
 - Duplicate IDs in saved accounts now preserve the damaged account data and
   enter the existing recovery flow instead of crashing the dashboard.
 - Duplicate IDs in saved usage history now enter the existing recovery flow
