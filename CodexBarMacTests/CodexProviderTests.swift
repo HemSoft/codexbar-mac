@@ -201,8 +201,8 @@ final class CodexProviderTests: XCTestCase {
         let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8), fetchedAt: fetchedAt))
 
         XCTAssertEqual(result.bars.map(\.stableKey), [
-            "bucket-future.window-7200.instance-object-future",
-            "bucket-spark.window-18000.instance-object-spark",
+            "bucket-named-future.window-7200.instance-object-named-future",
+            "bucket-named-spark.window-18000.instance-object-named-spark",
         ])
         XCTAssertEqual(result.bars.map(\.label), [
             "Additional Codex usage · 2 hour usage limit",
@@ -378,7 +378,7 @@ final class CodexProviderTests: XCTestCase {
                 "limit_window_seconds": 3600
               }
             },
-            "other": {
+            "empty": {
               "primary_window": {
                 "used_percent": 30,
                 "reset_at": 1893456000,
@@ -386,6 +386,18 @@ final class CodexProviderTests: XCTestCase {
               },
               "secondary_window": {
                 "used_percent": 40,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              }
+            },
+            "other": {
+              "primary_window": {
+                "used_percent": 50,
+                "reset_at": 1893456000,
+                "limit_window_seconds": 3600
+              },
+              "secondary_window": {
+                "used_percent": 60,
                 "reset_at": 1893456000,
                 "limit_window_seconds": 3600
               }
@@ -397,13 +409,15 @@ final class CodexProviderTests: XCTestCase {
         let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8)))
         let stableKeys = result.bars.compactMap(\.stableKey)
 
-        XCTAssertEqual(stableKeys.count, 4)
-        XCTAssertEqual(Set(stableKeys).count, 4)
+        XCTAssertEqual(stableKeys.count, 6)
+        XCTAssertEqual(Set(stableKeys).count, 6)
         XCTAssertEqual(stableKeys, [
             "bucket-empty.window-3600.instance-object-empty",
             "bucket-empty.window-3600.instance-object-empty.slot-1",
-            "bucket-other.window-3600.instance-object-other",
-            "bucket-other.window-3600.instance-object-other.slot-1",
+            "bucket-named-empty.window-3600.instance-object-named-empty",
+            "bucket-named-empty.window-3600.instance-object-named-empty.slot-1",
+            "bucket-named-other.window-3600.instance-object-named-other",
+            "bucket-named-other.window-3600.instance-object-named-other.slot-1",
         ])
     }
 
@@ -563,11 +577,11 @@ final class CodexProviderTests: XCTestCase {
         let order = ["wrong-type", "blank", "null", "beta", "alpha"]
         let initial = try parse(order: order, alphaUsage: 10, betaUsage: 20)
         XCTAssertEqual(Set(initial.bars.compactMap(\.stableKey)), [
-            "bucket-blank.window-3600.instance-object-blank",
-            "bucket-null.window-3600.instance-object-null",
-            "bucket-alpha.window-3600.instance-object-alpha",
-            "bucket-beta.window-3600.instance-object-beta",
-            "bucket-wrong_2Dtype.window-3600.instance-object-wrong_2Dtype",
+            "bucket-named-blank.window-3600.instance-object-named-blank",
+            "bucket-named-null.window-3600.instance-object-named-null",
+            "bucket-named-alpha.window-3600.instance-object-named-alpha",
+            "bucket-named-beta.window-3600.instance-object-named-beta",
+            "bucket-named-wrong_2Dtype.window-3600.instance-object-named-wrong_2Dtype",
         ])
 
         let reordered = try parse(order: Array(order.reversed()), alphaUsage: 10, betaUsage: 20)
@@ -591,14 +605,14 @@ final class CodexProviderTests: XCTestCase {
 
         XCTAssertEqual(Set(refreshed.bars.compactMap(\.stableKey)), Set(initial.bars.compactMap(\.stableKey)))
         XCTAssertEqual(
-            keyedUsage["bucket-alpha.window-3600.instance-object-alpha"],
+            keyedUsage["bucket-named-alpha.window-3600.instance-object-named-alpha"],
             75
         )
         XCTAssertEqual(
-            keyedUsage["bucket-beta.window-3600.instance-object-beta"],
+            keyedUsage["bucket-named-beta.window-3600.instance-object-named-beta"],
             25
         )
-        XCTAssertEqual(keyedUsage["bucket-blank.window-3600.instance-object-blank"], 40)
+        XCTAssertEqual(keyedUsage["bucket-named-blank.window-3600.instance-object-named-blank"], 40)
     }
 
     func testCodexUsageParserRejectsUnsafeWindowsWithoutDroppingValidNeighbors() throws {
