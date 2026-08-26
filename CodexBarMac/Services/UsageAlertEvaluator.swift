@@ -339,7 +339,7 @@ public enum UsageAlertEvaluator {
             case "window-604800":
                 return "weekly-usage-limit"
             case let stableKey?:
-                return stableKey.contains(where: { $0.isUppercase })
+                return requiresInjectiveCodexAlertKey(stableKey)
                     ? "case-\(stableKey.utf8.map { String(format: "%02X", $0) }.joined())"
                     : normalizedKeyComponent(stableKey)
             default:
@@ -372,7 +372,7 @@ public enum UsageAlertEvaluator {
         }
         if result.providerID == .codex,
            let metricStableKey = bar.stableKey,
-           metricStableKey.contains(where: { $0.isUppercase }),
+           requiresInjectiveCodexAlertKey(metricStableKey),
            let resetsAt = bar.resetsAt {
             let legacyKey = normalizedKeyComponent(metricStableKey)
             let hasCaseCollidingPeer = result.bars.contains { peer in
@@ -449,6 +449,10 @@ public enum UsageAlertEvaluator {
             return 0
         }
         return min(codexAdditionalResetJitterToleranceSeconds, max(Double(duration - 1), 0))
+    }
+
+    private static func requiresInjectiveCodexAlertKey(_ stableKey: String) -> Bool {
+        stableKey.contains(where: { $0.isUppercase || $0 == "_" })
     }
 
     private static func legacyUsageKey(for bar: UsageBar) -> String {

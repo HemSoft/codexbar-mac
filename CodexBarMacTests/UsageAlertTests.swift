@@ -1374,6 +1374,46 @@ final class UsageAlertTests: XCTestCase {
         XCTAssertEqual(evaluation.activeAlertIDs.count, 2)
     }
 
+    func testUsageAlertEvaluatorKeepsEscapedCodexBucketsDistinct() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "codex.personal",
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "bucket-named-_21.window-3600.instance-object-named-_21",
+                    label: "! usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+                UsageBar(
+                    stableKey: "bucket-named-21.window-3600.instance-object-named-21",
+                    label: "21 usage limit",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_455_000)
+        )
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: []
+        )
+
+        XCTAssertEqual(evaluation.notifications.count, 2)
+        XCTAssertEqual(evaluation.activeAlertIDs.count, 2)
+    }
+
     func testUsageAlertEvaluatorMigratesUnambiguousUppercaseCodexBucketAlert() {
         let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
         let result = ProviderUsageResult(
