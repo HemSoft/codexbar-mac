@@ -201,7 +201,7 @@ final class CodexProviderTests: XCTestCase {
         let result = try XCTUnwrap(CodexUsageParser.parse(Data(payload.utf8), fetchedAt: fetchedAt))
 
         XCTAssertEqual(result.bars.map(\.stableKey), [
-            "bucket-future.limit-future_2Did.window-7200.instance-object-future",
+            "bucket-future.window-7200.instance-object-future",
             "bucket-spark.window-18000.instance-object-spark",
         ])
         XCTAssertEqual(result.bars.map(\.label), [

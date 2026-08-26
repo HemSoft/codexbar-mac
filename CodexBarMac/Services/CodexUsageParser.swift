@@ -49,10 +49,9 @@ public enum CodexUsageParser {
                 .flatMap(stableKeyComponent)
             let limitID = nonemptyString(rateLimit["limit_id"])
                 .flatMap(stableKeyComponent)
-            let stableComponent = if let objectKey = additionalRateLimit.bucketStableComponent,
-                                     let limitID {
-                "\(objectKey).limit-\(limitID)"
-            } else if let objectKey = additionalRateLimit.bucketStableComponent {
+            // A keyed bucket already has a provider-supplied identity. Optional payload metadata
+            // can enrich array identity, but must not rename an object entry when it appears.
+            let stableComponent = if let objectKey = additionalRateLimit.bucketStableComponent {
                 objectKey
             } else {
                 if let meteredFeature, let limitID {
