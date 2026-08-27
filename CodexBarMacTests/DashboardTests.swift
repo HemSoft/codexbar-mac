@@ -8,6 +8,49 @@ final class DashboardTests: XCTestCase {
     deinit {}
 
     @MainActor
+    func testProviderSettingsRowAccessibilityDescribesCredentialStatusOnce() {
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .claude)
+
+        XCTAssertEqual(
+            ProviderSettingsRow.accessibilityValue(
+                configuration: configuration,
+                readiness: .keychainSaved
+            ),
+            "Keychain credential saved"
+        )
+        XCTAssertEqual(
+            ProviderSettingsRow.accessibilityValue(
+                configuration: configuration,
+                readiness: .localCLIReady(description: "Claude Code")
+            ),
+            "Local credentials ready (Claude Code)"
+        )
+        XCTAssertEqual(
+            ProviderSettingsRow.accessibilityValue(
+                configuration: configuration,
+                readiness: .error(description: "Credential expired")
+            ),
+            "Credential expired"
+        )
+        XCTAssertEqual(
+            ProviderSettingsRow.accessibilityValue(
+                configuration: configuration,
+                readiness: .missing
+            ),
+            "Needs credentials"
+        )
+
+        configuration.isEnabled = false
+        XCTAssertEqual(
+            ProviderSettingsRow.accessibilityValue(
+                configuration: configuration,
+                readiness: .keychainSaved
+            ),
+            "Disabled"
+        )
+    }
+
+    @MainActor
     func testDashboardOrderingModeDefaultsToManualAndPersists() {
         let suiteName = "CodexBarMacTests.DashboardOrdering.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

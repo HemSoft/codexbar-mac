@@ -49,6 +49,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Account rows in Settings now open from anywhere between the enable switch and
+  remove button while remaining a single VoiceOver navigation target.
+  ([#175](https://github.com/HemSoft/codexbar-mac/issues/175))
 - History's latest value now matches a successful dashboard refresh without
   saving extra samples inside the configured sampling interval.
   ([#171](https://github.com/HemSoft/codexbar-mac/issues/171))

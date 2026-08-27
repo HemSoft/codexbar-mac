@@ -135,6 +135,8 @@ struct SettingsView: View {
                     }
 
                     ForEach(configurationStore.configurations) { configuration in
+                        let readiness = configurationStore.credentialReadiness(for: configuration)
+
                         HStack {
                             Toggle(
                                 "Enabled",
@@ -167,11 +169,20 @@ struct SettingsView: View {
                             } label: {
                                 ProviderSettingsRow(
                                     configuration: configuration,
-                                    readiness: configurationStore.credentialReadiness(for: configuration)
+                                    readiness: readiness
                                 )
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
-
-                            Spacer()
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(configuration.displayName)
+                            .accessibilityValue(
+                                ProviderSettingsRow.accessibilityValue(
+                                    configuration: configuration,
+                                    readiness: readiness
+                                )
+                            )
+                            .accessibilityHint("Opens account settings.")
 
                             Button(role: .destructive) {
                                 if configurationStore.removeAccounts([configuration]) {
@@ -545,7 +556,7 @@ private struct GroupSettingsRow: View {
     }
 }
 
-private struct ProviderSettingsRow: View {
+struct ProviderSettingsRow: View {
     let configuration: ProviderAccountConfiguration
     let readiness: CredentialReadiness
 
@@ -595,6 +606,13 @@ private struct ProviderSettingsRow: View {
     }
 
     private var statusText: String {
+        Self.accessibilityValue(configuration: configuration, readiness: readiness)
+    }
+
+    static func accessibilityValue(
+        configuration: ProviderAccountConfiguration,
+        readiness: CredentialReadiness
+    ) -> String {
         if !configuration.isEnabled {
             return "Disabled"
         }
