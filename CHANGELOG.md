@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Cursor accounts now show the separate Grok Bot weekly allowance, with an
+  account setting to hide that metric. ([#177](https://github.com/HemSoft/codexbar-mac/issues/177))
 - ChatGPT / Codex now shows every returned rate-limit bucket, including named
   additional limits, with stable identities for alerts and saved history.
   ([#172](https://github.com/HemSoft/codexbar-mac/issues/172))
