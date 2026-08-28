@@ -504,6 +504,7 @@ private struct RefreshInputs: Equatable {
     let githubCLIUsername: String
     let copilotTotalAllotment: Double?
     let openCodeWorkspaceId: String
+    let showsCursorGrokBotWeekly: Bool
 
     init(configuration: ProviderAccountConfiguration) {
         self.providerID = configuration.providerID
@@ -515,6 +516,7 @@ private struct RefreshInputs: Equatable {
         self.githubCLIUsername = configuration.githubCLIUsername
         self.copilotTotalAllotment = configuration.copilotTotalAllotment
         self.openCodeWorkspaceId = configuration.openCodeWorkspaceId
+        self.showsCursorGrokBotWeekly = configuration.showsCursorGrokBotWeekly
     }
 }
 

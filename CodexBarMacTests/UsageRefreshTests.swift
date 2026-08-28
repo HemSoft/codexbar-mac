@@ -681,6 +681,9 @@ final class UsageRefreshTests: XCTestCase {
         var workspace = original
         workspace.openCodeWorkspaceId = "workspace-two"
         inputChanges.append(workspace)
+        var grokBotVisibility = original
+        grokBotVisibility.showsCursorGrokBotWeekly = false
+        inputChanges.append(grokBotVisibility)
 
         for changed in inputChanges {
             XCTAssertFalse(service.hasSameRefreshInputs(original, changed))
