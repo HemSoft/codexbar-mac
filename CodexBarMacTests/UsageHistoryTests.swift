@@ -1835,6 +1835,7 @@ final class UsageHistoryTests: XCTestCase {
                     used: 0,
                     limit: 20
                 ),
+                UsageBar(stableKey: "grok-bot-weekly", label: "Grok Bot weekly", used: 38, limit: 100),
             ],
             fetchedAt: fetchedAt
         )
@@ -1843,7 +1844,7 @@ final class UsageHistoryTests: XCTestCase {
         store.record(results: [result], now: fetchedAt)
 
         let snapshot = try XCTUnwrap(store.snapshots.first)
-        XCTAssertEqual(snapshot.bars.map(\.stableKey), ["total", "auto", "api", "on-demand"])
+        XCTAssertEqual(snapshot.bars.map(\.stableKey), ["total", "auto", "api", "on-demand", "grok-bot-weekly"])
         XCTAssertEqual(snapshot.primaryValue, 1.25)
         XCTAssertEqual(store.historySeries(for: result).points.map(\.value), [1.25])
         XCTAssertEqual(store.historySeries(for: result).points.map(\.severity), [.critical])
@@ -1854,13 +1855,15 @@ final class UsageHistoryTests: XCTestCase {
             "usage.auto",
             "usage.api",
             "usage.on-demand",
+            "usage.grok-bot-weekly",
         ])
-        XCTAssertEqual(options.map(\.label), ["Total", "Auto", "API", "On-demand"])
+        XCTAssertEqual(options.map(\.label), ["Total", "Auto", "API", "On-demand", "Grok Bot weekly"])
         XCTAssertEqual(options.map { $0.series.points.map(\.value) }, [
             [1.25],
             [0.29],
             [1.5],
             [0],
+            [0.38],
         ])
 
         let reorderedAndRelabeledResult = ProviderUsageResult(

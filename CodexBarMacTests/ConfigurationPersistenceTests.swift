@@ -2500,6 +2500,50 @@ final class ConfigurationPersistenceTests: XCTestCase {
         XCTAssertTrue(configuration.showsHistory)
     }
 
+    func testProviderAccountConfigurationDefaultsLegacyCursorGrokBotVisibilityOn() throws {
+        let json = """
+        {
+          "id": "cursor.personal",
+          "providerID": "cursor",
+          "isEnabled": true,
+          "accountLabel": "Personal",
+          "authMethod": "browserSession"
+        }
+        """
+
+        let configuration = try JSONDecoder().decode(
+            ProviderAccountConfiguration.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertTrue(configuration.showsCursorGrokBotWeekly)
+    }
+
+    @MainActor
+    func testCursorGrokBotVisibilityPersistsIndependentlyAcrossAccounts() throws {
+        let suiteName = "CodexBarMacTests.CursorGrokBotVisibility.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var personal = ProviderAccountConfiguration.defaultConfiguration(for: .cursor)
+        var work = personal.withNewAccountID()
+        work.accountLabel = "Work Cursor"
+        defaults.set(
+            try JSONEncoder().encode([personal, work]),
+            forKey: "providerConfigurations"
+        )
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+
+        XCTAssertTrue(personal.showsCursorGrokBotWeekly)
+        XCTAssertTrue(work.showsCursorGrokBotWeekly)
+        personal.showsCursorGrokBotWeekly = false
+        XCTAssertTrue(store.update(personal))
+
+        let reloadedStore = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+        XCTAssertFalse(try XCTUnwrap(reloadedStore.configuration(accountID: personal.id)?.showsCursorGrokBotWeekly))
+        XCTAssertTrue(try XCTUnwrap(reloadedStore.configuration(accountID: work.id)?.showsCursorGrokBotWeekly))
+    }
+
     @MainActor
     func testProviderHistoryVisibilityPersistsIndependentlyAcrossAccounts() throws {
         let suiteName = "CodexBarMacTests.HistoryVisibility.\(UUID().uuidString)"

@@ -128,6 +128,9 @@ struct ProviderSettingsView: View {
             Section("Account") {
                 Toggle("Enabled", isOn: $configuration.isEnabled)
                 Toggle("Show History", isOn: $configuration.showsHistory)
+                if providerID == .cursor {
+                    Toggle("Show Grok Bot weekly", isOn: $configuration.showsCursorGrokBotWeekly)
+                }
 
                 TextField("Account label", text: $configuration.accountLabel)
                     .textFieldStyle(.roundedBorder)
@@ -244,6 +247,7 @@ struct ProviderSettingsView: View {
                 || previousPersisted.githubOrganization != automaticallyPersisted.githubOrganization
                 || previousPersisted.githubEnterprise != automaticallyPersisted.githubEnterprise
                 || previousPersisted.copilotTotalAllotment != automaticallyPersisted.copilotTotalAllotment
+                || previousPersisted.showsCursorGrokBotWeekly != automaticallyPersisted.showsCursorGrokBotWeekly
             guard shouldRefresh else {
                 return
             }

@@ -15,6 +15,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
     public var githubCLIUsername: String
     public var copilotTotalAllotment: Double?
     public var openCodeWorkspaceId: String
+    public var showsCursorGrokBotWeekly: Bool
 
     public init(
         id: String? = nil,
@@ -30,7 +31,8 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         githubEnterprise: String = "",
         githubCLIUsername: String = "",
         copilotTotalAllotment: Double? = nil,
-        openCodeWorkspaceId: String = ""
+        openCodeWorkspaceId: String = "",
+        showsCursorGrokBotWeekly: Bool = true
     ) {
         self.id = id ?? providerID.rawValue
         self.providerID = providerID
@@ -46,6 +48,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         self.githubCLIUsername = githubCLIUsername
         self.copilotTotalAllotment = copilotTotalAllotment
         self.openCodeWorkspaceId = openCodeWorkspaceId
+        self.showsCursorGrokBotWeekly = showsCursorGrokBotWeekly
     }
 
     public var requiresSecret: Bool {
@@ -143,7 +146,8 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
             githubEnterprise: githubEnterprise,
             githubCLIUsername: githubCLIUsername,
             copilotTotalAllotment: copilotTotalAllotment,
-            openCodeWorkspaceId: openCodeWorkspaceId
+            openCodeWorkspaceId: openCodeWorkspaceId,
+            showsCursorGrokBotWeekly: showsCursorGrokBotWeekly
         )
     }
 
@@ -162,6 +166,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         case githubCLIUsername
         case copilotTotalAllotment
         case openCodeWorkspaceId
+        case showsCursorGrokBotWeekly
     }
 
     public init(from decoder: Decoder) throws {
@@ -181,6 +186,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         self.githubCLIUsername = try container.decodeIfPresent(String.self, forKey: .githubCLIUsername) ?? ""
         self.copilotTotalAllotment = try container.decodeIfPresent(Double.self, forKey: .copilotTotalAllotment)
         self.openCodeWorkspaceId = try container.decodeIfPresent(String.self, forKey: .openCodeWorkspaceId) ?? ""
+        self.showsCursorGrokBotWeekly = try container.decodeIfPresent(Bool.self, forKey: .showsCursorGrokBotWeekly) ?? true
     }
 }
 
