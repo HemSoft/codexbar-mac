@@ -769,6 +769,48 @@ final class APIKeyAndCursorProviderTests: XCTestCase {
         }
     }
 
+    func testCursorUsageParserOmitsGrokBotUsageWithoutIncludedAllowance() throws {
+        let usagePayload = Data(#"{"planUsage":{"totalPercentUsed":25}}"#.utf8)
+        let unavailablePayloads = [
+            #"{"usagePercent":0,"hasNonZeroIncludedLimit":false}"#,
+            #"{"usage_percent":0,"has_non_zero_included_limit":false}"#,
+            #"{"usagePercent":0,"includedLimitZero":true}"#,
+            #"{"usage_percent":0,"included_limit_zero":true}"#,
+        ]
+
+        for grokBotPayload in unavailablePayloads {
+            let result = try XCTUnwrap(CursorUsageProvider.parseUsage(
+                usagePayload,
+                grokBotUsageData: Data(grokBotPayload.utf8),
+                configuration: .defaultConfiguration(for: .cursor)
+            ))
+
+            XCTAssertEqual(result.bars.map(\.label), ["Total"])
+            XCTAssertEqual(result.bars.map(\.stableKey), ["total"])
+        }
+    }
+
+    func testCursorUsageParserKeepsEntitledZeroPercentGrokBotUsage() throws {
+        let usagePayload = Data(#"{"planUsage":{"totalPercentUsed":25}}"#.utf8)
+        let grokBotPayload = Data("""
+        {
+          "usagePercent": 0,
+          "hasNonZeroIncludedLimit": true,
+          "includedLimitZero": false,
+          "usesPooledEnterpriseAllowance": false
+        }
+        """.utf8)
+
+        let result = try XCTUnwrap(CursorUsageProvider.parseUsage(
+            usagePayload,
+            grokBotUsageData: grokBotPayload,
+            configuration: .defaultConfiguration(for: .cursor)
+        ))
+
+        XCTAssertEqual(result.bars.map(\.label), ["Total", "Grok Bot weekly"])
+        XCTAssertEqual(result.bars.last?.usageText, "0%")
+    }
+
     func testCursorUsageParserSuppressesGrokBotProjectionOutsideCurrentPeriod() throws {
         let fetchedAt = Date(timeIntervalSince1970: 1_787_443_200)
         let usagePayload = Data(#"{"planUsage":{"totalPercentUsed":25}}"#.utf8)

@@ -51,6 +51,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Cursor's Grok Bot weekly metric now stays hidden when the account has no
+  included allowance, while entitled accounts still show genuine 0% usage.
+  ([#179](https://github.com/HemSoft/codexbar-mac/issues/179))
 - Account rows in Settings now open from anywhere between the enable switch and
   remove button while remaining a single VoiceOver navigation target.
   ([#175](https://github.com/HemSoft/codexbar-mac/issues/175))
