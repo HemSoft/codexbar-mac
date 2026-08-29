@@ -304,6 +304,7 @@ public final class CursorUsageProvider: UsageProvider {
             let usage = try? decoder.decode(CursorGrokBotUsage.self, from: data),
             usage.usesPooledEnterpriseAllowance != true,
             usage.hasNonZeroIncludedLimit != false,
+            usage.hasNonzeroIncludedLimit != false,
             usage.includedLimitZero != true,
             let percent = usage.usagePercent,
             percent.isFinite
@@ -501,6 +502,7 @@ private struct CursorSpendLimitUsage: Decodable {
 private struct CursorGrokBotUsage: Decodable {
     let currentPeriodStart: String?
     let hasNonZeroIncludedLimit: Bool?
+    let hasNonzeroIncludedLimit: Bool?
     let includedLimitZero: Bool?
     let nextResetTimestampUtc: String?
     let usagePercent: Double?

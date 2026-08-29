@@ -774,6 +774,8 @@ final class APIKeyAndCursorProviderTests: XCTestCase {
         let unavailablePayloads = [
             #"{"usagePercent":0,"hasNonZeroIncludedLimit":false}"#,
             #"{"usage_percent":0,"has_non_zero_included_limit":false}"#,
+            #"{"usagePercent":0,"hasNonzeroIncludedLimit":false}"#,
+            #"{"usage_percent":0,"has_nonzero_included_limit":false}"#,
             #"{"usagePercent":0,"includedLimitZero":true}"#,
             #"{"usage_percent":0,"included_limit_zero":true}"#,
         ]
