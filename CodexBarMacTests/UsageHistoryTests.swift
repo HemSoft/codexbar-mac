@@ -635,9 +635,47 @@ final class UsageHistoryTests: XCTestCase {
         let store = UsageHistoryStore(defaults: defaults)
 
         XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertTrue(store.dailySnapshots.isEmpty)
         XCTAssertNil(store.lastError)
         XCTAssertFalse(store.requiresRecovery)
         XCTAssertNil(defaults.object(forKey: "usageHistorySnapshots"))
+        XCTAssertNil(defaults.object(forKey: "usageHistoryDailySnapshots"))
+    }
+
+    @MainActor
+    func testUsageHistoryStoreMigratesExistingDenseHistoryWithoutInventingDailyData() throws {
+        let suiteName = "CodexBarMacTests.HistoryDailyMigration.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let fetchedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let existingSnapshot = UsageHistorySnapshot(
+            result: makeHistoryResult(
+                accountID: "codex.personal",
+                fetchedAt: fetchedAt,
+                used: 20
+            )
+        )
+        defaults.set(
+            try JSONEncoder().encode([existingSnapshot]),
+            forKey: "usageHistorySnapshots"
+        )
+
+        let store = UsageHistoryStore(defaults: defaults)
+
+        XCTAssertEqual(store.snapshots, [existingSnapshot])
+        XCTAssertTrue(store.dailySnapshots.isEmpty)
+        XCTAssertNil(defaults.object(forKey: "usageHistoryDailySnapshots"))
+
+        let latestResult = makeHistoryResult(
+            accountID: existingSnapshot.accountID,
+            fetchedAt: fetchedAt.addingTimeInterval(60 * 60),
+            used: 35
+        )
+        store.record(results: [latestResult], now: latestResult.fetchedAt, samplingInterval: 2 * 60 * 60)
+
+        XCTAssertEqual(store.snapshots, [existingSnapshot])
+        XCTAssertEqual(store.dailySnapshots.compactMap { $0.bars.first?.used }, [35])
+        XCTAssertNotNil(defaults.data(forKey: "usageHistoryDailySnapshots"))
     }
 
     @MainActor
@@ -657,10 +695,13 @@ final class UsageHistoryTests: XCTestCase {
             bars: [UsageBar(label: "5h limit", used: 42, limit: 100)],
             fetchedAt: fetchedAt
         )
+        let validDailyData = try JSONEncoder().encode([UsageHistorySnapshot(result: result)])
+        defaults.set(validDailyData, forKey: "usageHistoryDailySnapshots")
 
         let store = UsageHistoryStore(defaults: defaults)
 
         XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertTrue(store.dailySnapshots.isEmpty)
         XCTAssertTrue(store.requiresRecovery)
         XCTAssertEqual(
             store.lastError,
@@ -671,13 +712,16 @@ final class UsageHistoryTests: XCTestCase {
         store.removeSnapshotsForMissingAccounts(validAccountIDs: [result.accountID], now: fetchedAt)
 
         XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), malformedData)
+        XCTAssertEqual(defaults.data(forKey: "usageHistoryDailySnapshots"), validDailyData)
         XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertTrue(store.dailySnapshots.isEmpty)
         XCTAssertTrue(store.requiresRecovery)
         XCTAssertNotNil(store.lastError)
 
         store.discardCorruptedHistory()
 
         XCTAssertNil(defaults.object(forKey: "usageHistorySnapshots"))
+        XCTAssertNil(defaults.object(forKey: "usageHistoryDailySnapshots"))
         XCTAssertEqual(defaults.string(forKey: "unrelatedSetting"), "preserve-me")
         XCTAssertFalse(store.requiresRecovery)
         XCTAssertNil(store.lastError)
@@ -685,16 +729,26 @@ final class UsageHistoryTests: XCTestCase {
         store.record(results: [result], now: fetchedAt)
 
         XCTAssertEqual(store.snapshots.map(\.accountID), [result.accountID])
+        XCTAssertEqual(store.dailySnapshots.map(\.accountID), [result.accountID])
         XCTAssertNotNil(defaults.data(forKey: "usageHistorySnapshots"))
+        XCTAssertNotNil(defaults.data(forKey: "usageHistoryDailySnapshots"))
         XCTAssertNil(store.lastError)
 
         store.removeSnapshotsForMissingAccounts(validAccountIDs: [], now: fetchedAt)
 
         XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertTrue(store.dailySnapshots.isEmpty)
         XCTAssertEqual(
             try JSONDecoder().decode(
                 [UsageHistorySnapshot].self,
                 from: try XCTUnwrap(defaults.data(forKey: "usageHistorySnapshots"))
+            ),
+            []
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                [UsageHistorySnapshot].self,
+                from: try XCTUnwrap(defaults.data(forKey: "usageHistoryDailySnapshots"))
             ),
             []
         )
@@ -784,6 +838,38 @@ final class UsageHistoryTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: "usageHistorySnapshots"))
         XCTAssertFalse(store.requiresRecovery)
         XCTAssertNil(store.lastError)
+    }
+
+    @MainActor
+    func testUsageHistoryStorePreservesDenseAndDuplicateDailyDataUntilReset() throws {
+        let suiteName = "CodexBarMacTests.HistoryDuplicateDailyIDs.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let snapshot = UsageHistorySnapshot(
+            result: makeHistoryResult(
+                accountID: "codex.personal",
+                fetchedAt: Date(timeIntervalSince1970: 1_788_475_200),
+                used: 20
+            )
+        )
+        let denseData = try JSONEncoder().encode([snapshot])
+        let damagedDailyData = try JSONEncoder().encode([snapshot, snapshot])
+        defaults.set(denseData, forKey: "usageHistorySnapshots")
+        defaults.set(damagedDailyData, forKey: "usageHistoryDailySnapshots")
+
+        let store = UsageHistoryStore(defaults: defaults)
+
+        XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertTrue(store.dailySnapshots.isEmpty)
+        XCTAssertTrue(store.requiresRecovery)
+        XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), denseData)
+        XCTAssertEqual(defaults.data(forKey: "usageHistoryDailySnapshots"), damagedDailyData)
+
+        store.discardCorruptedHistory()
+
+        XCTAssertNil(defaults.object(forKey: "usageHistorySnapshots"))
+        XCTAssertNil(defaults.object(forKey: "usageHistoryDailySnapshots"))
+        XCTAssertFalse(store.requiresRecovery)
     }
 
     @MainActor
@@ -1350,7 +1436,9 @@ final class UsageHistoryTests: XCTestCase {
         )
         store.record(results: [firstResult], now: firstDate)
         let previousSnapshots = store.snapshots
+        let previousDailySnapshots = store.dailySnapshots
         let previousData = try XCTUnwrap(defaults.data(forKey: "usageHistorySnapshots"))
+        let previousDailyData = try XCTUnwrap(defaults.data(forKey: "usageHistoryDailySnapshots"))
 
         let invalidDate = firstDate.addingTimeInterval(60)
         let invalidResult = ProviderUsageResult(
@@ -1364,7 +1452,9 @@ final class UsageHistoryTests: XCTestCase {
         store.record(results: [invalidResult], now: invalidDate)
 
         XCTAssertEqual(store.snapshots, previousSnapshots)
+        XCTAssertEqual(store.dailySnapshots, previousDailySnapshots)
         XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), previousData)
+        XCTAssertEqual(defaults.data(forKey: "usageHistoryDailySnapshots"), previousDailyData)
         XCTAssertTrue(store.lastError?.hasPrefix("Could not save usage history:") == true)
 
         let recoveredDate = invalidDate.addingTimeInterval(60)
@@ -1380,8 +1470,54 @@ final class UsageHistoryTests: XCTestCase {
 
         XCTAssertNil(store.lastError)
         XCTAssertEqual(store.snapshots.count, 2)
+        XCTAssertEqual(store.dailySnapshots.count, 1)
         XCTAssertNotEqual(defaults.data(forKey: "usageHistorySnapshots"), previousData)
+        XCTAssertNotEqual(defaults.data(forKey: "usageHistoryDailySnapshots"), previousDailyData)
         XCTAssertEqual(UsageHistoryStore(defaults: defaults).snapshots, store.snapshots)
+        XCTAssertEqual(UsageHistoryStore(defaults: defaults).dailySnapshots, store.dailySnapshots)
+    }
+
+    @MainActor
+    func testUsageHistoryStoreRollsBackBothLanesWhenDailyEncodingFails() throws {
+        let suiteName = "CodexBarMacTests.HistoryDailyEncoding.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var shouldFailDailyEncoding = false
+        let store = UsageHistoryStore(
+            defaults: defaults,
+            encodeSnapshots: { try JSONEncoder().encode($0) },
+            encodeDailySnapshots: { snapshots in
+                if shouldFailDailyEncoding {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+                return try JSONEncoder().encode(snapshots)
+            }
+        )
+        let firstDate = Date(timeIntervalSince1970: 1_788_475_200)
+        let firstResult = makeHistoryResult(
+            accountID: "codex.personal",
+            fetchedAt: firstDate,
+            used: 20
+        )
+        store.record(results: [firstResult], now: firstDate)
+        let previousSnapshots = store.snapshots
+        let previousDailySnapshots = store.dailySnapshots
+        let previousData = try XCTUnwrap(defaults.data(forKey: "usageHistorySnapshots"))
+        let previousDailyData = try XCTUnwrap(defaults.data(forKey: "usageHistoryDailySnapshots"))
+
+        shouldFailDailyEncoding = true
+        let failedResult = makeHistoryResult(
+            accountID: firstResult.accountID,
+            fetchedAt: firstDate.addingTimeInterval(60 * 60),
+            used: 40
+        )
+        store.record(results: [failedResult], now: failedResult.fetchedAt)
+
+        XCTAssertEqual(store.snapshots, previousSnapshots)
+        XCTAssertEqual(store.dailySnapshots, previousDailySnapshots)
+        XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), previousData)
+        XCTAssertEqual(defaults.data(forKey: "usageHistoryDailySnapshots"), previousDailyData)
+        XCTAssertTrue(store.lastError?.hasPrefix("Could not save usage history:") == true)
     }
 
     @MainActor
@@ -1420,13 +1556,17 @@ final class UsageHistoryTests: XCTestCase {
             now: fetchedAt
         )
         let previousSnapshots = store.snapshots
+        let previousDailySnapshots = store.dailySnapshots
         let previousData = try XCTUnwrap(defaults.data(forKey: "usageHistorySnapshots"))
+        let previousDailyData = try XCTUnwrap(defaults.data(forKey: "usageHistoryDailySnapshots"))
 
         shouldFailEncoding = true
         store.removeSnapshotsForMissingAccounts(validAccountIDs: ["keep"], now: fetchedAt)
 
         XCTAssertEqual(store.snapshots, previousSnapshots)
+        XCTAssertEqual(store.dailySnapshots, previousDailySnapshots)
         XCTAssertEqual(defaults.data(forKey: "usageHistorySnapshots"), previousData)
+        XCTAssertEqual(defaults.data(forKey: "usageHistoryDailySnapshots"), previousDailyData)
         XCTAssertTrue(store.lastError?.hasPrefix("Could not save usage history:") == true)
     }
 
@@ -1512,6 +1652,286 @@ final class UsageHistoryTests: XCTestCase {
 
         XCTAssertEqual(store.snapshots.count, 2)
         XCTAssertEqual(store.snapshots.compactMap { $0.bars.first?.used }, [30, 40])
+    }
+
+    @MainActor
+    func testUsageHistoryStoreUpdatesDailyPointInsideDenseSamplingInterval() {
+        let suiteName = "CodexBarMacTests.HistoryDailyReplacement.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let firstFetch = Date(timeIntervalSince1970: 1_788_475_200)
+        let latestFetch = firstFetch.addingTimeInterval(60 * 60)
+        let firstResult = makeHistoryResult(
+            accountID: "codex.personal",
+            fetchedAt: firstFetch,
+            used: 20
+        )
+        let latestResult = makeHistoryResult(
+            accountID: "codex.personal",
+            fetchedAt: latestFetch,
+            used: 35
+        )
+        let store = UsageHistoryStore(defaults: defaults)
+
+        store.record(results: [firstResult], now: firstFetch, samplingInterval: 2 * 60 * 60)
+        store.record(results: [latestResult], now: latestFetch, samplingInterval: 2 * 60 * 60)
+
+        XCTAssertEqual(store.snapshots.compactMap { $0.bars.first?.used }, [20])
+        XCTAssertEqual(store.dailySnapshots.compactMap { $0.bars.first?.used }, [35])
+        XCTAssertEqual(store.historySeries(for: latestResult).points.map(\.value), [0.2, 0.35])
+
+        let reloadedStore = UsageHistoryStore(defaults: defaults)
+        XCTAssertEqual(reloadedStore.dailySnapshots.count, 1)
+        XCTAssertEqual(reloadedStore.dailySnapshots.first?.capturedAt, latestFetch)
+    }
+
+    @MainActor
+    func testDailyHistoryPreservesAbsentPartialRefreshComponentsAndMonetaryIdentities() {
+        let suiteName = "CodexBarMacTests.HistoryDailyComponents.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let firstFetch = Date(timeIntervalSince1970: 1_788_475_200)
+        let fullResult = ProviderUsageResult(
+            accountID: "opencode.personal",
+            providerID: .openCodeZen,
+            title: "OpenCode",
+            subtitle: "Usage and balance",
+            bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage", used: 20, limit: 100)],
+            creditsRemaining: 12,
+            monetaryMetrics: [
+                ProviderMonetaryMetric(
+                    kind: .spent,
+                    label: "Spent",
+                    minorUnits: 1_000,
+                    currencyCode: "USD",
+                    decimalPlaces: 2
+                ),
+                ProviderMonetaryMetric(
+                    kind: .balance,
+                    label: "Balance",
+                    minorUnits: 2_000,
+                    currencyCode: "EUR",
+                    decimalPlaces: 2
+                ),
+            ],
+            fetchedAt: firstFetch
+        )
+        let partialFetch = firstFetch.addingTimeInterval(60 * 60)
+        let partialResult = ProviderUsageResult(
+            accountID: fullResult.accountID,
+            providerID: fullResult.providerID,
+            title: fullResult.title,
+            subtitle: "Fresh usage only",
+            bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage", used: 40, limit: 100)],
+            monetaryMetrics: [
+                ProviderMonetaryMetric(
+                    kind: .spent,
+                    label: "Spent",
+                    minorUnits: 1_500,
+                    currencyCode: "USD",
+                    decimalPlaces: 2
+                ),
+            ],
+            isIncompleteRefresh: true,
+            fetchedAt: partialFetch
+        )
+        let store = UsageHistoryStore(defaults: defaults)
+
+        store.record(results: [fullResult], now: firstFetch, samplingInterval: 2 * 60 * 60)
+        store.record(results: [partialResult], now: partialFetch, samplingInterval: 2 * 60 * 60)
+        store.removeSnapshotsForMissingAccounts(
+            validAccountIDs: [fullResult.accountID],
+            now: firstFetch.addingTimeInterval(31 * 24 * 60 * 60)
+        )
+
+        XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertEqual(store.dailySnapshots.count, 4)
+        XCTAssertEqual(store.dailySnapshots.compactMap { $0.bars.first?.used }, [40])
+        XCTAssertEqual(store.dailySnapshots.compactMap(\.creditsRemaining), [12])
+        let monetary = store.dailySnapshots.compactMap { $0.monetaryMetrics?.first }
+        XCTAssertEqual(Set(monetary.map { "\($0.kind.rawValue).\($0.currencyCode)" }), [
+            "spent.USD",
+            "balance.EUR",
+        ])
+        XCTAssertEqual(monetary.first(where: { $0.kind == .spent })?.minorUnits, 1_500)
+        XCTAssertEqual(monetary.first(where: { $0.kind == .balance })?.minorUnits, 2_000)
+    }
+
+    @MainActor
+    func testDailyHistoryKeepsStableBarIdentitiesFromSameAccountAndDay() {
+        let suiteName = "CodexBarMacTests.HistoryDailyBars.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let firstFetch = Date(timeIntervalSince1970: 1_788_475_200)
+        let firstResult = ProviderUsageResult(
+            accountID: "cursor.personal",
+            providerID: .cursor,
+            title: "Cursor",
+            subtitle: "Initial metrics",
+            bars: [
+                UsageBar(stableKey: "total", label: "Total", used: 20, limit: 100),
+                UsageBar(stableKey: "auto", label: "Auto", used: 30, limit: 100),
+            ],
+            fetchedAt: firstFetch
+        )
+        let latestFetch = firstFetch.addingTimeInterval(60 * 60)
+        let partialResult = ProviderUsageResult(
+            accountID: firstResult.accountID,
+            providerID: firstResult.providerID,
+            title: firstResult.title,
+            subtitle: "Updated metrics",
+            bars: [
+                UsageBar(stableKey: "total", label: "Overall", used: 40, limit: 100),
+                UsageBar(stableKey: "api", label: "API", used: 80, limit: 100),
+            ],
+            isIncompleteRefresh: true,
+            fetchedAt: latestFetch
+        )
+        let store = UsageHistoryStore(defaults: defaults)
+
+        store.record(results: [firstResult], now: firstFetch, samplingInterval: 2 * 60 * 60)
+        store.record(results: [partialResult], now: latestFetch, samplingInterval: 2 * 60 * 60)
+
+        XCTAssertEqual(Set(store.dailySnapshots.compactMap { $0.bars.first?.stableKey }), [
+            "total",
+            "auto",
+            "api",
+        ])
+        XCTAssertEqual(
+            store.dailySnapshots.first(where: { $0.bars.first?.stableKey == "total" })?
+                .bars.first?.used,
+            40
+        )
+        let currentResult = ProviderUsageResult(
+            accountID: firstResult.accountID,
+            providerID: firstResult.providerID,
+            title: firstResult.title,
+            subtitle: "Current",
+            bars: [],
+            fetchedAt: latestFetch
+        )
+        let options = store.historySeriesOptions(for: currentResult)
+        XCTAssertEqual(options.first(where: { $0.id == "usage.total" })?.series.points.map(\.value), [
+            0.2,
+            0.4,
+        ])
+        XCTAssertEqual(options.first(where: { $0.id == "usage.auto" })?.series.points.map(\.value), [
+            0.3,
+        ])
+        XCTAssertEqual(options.first(where: { $0.id == "usage.api" })?.series.points.map(\.value), [
+            0.8,
+        ])
+        XCTAssertEqual(store.historySeries(for: currentResult).points.map(\.value), [0.2, 0.4])
+    }
+
+    @MainActor
+    func testDailyHistoryIsolatesMatchingComponentsByAccount() {
+        let suiteName = "CodexBarMacTests.HistoryDailyAccounts.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let fetchedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let store = UsageHistoryStore(defaults: defaults)
+
+        store.record(
+            results: [
+                makeHistoryResult(accountID: "codex.personal", fetchedAt: fetchedAt, used: 20),
+                makeHistoryResult(accountID: "codex.work", fetchedAt: fetchedAt, used: 70),
+            ],
+            now: fetchedAt
+        )
+
+        XCTAssertEqual(store.dailySnapshots.count, 2)
+        XCTAssertEqual(
+            store.historySeries(
+                for: makeHistoryResult(
+                    accountID: "codex.personal",
+                    fetchedAt: fetchedAt,
+                    used: 20
+                )
+            ).points.map(\.value),
+            [0.2]
+        )
+        XCTAssertEqual(
+            store.historySeries(
+                for: makeHistoryResult(
+                    accountID: "codex.work",
+                    fetchedAt: fetchedAt,
+                    used: 70
+                )
+            ).points.map(\.value),
+            [0.7]
+        )
+    }
+
+    @MainActor
+    func testUsageHistoryStoreKeepsNinetyDailyPointsBeyondDenseRetention() throws {
+        let suiteName = "CodexBarMacTests.HistoryDailyRetention.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 29, hour: 12))
+        )
+        let store = UsageHistoryStore(defaults: defaults)
+
+        for daysAgo in (0..<95).reversed() {
+            let fetchedAt = try XCTUnwrap(calendar.date(byAdding: .day, value: -daysAgo, to: now))
+            store.record(
+                results: [
+                    makeHistoryResult(
+                        accountID: "codex.personal",
+                        fetchedAt: fetchedAt,
+                        used: Double(daysAgo)
+                    ),
+                ],
+                now: now,
+                samplingInterval: 2 * 60 * 60
+            )
+        }
+
+        XCTAssertEqual(store.dailySnapshots.count, 90)
+        XCTAssertEqual(store.snapshots.count, 31)
+        let reloadedStore = UsageHistoryStore(defaults: defaults)
+        let currentResult = makeHistoryResult(
+            accountID: "codex.personal",
+            fetchedAt: now,
+            used: 0
+        )
+        let series = reloadedStore.historySeries(for: currentResult)
+        XCTAssertEqual(series.points.count, 90)
+        XCTAssertEqual(
+            series.points.first?.capturedAt,
+            calendar.date(byAdding: .day, value: -89, to: now)
+        )
+    }
+
+    func testUsageHistoryRangesUseInclusiveLocalCalendarDays() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 29, hour: 20))
+        )
+        let offsets = [0, -2, -3, -6, -7, -29, -30, -89, -90]
+        let points = try offsets.enumerated().map { index, offset in
+            UsageHistoryPoint(
+                id: "point-\(index)",
+                capturedAt: try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: now)),
+                value: Double(index),
+                severity: .normal
+            )
+        }
+        let series = UsageHistorySeries(
+            accountID: "codex.personal",
+            points: points,
+            isBalance: false
+        )
+
+        XCTAssertEqual(series.filtered(to: .today, now: now, calendar: calendar).points.count, 1)
+        XCTAssertEqual(series.filtered(to: .threeDays, now: now, calendar: calendar).points.count, 2)
+        XCTAssertEqual(series.filtered(to: .sevenDays, now: now, calendar: calendar).points.count, 4)
+        XCTAssertEqual(series.filtered(to: .month, now: now, calendar: calendar).points.count, 6)
+        XCTAssertEqual(series.filtered(to: .threeMonths, now: now, calendar: calendar).points.count, 8)
     }
 
     @MainActor
@@ -1628,6 +2048,11 @@ final class UsageHistoryTests: XCTestCase {
         store.removeSnapshotsForMissingAccounts(validAccountIDs: ["keep"], now: fetchedAt)
 
         XCTAssertEqual(store.snapshots.map(\.accountID), ["keep"])
+        XCTAssertEqual(store.dailySnapshots.map(\.accountID), ["keep"])
+        XCTAssertEqual(
+            UsageHistoryStore(defaults: defaults).dailySnapshots.map(\.accountID),
+            ["keep"]
+        )
     }
 
     @MainActor

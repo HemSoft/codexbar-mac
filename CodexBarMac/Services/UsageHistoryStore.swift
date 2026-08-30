@@ -179,6 +179,33 @@ public struct UsageHistorySnapshot: Identifiable, Equatable, Codable, Sendable {
         )
     }
 
+    fileprivate init(
+        dailyComponentOf snapshot: UsageHistorySnapshot,
+        component: DailyUsageHistoryComponent
+    ) {
+        self.id = "\(snapshot.id).daily.\(component.id)"
+        self.accountID = snapshot.accountID
+        self.providerID = snapshot.providerID
+        self.title = snapshot.title
+        self.subtitle = snapshot.subtitle
+        self.capturedAt = snapshot.capturedAt
+        switch component {
+        case let .bar(bar):
+            self.bars = [bar]
+            self.creditsRemaining = nil
+            self.monetaryMetrics = nil
+        case .credits:
+            self.bars = []
+            self.creditsRemaining = snapshot.creditsRemaining
+            self.monetaryMetrics = nil
+        case let .monetaryMetric(metric):
+            self.bars = []
+            self.creditsRemaining = nil
+            self.monetaryMetrics = [metric]
+        }
+        self.highestSeverity = snapshot.highestSeverity
+    }
+
     public var primaryValue: Double? {
         if let creditsRemaining {
             return creditsRemaining
@@ -314,6 +341,27 @@ public struct UsageHistoryPoint: Identifiable, Equatable, Sendable {
     }
 }
 
+enum DailyUsageHistoryComponent {
+    case bar(UsageHistoryBarSnapshot)
+    case credits
+    case monetaryMetric(UsageHistoryMonetaryMetricSnapshot)
+
+    var id: String {
+        switch self {
+        case let .bar(bar):
+            "bar.\(Self.barIdentity(bar))"
+        case .credits:
+            "credits"
+        case let .monetaryMetric(metric):
+            "money.\(metric.kind.rawValue).\(metric.currencyCode)"
+        }
+    }
+
+    static func barIdentity(_ bar: UsageHistoryBarSnapshot) -> String {
+        bar.stableKey ?? "legacy.\(bar.label.lowercased())"
+    }
+}
+
 public struct UsageHistorySeries: Equatable, Sendable {
     public let accountID: String
     public let points: [UsageHistoryPoint]
@@ -331,7 +379,16 @@ public struct UsageHistorySeries: Equatable, Sendable {
         decimalPlaces: Int = 2
     ) {
         self.accountID = accountID
-        self.points = points
+        var pointsByTimestamp: [Date: UsageHistoryPoint] = [:]
+        for point in points {
+            if let existingPoint = pointsByTimestamp[point.capturedAt],
+               !isBalance,
+               existingPoint.value >= point.value {
+                continue
+            }
+            pointsByTimestamp[point.capturedAt] = point
+        }
+        self.points = pointsByTimestamp.values.sorted { $0.capturedAt < $1.capturedAt }
         self.isBalance = isBalance
         self.isIncreaseFavorable = isIncreaseFavorable ?? isBalance
         self.currencyCode = currencyCode
@@ -461,6 +518,85 @@ public struct UsageHistorySeries: Equatable, Sendable {
     }
 
     private static let flatDeltaThreshold = 0.0001
+
+    public func filtered(
+        to range: UsageHistoryRange,
+        now: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> UsageHistorySeries {
+        UsageHistorySeries(
+            accountID: accountID,
+            points: points.filter {
+                $0.capturedAt >= range.startDate(now: now, calendar: calendar)
+            },
+            isBalance: isBalance,
+            isIncreaseFavorable: isIncreaseFavorable,
+            currencyCode: currencyCode,
+            decimalPlaces: decimalPlaces
+        )
+    }
+}
+
+public enum UsageHistoryRange: String, CaseIterable, Identifiable, Sendable {
+    case today
+    case threeDays
+    case sevenDays
+    case month
+    case threeMonths
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .today:
+            "Today"
+        case .threeDays:
+            "3 days"
+        case .sevenDays:
+            "7 days"
+        case .month:
+            "A month"
+        case .threeMonths:
+            "3 months"
+        }
+    }
+
+    public var compactTitle: String {
+        switch self {
+        case .today:
+            "Today"
+        case .threeDays:
+            "3D"
+        case .sevenDays:
+            "7D"
+        case .month:
+            "1M"
+        case .threeMonths:
+            "3M"
+        }
+    }
+
+    public func startDate(
+        now: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Date {
+        let startOfToday = calendar.startOfDay(for: now)
+        let daysBack: Int
+        switch self {
+        case .today:
+            daysBack = 0
+        case .threeDays:
+            daysBack = 2
+        case .sevenDays:
+            daysBack = 6
+        case .month:
+            daysBack = 29
+        case .threeMonths:
+            daysBack = 89
+        }
+        return calendar.date(byAdding: .day, value: -daysBack, to: startOfToday)
+            ?? startOfToday
+    }
 }
 
 public struct UsageHistorySeriesOption: Identifiable, Equatable, Sendable {
@@ -478,6 +614,7 @@ public struct UsageHistorySeriesOption: Identifiable, Equatable, Sendable {
 @MainActor
 public final class UsageHistoryStore: ObservableObject {
     @Published public private(set) var snapshots: [UsageHistorySnapshot]
+    @Published public private(set) var dailySnapshots: [UsageHistorySnapshot]
     @Published public private(set) var lastError: String?
     @Published public private(set) var requiresRecovery: Bool
 
@@ -487,39 +624,68 @@ public final class UsageHistoryStore: ObservableObject {
 
     private let defaults: UserDefaults
     private let encodeSnapshots: ([UsageHistorySnapshot]) throws -> Data
+    private let encodeDailySnapshots: ([UsageHistorySnapshot]) throws -> Data
     private let retention: TimeInterval
+    private let dailyRetentionDays: Int
     private let maxSnapshotsPerAccount: Int
     private let storageKey = "usageHistorySnapshots"
+    private let dailyStorageKey = "usageHistoryDailySnapshots"
 
-    public init(
+    public convenience init(
         defaults: UserDefaults = .standard,
         retentionDays: Int = 30,
+        dailyRetentionDays: Int = 90,
         maxSnapshotsPerAccount: Int = 240
     ) {
-        self.defaults = defaults
-        self.encodeSnapshots = { try JSONEncoder().encode($0) }
-        self.retention = TimeInterval(max(retentionDays, 1) * 24 * 60 * 60)
-        self.maxSnapshotsPerAccount = max(maxSnapshotsPerAccount, 1)
-        let state = Self.loadedState(defaults: defaults, storageKey: storageKey)
-        self.snapshots = state.snapshots
-        self.lastError = state.lastError
-        self.requiresRecovery = state.requiresRecovery
+        self.init(
+            defaults: defaults,
+            retentionDays: retentionDays,
+            dailyRetentionDays: dailyRetentionDays,
+            maxSnapshotsPerAccount: maxSnapshotsPerAccount,
+            encodeSnapshots: { try JSONEncoder().encode($0) },
+            encodeDailySnapshots: { try JSONEncoder().encode($0) }
+        )
+    }
+
+    convenience init(
+        defaults: UserDefaults,
+        retentionDays: Int = 30,
+        dailyRetentionDays: Int = 90,
+        maxSnapshotsPerAccount: Int = 240,
+        encodeSnapshots: @escaping ([UsageHistorySnapshot]) throws -> Data
+    ) {
+        self.init(
+            defaults: defaults,
+            retentionDays: retentionDays,
+            dailyRetentionDays: dailyRetentionDays,
+            maxSnapshotsPerAccount: maxSnapshotsPerAccount,
+            encodeSnapshots: encodeSnapshots,
+            encodeDailySnapshots: { try JSONEncoder().encode($0) }
+        )
     }
 
     init(
         defaults: UserDefaults,
         retentionDays: Int = 30,
+        dailyRetentionDays: Int = 90,
         maxSnapshotsPerAccount: Int = 240,
-        encodeSnapshots: @escaping ([UsageHistorySnapshot]) throws -> Data
+        encodeSnapshots: @escaping ([UsageHistorySnapshot]) throws -> Data,
+        encodeDailySnapshots: @escaping ([UsageHistorySnapshot]) throws -> Data
     ) {
         self.defaults = defaults
         self.encodeSnapshots = encodeSnapshots
+        self.encodeDailySnapshots = encodeDailySnapshots
         self.retention = TimeInterval(max(retentionDays, 1) * 24 * 60 * 60)
+        self.dailyRetentionDays = max(dailyRetentionDays, 90)
         self.maxSnapshotsPerAccount = max(maxSnapshotsPerAccount, 1)
-        let state = Self.loadedState(defaults: defaults, storageKey: storageKey)
-        self.snapshots = state.snapshots
-        self.lastError = state.lastError
-        self.requiresRecovery = state.requiresRecovery
+        let snapshotsState = Self.loadedState(defaults: defaults, storageKey: storageKey)
+        let dailySnapshotsState = Self.loadedState(defaults: defaults, storageKey: dailyStorageKey)
+        let requiresRecovery = snapshotsState.requiresRecovery
+            || dailySnapshotsState.requiresRecovery
+        self.snapshots = requiresRecovery ? [] : snapshotsState.snapshots
+        self.dailySnapshots = requiresRecovery ? [] : dailySnapshotsState.snapshots
+        self.lastError = requiresRecovery ? Self.loadErrorMessage : nil
+        self.requiresRecovery = requiresRecovery
     }
 
     public func record(
@@ -539,6 +705,7 @@ public final class UsageHistoryStore: ObservableObject {
         }
 
         let previousSnapshots = snapshots
+        let previousDailySnapshots = dailySnapshots
         var snapshotsByID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
         var latestCaptureByAccountID = snapshots.reduce(into: [String: Date]()) {
             latestCaptureByAccountID,
@@ -549,6 +716,7 @@ public final class UsageHistoryStore: ObservableObject {
             )
         }
         for snapshot in recordableResults.map({ UsageHistorySnapshot(result: $0) }) {
+            updateDailySnapshots(from: snapshot)
             if samplingInterval > 0,
                let latestCapture = latestCaptureByAccountID[snapshot.accountID],
                snapshot.capturedAt.timeIntervalSince(latestCapture) < samplingInterval {
@@ -562,10 +730,13 @@ public final class UsageHistoryStore: ObservableObject {
         }
         snapshots = Array(snapshotsByID.values)
         prune(now: now, validAccountIDs: Set(recordableResults.map(\.accountID)), removeMissingAccounts: false)
-        guard snapshots != previousSnapshots else {
+        guard snapshots != previousSnapshots || dailySnapshots != previousDailySnapshots else {
             return
         }
-        save(restoringOnFailure: previousSnapshots)
+        save(
+            restoringOnFailure: previousSnapshots,
+            previousDailySnapshots: previousDailySnapshots
+        )
     }
 
     public func removeSnapshotsForMissingAccounts(validAccountIDs: Set<String>, now: Date = Date()) {
@@ -574,8 +745,12 @@ public final class UsageHistoryStore: ObservableObject {
         }
 
         let previousSnapshots = snapshots
+        let previousDailySnapshots = dailySnapshots
         prune(now: now, validAccountIDs: validAccountIDs, removeMissingAccounts: true)
-        save(restoringOnFailure: previousSnapshots)
+        save(
+            restoringOnFailure: previousSnapshots,
+            previousDailySnapshots: previousDailySnapshots
+        )
     }
 
     public func discardCorruptedHistory() {
@@ -584,7 +759,9 @@ public final class UsageHistoryStore: ObservableObject {
         }
 
         defaults.removeObject(forKey: storageKey)
+        defaults.removeObject(forKey: dailyStorageKey)
         snapshots = []
+        dailySnapshots = []
         requiresRecovery = false
         lastError = nil
     }
@@ -619,18 +796,14 @@ public final class UsageHistoryStore: ObservableObject {
             } ?? false
         }
 
-        let points = accountSnapshots.compactMap { snapshot -> UsageHistoryPoint? in
-            if !isBalance, primaryMonetaryIdentity == nil, result.providerID == .cursor {
-                return Self.cursorPrimaryBar(in: snapshot).map {
-                    UsageHistoryPoint(
-                        id: snapshot.id,
-                        capturedAt: snapshot.capturedAt,
-                        value: $0.historyFractionUsed,
-                        severity: $0.effectiveSeverity
-                    )
-                }
-            }
+        if !isBalance, primaryMonetaryIdentity == nil, result.providerID == .cursor {
+            return cursorPrimaryUsageSeries(
+                accountID: result.accountID,
+                snapshots: accountSnapshots
+            )
+        }
 
+        let points = accountSnapshots.compactMap { snapshot -> UsageHistoryPoint? in
             let value: Double?
             if let primaryMonetaryIdentity {
                 value = snapshot.monetaryMetrics?.first(where: {
@@ -729,7 +902,10 @@ public final class UsageHistoryStore: ObservableObject {
         for result: ProviderUsageResult,
         since start: Date?
     ) -> [UsageHistorySnapshot] {
-        var accountSnapshots = snapshots(for: result.accountID, since: start)
+        var accountSnapshots = storedPresentationSnapshots(
+            for: result.accountID,
+            since: start
+        )
         guard
             !result.isIncompleteRefresh,
             start.map({ result.fetchedAt >= $0 }) != false,
@@ -805,15 +981,26 @@ public final class UsageHistoryStore: ObservableObject {
         accountID: String,
         snapshots: [UsageHistorySnapshot]
     ) -> UsageHistorySeries {
-        UsageHistorySeries(
+        let snapshotsByTimestamp = Dictionary(grouping: snapshots, by: \.capturedAt)
+        return UsageHistorySeries(
             accountID: accountID,
-            points: snapshots.compactMap { snapshot in
-                Self.cursorPrimaryBar(in: snapshot).map {
+            points: snapshotsByTimestamp.compactMap { capturedAt, matchingSnapshots in
+                let selected = matchingSnapshots.compactMap { snapshot in
+                    Self.cursorPrimaryBar(in: snapshot).map { (snapshot, $0) }
+                }.max { lhs, rhs in
+                    let lhsIsTotal = lhs.1.stableKey == CursorUsageIdentity.totalStableKey
+                    let rhsIsTotal = rhs.1.stableKey == CursorUsageIdentity.totalStableKey
+                    if lhsIsTotal != rhsIsTotal {
+                        return !lhsIsTotal
+                    }
+                    return lhs.1.historyFractionUsed < rhs.1.historyFractionUsed
+                }
+                return selected.map { snapshot, bar in
                     UsageHistoryPoint(
                         id: snapshot.id,
-                        capturedAt: snapshot.capturedAt,
-                        value: $0.historyFractionUsed,
-                        severity: $0.effectiveSeverity
+                        capturedAt: capturedAt,
+                        value: bar.historyFractionUsed,
+                        severity: bar.effectiveSeverity
                     )
                 }
             },
@@ -859,9 +1046,11 @@ public final class UsageHistoryStore: ObservableObject {
         }) {
             // Older snapshots may predate Cursor's Total bar, so keep their highest
             // available value in the default series while preserving named metrics.
-            let hasFallbackSamples = snapshots.contains(where: { snapshot in
-                !snapshot.bars.isEmpty
-                    && !snapshot.bars.contains(where: {
+            let snapshotsByTimestamp = Dictionary(grouping: snapshots, by: \.capturedAt)
+            let hasFallbackSamples = snapshotsByTimestamp.values.contains(where: { matchingSnapshots in
+                let bars = matchingSnapshots.flatMap(\.bars)
+                return !bars.isEmpty
+                    && !bars.contains(where: {
                         $0.stableKey == CursorUsageIdentity.totalStableKey
                             || ($0.stableKey == nil
                                 && CursorUsageIdentity.matchesLegacyLabel(
@@ -967,6 +1156,95 @@ public final class UsageHistoryStore: ObservableObject {
                 ) + recentSnapshots
             }
             .sorted(by: Self.snapshotOrder)
+
+        let calendar = Calendar.autoupdatingCurrent
+        let startOfToday = calendar.startOfDay(for: now)
+        let dailyCutoff = calendar.date(
+            byAdding: .day,
+            value: -(dailyRetentionDays - 1),
+            to: startOfToday
+        ) ?? now.addingTimeInterval(-TimeInterval(dailyRetentionDays * 24 * 60 * 60))
+        let eligibleDailySnapshots = dailySnapshots
+            .filter { snapshot in
+                snapshot.capturedAt >= dailyCutoff
+                    && (!removeMissingAccounts || validAccountIDs.contains(snapshot.accountID))
+            }
+            .sorted { $0.capturedAt > $1.capturedAt }
+        var dailyKeys: Set<String> = []
+        dailySnapshots = eligibleDailySnapshots
+            .filter { snapshot in
+                let day = calendar.startOfDay(for: snapshot.capturedAt)
+                let componentID = Self.dailyComponentID(for: snapshot)
+                let key = "\(snapshot.accountID)|\(day.timeIntervalSince1970)|\(componentID)"
+                return dailyKeys.insert(key).inserted
+            }
+            .sorted(by: Self.snapshotOrder)
+    }
+
+    private func updateDailySnapshots(from snapshot: UsageHistorySnapshot) {
+        var components = snapshot.bars.map(DailyUsageHistoryComponent.bar)
+        if snapshot.creditsRemaining != nil {
+            components.append(.credits)
+        }
+        components.append(contentsOf: (snapshot.monetaryMetrics ?? []).map {
+            .monetaryMetric($0)
+        })
+
+        var updatedComponentIDs: Set<String> = []
+        for component in components where updatedComponentIDs.insert(component.id).inserted {
+            updateDailySnapshot(
+                UsageHistorySnapshot(
+                    dailyComponentOf: snapshot,
+                    component: component
+                ),
+                componentID: component.id
+            )
+        }
+    }
+
+    private func updateDailySnapshot(
+        _ snapshot: UsageHistorySnapshot,
+        componentID: String
+    ) {
+        let calendar = Calendar.autoupdatingCurrent
+        if let index = dailySnapshots.lastIndex(where: {
+            $0.accountID == snapshot.accountID
+                && calendar.isDate($0.capturedAt, inSameDayAs: snapshot.capturedAt)
+                && Self.dailyComponentID(for: $0) == componentID
+        }) {
+            guard snapshot.capturedAt >= dailySnapshots[index].capturedAt else {
+                return
+            }
+            dailySnapshots[index] = snapshot
+        } else {
+            dailySnapshots.append(snapshot)
+        }
+    }
+
+    private static func dailyComponentID(for snapshot: UsageHistorySnapshot) -> String {
+        if let bar = snapshot.bars.first {
+            return "bar.\(DailyUsageHistoryComponent.barIdentity(bar))"
+        }
+        if snapshot.creditsRemaining != nil {
+            return "credits"
+        }
+        guard let metric = snapshot.monetaryMetrics?.first else {
+            return "empty"
+        }
+        return "money.\(metric.kind.rawValue).\(metric.currencyCode)"
+    }
+
+    private func storedPresentationSnapshots(
+        for accountID: String,
+        since start: Date?
+    ) -> [UsageHistorySnapshot] {
+        var snapshotsByID: [String: UsageHistorySnapshot] = [:]
+        for snapshot in snapshots + dailySnapshots where
+            snapshot.accountID == accountID
+                && start.map({ snapshot.capturedAt >= $0 }) != false {
+            snapshotsByID[snapshot.id] = snapshot
+        }
+        return snapshotsByID.values.sorted(by: Self.snapshotOrder)
     }
 
     private static func timeDistributedSnapshots(
@@ -1033,13 +1311,27 @@ public final class UsageHistoryStore: ObservableObject {
         return lhs.id < rhs.id
     }
 
-    private func save(restoringOnFailure previousSnapshots: [UsageHistorySnapshot]) {
+    private func save(
+        restoringOnFailure previousSnapshots: [UsageHistorySnapshot],
+        previousDailySnapshots: [UsageHistorySnapshot]
+    ) {
         do {
-            let data = try encodeSnapshots(snapshots)
-            defaults.set(data, forKey: storageKey)
+            let data = snapshots == previousSnapshots
+                ? nil
+                : try encodeSnapshots(snapshots)
+            let dailyData = dailySnapshots == previousDailySnapshots
+                ? nil
+                : try encodeDailySnapshots(dailySnapshots)
+            if let data {
+                defaults.set(data, forKey: storageKey)
+            }
+            if let dailyData {
+                defaults.set(dailyData, forKey: dailyStorageKey)
+            }
             lastError = nil
         } catch {
             snapshots = previousSnapshots
+            dailySnapshots = previousDailySnapshots
             lastError = "Could not save usage history: \(error.localizedDescription)"
         }
     }
