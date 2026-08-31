@@ -121,18 +121,30 @@ public struct UsageHistorySnapshot: Identifiable, Equatable, Codable, Sendable {
 
     public init(result: ProviderUsageResult, capturedAt: Date? = nil) {
         let capturedAt = capturedAt ?? result.fetchedAt
+        let bars = result.historyFreshness.bars ? result.bars : []
+        let creditsRemaining = result.historyFreshness.credits
+            ? result.creditsRemaining
+            : nil
+        let monetaryMetrics = result.historyFreshness.monetaryMetrics
+            ? result.monetaryMetrics
+            : []
         self.id = "\(result.accountID).\(capturedAt.timeIntervalSince1970)"
         self.accountID = result.accountID
         self.providerID = result.providerID
         self.title = result.title
         self.subtitle = result.subtitle
         self.capturedAt = capturedAt
-        self.bars = result.bars.map {
+        self.bars = bars.map {
             UsageHistoryBarSnapshot(bar: $0, capturedAt: capturedAt)
         }
-        self.creditsRemaining = result.creditsRemaining
-        self.monetaryMetrics = result.monetaryMetrics.map(UsageHistoryMonetaryMetricSnapshot.init)
-        self.highestSeverity = result.highestSeverity(at: capturedAt)
+        self.creditsRemaining = creditsRemaining
+        self.monetaryMetrics = monetaryMetrics.map(UsageHistoryMonetaryMetricSnapshot.init)
+        self.highestSeverity = max(
+            bars.map { $0.effectiveSeverity(at: capturedAt) }.max() ?? .normal,
+            result.historyFreshness.monetaryMetrics && result.hasReachedSpendLimit
+                ? .critical
+                : .normal
+        )
     }
 
     fileprivate init(
@@ -698,7 +710,9 @@ public final class UsageHistoryStore: ObservableObject {
         }
 
         let recordableResults = results.filter { result in
-            result.creditsRemaining != nil || !result.bars.isEmpty || !result.monetaryMetrics.isEmpty
+            result.historyFreshness.bars && !result.bars.isEmpty
+                || result.historyFreshness.credits && result.creditsRemaining != nil
+                || result.historyFreshness.monetaryMetrics && !result.monetaryMetrics.isEmpty
         }
         guard !recordableResults.isEmpty else {
             return

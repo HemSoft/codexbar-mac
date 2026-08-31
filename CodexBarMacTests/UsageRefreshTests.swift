@@ -77,6 +77,10 @@ final class UsageRefreshTests: XCTestCase {
         XCTAssertEqual(mergedBalanceOnly.creditsRemaining, 9)
         XCTAssertEqual(mergedBalanceOnly.usageMessages, balanceOnly.usageMessages)
         XCTAssertEqual(mergedBalanceOnly.fetchedAt, refreshedAt)
+        XCTAssertEqual(
+            mergedBalanceOnly.historyFreshness,
+            ProviderUsageHistoryFreshness(bars: false, credits: true)
+        )
 
         let cachedBalanceOnly = ProviderUsageResult(
             accountID: configuration.id,
@@ -131,6 +135,10 @@ final class UsageRefreshTests: XCTestCase {
         XCTAssertEqual(mergedGoOnly.creditsRemaining, 12)
         XCTAssertEqual(mergedGoOnly.usageMessages, goOnly.usageMessages)
         XCTAssertEqual(mergedGoOnly.fetchedAt, refreshedAt)
+        XCTAssertEqual(
+            mergedGoOnly.historyFreshness,
+            ProviderUsageHistoryFreshness(bars: true, credits: false)
+        )
     }
 
     @MainActor
@@ -176,6 +184,7 @@ final class UsageRefreshTests: XCTestCase {
         XCTAssertEqual(preserved.subtitle, "Temporary dashboard outage. Showing last known data.")
         XCTAssertEqual(preserved.fetchedAt, cachedAt)
         XCTAssertTrue(preserved.isIncompleteRefresh)
+        XCTAssertEqual(preserved.historyFreshness, .none)
     }
 
     @MainActor

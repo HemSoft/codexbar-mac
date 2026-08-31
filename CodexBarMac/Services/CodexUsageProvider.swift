@@ -394,6 +394,7 @@ public final class CodexUsageProvider: UsageProvider {
             monetaryMetrics: result.monetaryMetrics,
             usageMessages: result.usageMessages,
             hasReachedSpendLimit: result.hasReachedSpendLimit,
+            historyFreshness: result.historyFreshness,
             isIncompleteRefresh: result.isIncompleteRefresh,
             fetchedAt: result.fetchedAt
         )

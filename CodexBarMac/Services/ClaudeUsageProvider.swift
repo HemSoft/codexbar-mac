@@ -560,6 +560,7 @@ public final class ClaudeUsageProvider: UsageProvider {
             monetaryMetrics: cached.monetaryMetrics,
             usageMessages: cached.usageMessages,
             hasReachedSpendLimit: cached.hasReachedSpendLimit,
+            historyFreshness: ProviderUsageHistoryFreshness.none,
             isIncompleteRefresh: true,
             fetchedAt: cached.fetchedAt
         )
@@ -613,6 +614,7 @@ public final class ClaudeUsageProvider: UsageProvider {
             monetaryMetrics: result.monetaryMetrics,
             usageMessages: result.usageMessages,
             hasReachedSpendLimit: result.hasReachedSpendLimit,
+            historyFreshness: result.historyFreshness,
             isIncompleteRefresh: result.isIncompleteRefresh,
             fetchedAt: result.fetchedAt
         )
@@ -664,6 +666,7 @@ private actor ClaudeUsageSnapshotCache {
                 monetaryMetrics: result.monetaryMetrics,
                 usageMessages: result.usageMessages,
                 hasReachedSpendLimit: result.hasReachedSpendLimit,
+                historyFreshness: result.historyFreshness,
                 isIncompleteRefresh: true,
                 fetchedAt: result.fetchedAt
             )
@@ -682,6 +685,7 @@ private actor ClaudeUsageSnapshotCache {
             usageMessages: result.usageMessages,
             hasReachedSpendLimit: result.hasReachedSpendLimit,
             // Cached quota bars are not part of this refresh's live payload.
+            historyFreshness: result.historyFreshness,
             isIncompleteRefresh: true,
             fetchedAt: result.fetchedAt
         )

@@ -673,6 +673,7 @@ public final class CopilotUsageProvider: UsageProvider {
             monetaryMetrics: result.monetaryMetrics,
             usageMessages: result.usageMessages,
             hasReachedSpendLimit: result.hasReachedSpendLimit,
+            historyFreshness: result.historyFreshness,
             isIncompleteRefresh: result.isIncompleteRefresh,
             fetchedAt: result.fetchedAt
         )

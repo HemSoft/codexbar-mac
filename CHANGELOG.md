@@ -54,6 +54,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- History now records fresh usage or balance components from partial provider
+  refreshes without timestamping cached components as newly fetched.
+  ([#183](https://github.com/HemSoft/codexbar-mac/issues/183))
 - Cursor's Grok Bot weekly metric now stays hidden when the account has no
   included allowance, while entitled accounts still show genuine 0% usage.
   ([#179](https://github.com/HemSoft/codexbar-mac/issues/179))

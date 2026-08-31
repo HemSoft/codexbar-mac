@@ -148,6 +148,7 @@ final class AppModel: ObservableObject {
                     monetaryMetrics: result.monetaryMetrics,
                     usageMessages: result.usageMessages,
                     hasReachedSpendLimit: result.hasReachedSpendLimit,
+                    historyFreshness: result.historyFreshness,
                     isIncompleteRefresh: result.isIncompleteRefresh,
                     fetchedAt: result.fetchedAt
                 )
@@ -319,9 +320,13 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func historyEligibleResults() -> [ProviderUsageResult] {
+        displayedResults.filter(\.historyFreshness.hasFreshComponents)
+    }
+
     private func recordUsageHistory() {
         historyStore.record(
-            results: alertEligibleResults(),
+            results: historyEligibleResults(),
             samplingInterval: configurationStore.historySamplingInterval.seconds
         )
     }

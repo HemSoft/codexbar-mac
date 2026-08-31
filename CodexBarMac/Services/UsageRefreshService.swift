@@ -427,6 +427,7 @@ public final class UsageRefreshService: ObservableObject {
             hasReachedSpendLimit: preservesAllUsageData
                 ? cachedResult.hasReachedSpendLimit
                 : result.hasReachedSpendLimit,
+            historyFreshness: result.historyFreshness,
             cacheIdentity: preservesAllUsageData ? cachedResult.cacheIdentity : result.cacheIdentity,
             cacheScope: preservesAllUsageData ? cachedResult.cacheScope : result.cacheScope,
             allowsUnscopedCacheReuse: result.allowsUnscopedCacheReuse,
