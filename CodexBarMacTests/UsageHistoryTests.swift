@@ -627,6 +627,187 @@ final class UsageHistoryTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelRecordsOnlyFreshBalanceFromManualPartialRefresh() async throws {
+        let suiteName = "CodexBarMacTests.HistoryPartialBalance.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        defaults.set(try JSONEncoder().encode([configuration]), forKey: "providerConfigurations")
+        let cachedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let refreshedAt = cachedAt.addingTimeInterval(60)
+        let cached = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: configuration.displayName,
+            subtitle: "Usage and balance",
+            bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage", used: 20, limit: 100)],
+            creditsRemaining: 12,
+            cacheIdentity: "history-partial-account",
+            fetchedAt: cachedAt
+        )
+        let balanceOnly = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: configuration.displayName,
+            subtitle: "ZEN credit balance",
+            bars: [],
+            creditsRemaining: 9,
+            preservesCachedBarsOnIncompleteRefresh: true,
+            cacheIdentity: "history-partial-account",
+            isIncompleteRefresh: true,
+            fetchedAt: refreshedAt
+        )
+        let refreshService = UsageRefreshService(
+            providers: [StubUsageProvider(providerID: .openCodeZen, result: balanceOnly)],
+            initialResults: [cached]
+        )
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        let historyStore = UsageHistoryStore(defaults: defaults)
+        let model = AppModel(
+            refreshService: refreshService,
+            configurationStore: configurationStore,
+            historyStore: historyStore,
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+
+        await model.refresh()
+
+        XCTAssertTrue(refreshService.successfulRefreshResults.isEmpty)
+        XCTAssertEqual(model.displayedResults.first?.bars, cached.bars)
+        XCTAssertEqual(historyStore.snapshots.count, 1)
+        XCTAssertTrue(historyStore.snapshots[0].bars.isEmpty)
+        XCTAssertEqual(historyStore.snapshots[0].creditsRemaining, 9)
+        XCTAssertEqual(historyStore.snapshots[0].capturedAt, refreshedAt)
+    }
+
+    @MainActor
+    func testAppModelRecordsOnlyFreshUsageFromSingleAccountPartialRefresh() async throws {
+        let suiteName = "CodexBarMacTests.HistoryPartialUsage.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        defaults.set(try JSONEncoder().encode([configuration]), forKey: "providerConfigurations")
+        let cachedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let refreshedAt = cachedAt.addingTimeInterval(60)
+        let cached = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: configuration.displayName,
+            subtitle: "Usage and balance",
+            bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage", used: 20, limit: 100)],
+            creditsRemaining: 12,
+            cacheIdentity: "history-partial-account",
+            fetchedAt: cachedAt
+        )
+        let usageOnly = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: configuration.displayName,
+            subtitle: "OpenCode Go usage",
+            bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage", used: 35, limit: 100)],
+            preservesCachedCreditsOnIncompleteRefresh: true,
+            cacheIdentity: "history-partial-account",
+            isIncompleteRefresh: true,
+            fetchedAt: refreshedAt
+        )
+        let refreshService = UsageRefreshService(
+            providers: [StubUsageProvider(providerID: .openCodeZen, result: usageOnly)],
+            initialResults: [cached]
+        )
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        let historyStore = UsageHistoryStore(defaults: defaults)
+        let model = AppModel(
+            refreshService: refreshService,
+            configurationStore: configurationStore,
+            historyStore: historyStore,
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+
+        let returnedResult = await model.refreshAccount(configuration)
+
+        XCTAssertEqual(returnedResult?.fetchedAt, refreshedAt)
+        XCTAssertEqual(model.displayedResults.first?.creditsRemaining, 12)
+        XCTAssertEqual(historyStore.snapshots.count, 1)
+        XCTAssertEqual(historyStore.snapshots[0].bars.first?.used, 35)
+        XCTAssertNil(historyStore.snapshots[0].creditsRemaining)
+        XCTAssertEqual(historyStore.snapshots[0].capturedAt, refreshedAt)
+    }
+
+    @MainActor
+    func testAppModelSkipsLastKnownDataAfterAutomaticTotalFailure() async throws {
+        let suiteName = "CodexBarMacTests.HistoryTotalFailure.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
+        defaults.set(try JSONEncoder().encode([configuration]), forKey: "providerConfigurations")
+        let cachedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let cached = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: configuration.displayName,
+            subtitle: "Usage and balance",
+            bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage", used: 20, limit: 100)],
+            creditsRemaining: 12,
+            cacheIdentity: "history-partial-account",
+            fetchedAt: cachedAt
+        )
+        let totalFailure = ProviderUsageResult(
+            accountID: configuration.id,
+            providerID: .openCodeZen,
+            title: configuration.displayName,
+            subtitle: "Temporary outage",
+            bars: [],
+            cacheIdentity: "history-partial-account",
+            isIncompleteRefresh: true,
+            fetchedAt: cachedAt.addingTimeInterval(60)
+        )
+        let sleeper = OneShotAutoRefreshSleeper()
+        let refreshService = UsageRefreshService(
+            providers: [StubUsageProvider(providerID: .openCodeZen, result: totalFailure)],
+            initialResults: [cached],
+            sleepBeforeAutoRefresh: { seconds in
+                try await sleeper.sleep(for: seconds)
+            }
+        )
+        let configurationStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        configurationStore.updateAutoRefreshInterval(.oneMinute)
+        let historyStore = UsageHistoryStore(defaults: defaults)
+        let model = AppModel(
+            refreshService: refreshService,
+            configurationStore: configurationStore,
+            historyStore: historyStore,
+            launchAtLoginManager: LaunchAtLoginManager(defaults: defaults),
+            usageAlertNotifier: StubUsageAlertNotifier()
+        )
+        defer { refreshService.stopAutoRefresh() }
+
+        model.updateAutoRefresh()
+        for _ in 0..<200 where model.lastRefreshedAt == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertNotNil(model.lastRefreshedAt)
+        XCTAssertEqual(model.displayedResults.first?.fetchedAt, cachedAt)
+        XCTAssertEqual(
+            model.displayedResults.first?.historyFreshness,
+            ProviderUsageHistoryFreshness.none
+        )
+        XCTAssertTrue(historyStore.snapshots.isEmpty)
+        XCTAssertTrue(historyStore.dailySnapshots.isEmpty)
+    }
+
+    @MainActor
     func testUsageHistoryStoreTreatsAbsentStorageAsEmptyHistory() {
         let suiteName = "CodexBarMacTests.HistoryAbsent.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -1716,13 +1897,14 @@ final class UsageHistoryTests: XCTestCase {
             ],
             fetchedAt: firstFetch
         )
-        let partialFetch = firstFetch.addingTimeInterval(60 * 60)
+        let partialFetch = firstFetch.addingTimeInterval(3 * 60 * 60)
         let partialResult = ProviderUsageResult(
             accountID: fullResult.accountID,
             providerID: fullResult.providerID,
             title: fullResult.title,
             subtitle: "Fresh usage only",
             bars: [UsageBar(stableKey: "go.weekly", label: "Weekly usage", used: 40, limit: 100)],
+            creditsRemaining: 12,
             monetaryMetrics: [
                 ProviderMonetaryMetric(
                     kind: .spent,
@@ -1732,6 +1914,11 @@ final class UsageHistoryTests: XCTestCase {
                     decimalPlaces: 2
                 ),
             ],
+            historyFreshness: ProviderUsageHistoryFreshness(
+                bars: true,
+                credits: false,
+                monetaryMetrics: true
+            ),
             isIncompleteRefresh: true,
             fetchedAt: partialFetch
         )
@@ -1739,6 +1926,13 @@ final class UsageHistoryTests: XCTestCase {
 
         store.record(results: [fullResult], now: firstFetch, samplingInterval: 2 * 60 * 60)
         store.record(results: [partialResult], now: partialFetch, samplingInterval: 2 * 60 * 60)
+        let denseSnapshots = store.snapshots(for: fullResult.accountID)
+        XCTAssertEqual(denseSnapshots.count, 2)
+        XCTAssertEqual(denseSnapshots[0].creditsRemaining, 12)
+        XCTAssertEqual(denseSnapshots[1].bars.first?.used, 40)
+        XCTAssertNil(denseSnapshots[1].creditsRemaining)
+        XCTAssertEqual(denseSnapshots[1].monetaryMetrics?.first?.minorUnits, 1_500)
+        XCTAssertEqual(store.dailySnapshots.compactMap(\.creditsRemaining), [12])
         store.removeSnapshotsForMissingAccounts(
             validAccountIDs: [fullResult.accountID],
             now: firstFetch.addingTimeInterval(31 * 24 * 60 * 60)

@@ -140,6 +140,7 @@ public final class GeminiUsageProvider: UsageProvider {
                 title: configuration.displayName,
                 subtitle: result.subtitle,
                 bars: result.bars,
+                historyFreshness: result.historyFreshness,
                 fetchedAt: result.fetchedAt
             )
         case 401 where canRefresh:

@@ -53,6 +53,28 @@ public struct ProviderMonetaryMetric: Identifiable, Codable, Equatable, Sendable
     }
 }
 
+public struct ProviderUsageHistoryFreshness: Equatable, Sendable {
+    public let bars: Bool
+    public let credits: Bool
+    public let monetaryMetrics: Bool
+
+    public init(
+        bars: Bool = false,
+        credits: Bool = false,
+        monetaryMetrics: Bool = false
+    ) {
+        self.bars = bars
+        self.credits = credits
+        self.monetaryMetrics = monetaryMetrics
+    }
+
+    public static let none = ProviderUsageHistoryFreshness()
+
+    public var hasFreshComponents: Bool {
+        bars || credits || monetaryMetrics
+    }
+}
+
 public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
     public let accountID: String
     public let providerID: ProviderID
@@ -62,6 +84,7 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
     public let creditsRemaining: Double?
     public let monetaryMetrics: [ProviderMonetaryMetric]
     public let usageMessages: [String]
+    public let historyFreshness: ProviderUsageHistoryFreshness
     public let preservesCachedBarsOnIncompleteRefresh: Bool
     public let preservesCachedCreditsOnIncompleteRefresh: Bool
     public let cacheIdentity: String?
@@ -85,6 +108,7 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
         monetaryMetrics: [ProviderMonetaryMetric] = [],
         usageMessages: [String] = [],
         hasReachedSpendLimit: Bool = false,
+        historyFreshness: ProviderUsageHistoryFreshness? = nil,
         preservesCachedBarsOnIncompleteRefresh: Bool = false,
         preservesCachedCreditsOnIncompleteRefresh: Bool = false,
         cacheIdentity: String? = nil,
@@ -102,6 +126,11 @@ public struct ProviderUsageResult: Identifiable, Equatable, Sendable {
         self.monetaryMetrics = monetaryMetrics
         self.usageMessages = usageMessages
         self.forcedSpendLimitReached = hasReachedSpendLimit
+        self.historyFreshness = historyFreshness ?? ProviderUsageHistoryFreshness(
+            bars: !bars.isEmpty,
+            credits: creditsRemaining != nil,
+            monetaryMetrics: !monetaryMetrics.isEmpty
+        )
         self.preservesCachedBarsOnIncompleteRefresh = preservesCachedBarsOnIncompleteRefresh
         self.preservesCachedCreditsOnIncompleteRefresh = preservesCachedCreditsOnIncompleteRefresh
         self.cacheIdentity = cacheIdentity
