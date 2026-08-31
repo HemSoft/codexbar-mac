@@ -2514,6 +2514,35 @@ final class UsageHistoryTests: XCTestCase {
     }
 
     @MainActor
+    func testCursorSpendLimitHistoryPreservesCriticalSeverityWithoutMonetaryMetrics() throws {
+        let suiteName = "CodexBarMacTests.CursorSpendLimitHistory.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let fetchedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let payload = Data(
+            #"{"spendLimitUsage":{"individualLimit":2000,"individualRemaining":0}}"#.utf8
+        )
+        let result = try XCTUnwrap(CursorUsageProvider.parseUsage(
+            payload,
+            configuration: .defaultConfiguration(for: .cursor),
+            fetchedAt: fetchedAt
+        ))
+        let store = UsageHistoryStore(defaults: defaults)
+
+        XCTAssertTrue(result.hasReachedSpendLimit)
+        XCTAssertTrue(result.historyFreshness.bars)
+        XCTAssertFalse(result.historyFreshness.monetaryMetrics)
+        XCTAssertTrue(result.monetaryMetrics.isEmpty)
+        XCTAssertEqual(
+            result.bars.first(where: { $0.stableKey == "on-demand" })?.effectiveSeverity(at: fetchedAt),
+            .critical
+        )
+        store.record(results: [result], now: fetchedAt)
+
+        XCTAssertEqual(store.historySeries(for: result).points.map(\.severity), [.critical])
+    }
+
+    @MainActor
     func testCursorHistoryMapsLegacyLabelsConservatively() throws {
         let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
