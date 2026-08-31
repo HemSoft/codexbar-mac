@@ -1867,11 +1867,15 @@ final class UsageHistoryTests: XCTestCase {
     }
 
     @MainActor
-    func testDailyHistoryPreservesAbsentPartialRefreshComponentsAndMonetaryIdentities() {
+    func testDailyHistoryPreservesAbsentPartialRefreshComponentsAndMonetaryIdentities() throws {
         let suiteName = "CodexBarMacTests.HistoryDailyComponents.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let firstFetch = Date(timeIntervalSince1970: 1_788_475_200)
+        let firstFetch = try XCTUnwrap(
+            Calendar.autoupdatingCurrent.date(
+                from: DateComponents(year: 2026, month: 9, day: 3, hour: 12)
+            )
+        )
         let fullResult = ProviderUsageResult(
             accountID: "opencode.personal",
             providerID: .openCodeZen,
