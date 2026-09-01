@@ -46,6 +46,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Cursor now shows separate Cursor Models and Other Models included-usage bars,
+  while History keeps legacy Total samples distinct and carries Auto and API
+  samples into the matching current series. ([#185](https://github.com/HemSoft/codexbar-mac/issues/185))
 - Added a saved History Sampling setting, defaulting to two hours, so usage
   refreshes no longer create unnecessarily dense history.
   ([#165](https://github.com/HemSoft/codexbar-mac/issues/165))

@@ -202,6 +202,157 @@ final class UsageAlertTests: XCTestCase {
         XCTAssertEqual(repeated.activeAlertIDs, ["usage.cursor.main.on-demand"])
     }
 
+    func testUsageAlertEvaluatorMigratesLegacyCursorModelAlertIdentities() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "cursor.main",
+            providerID: .cursor,
+            title: "Cursor",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "cursor-models",
+                    label: "Cursor Models",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+                UsageBar(
+                    stableKey: "other-models",
+                    label: "Other Models",
+                    used: 95,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_369_600)
+        )
+        let legacyAlertIDs: Set<String> = [
+            "usage.cursor.main.auto.1893456000",
+            "usage.cursor.main.api.1893456000",
+        ]
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: legacyAlertIDs
+        )
+
+        XCTAssertTrue(evaluation.notifications.isEmpty)
+        XCTAssertEqual(evaluation.activeAlertIDs, [
+            "usage.cursor.main.cursor-models.1893456000",
+            "usage.cursor.main.other-models.1893456000",
+        ])
+    }
+
+    func testUsageAlertEvaluatorMigratesLegacyCursorAlertsAcrossResetRepresentationChanges() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let now = Date(timeIntervalSince1970: 1_893_369_600)
+        let settings = UsageAlertSettings(
+            isEnabled: true,
+            usageThreshold: 0.80,
+            includesSeverityAlerts: false
+        )
+
+        func result(resetsAt: Date?) -> ProviderUsageResult {
+            ProviderUsageResult(
+                accountID: "cursor.main",
+                providerID: .cursor,
+                title: "Cursor",
+                subtitle: "Live usage",
+                bars: [
+                    UsageBar(
+                        stableKey: "cursor-models",
+                        label: "Cursor Models",
+                        used: 90,
+                        limit: 100,
+                        resetsAt: resetsAt
+                    ),
+                ],
+                fetchedAt: Date(timeIntervalSince1970: 1_893_369_600)
+            )
+        }
+
+        let unscopedLegacy = UsageAlertEvaluator.evaluate(
+            results: [result(resetsAt: resetAt)],
+            settings: settings,
+            activeAlertIDs: ["usage.cursor.main.auto"],
+            now: now
+        )
+        let jitteredLegacy = UsageAlertEvaluator.evaluate(
+            results: [result(resetsAt: resetAt)],
+            settings: settings,
+            activeAlertIDs: ["usage.cursor.main.auto.1893456005"],
+            now: now
+        )
+        let scopedLegacy = UsageAlertEvaluator.evaluate(
+            results: [result(resetsAt: nil)],
+            settings: settings,
+            activeAlertIDs: ["usage.cursor.main.auto.1893456000"],
+            now: now
+        )
+        let previousCycleLegacy = UsageAlertEvaluator.evaluate(
+            results: [result(resetsAt: nil)],
+            settings: settings,
+            activeAlertIDs: ["usage.cursor.main.auto.1893283200"],
+            now: now
+        )
+
+        XCTAssertTrue(unscopedLegacy.notifications.isEmpty)
+        XCTAssertTrue(jitteredLegacy.notifications.isEmpty)
+        XCTAssertTrue(scopedLegacy.notifications.isEmpty)
+        XCTAssertEqual(unscopedLegacy.activeAlertIDs, [
+            "usage.cursor.main.cursor-models.1893456000",
+        ])
+        XCTAssertEqual(jitteredLegacy.activeAlertIDs, [
+            "usage.cursor.main.cursor-models.1893456000",
+        ])
+        XCTAssertEqual(scopedLegacy.activeAlertIDs, [
+            "usage.cursor.main.cursor-models",
+        ])
+        XCTAssertEqual(previousCycleLegacy.notifications.map(\.id), [
+            "usage.cursor.main.cursor-models",
+        ])
+    }
+
+    func testUsageAlertEvaluatorDoesNotMigratePreviousCursorBillingCycleAlert() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "cursor.main",
+            providerID: .cursor,
+            title: "Cursor",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "cursor-models",
+                    label: "Cursor Models",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_369_600)
+        )
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: ["usage.cursor.main.auto.1890864000"]
+        )
+
+        XCTAssertEqual(evaluation.notifications.map(\.id), [
+            "usage.cursor.main.cursor-models.1893456000",
+        ])
+    }
+
     func testUsageAlertEvaluatorDeduplicatesBarsWithSameStableKey() {
         let result = ProviderUsageResult(
             accountID: "cursor.main",

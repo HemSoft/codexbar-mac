@@ -1,29 +1,55 @@
 import Foundation
 
 enum CursorUsageIdentity {
+    static let cursorModelsStableKey = "cursor-models"
+    static let otherModelsStableKey = "other-models"
     static let totalStableKey = "total"
-    static let autoStableKey = "auto"
-    static let apiStableKey = "api"
+    static let legacyAutoStableKey = "auto"
+    static let legacyAPIStableKey = "api"
     static let onDemandStableKey = "on-demand"
     static let grokBotWeeklyStableKey = "grok-bot-weekly"
 
     static let metricDefinitions: [(stableKey: String, label: String)] = [
         (totalStableKey, "Total"),
-        (autoStableKey, "Auto"),
-        (apiStableKey, "API"),
+        (cursorModelsStableKey, "Cursor Models"),
+        (otherModelsStableKey, "Other Models"),
         (onDemandStableKey, "On-demand"),
         (grokBotWeeklyStableKey, "Grok Bot weekly"),
     ]
+
+    static func canonicalStableKey(_ stableKey: String) -> String {
+        switch stableKey {
+        case legacyAutoStableKey:
+            cursorModelsStableKey
+        case legacyAPIStableKey:
+            otherModelsStableKey
+        default:
+            stableKey
+        }
+    }
+
+    static func acceptedStableKeys(for stableKey: String) -> Set<String> {
+        switch stableKey {
+        case cursorModelsStableKey:
+            [cursorModelsStableKey, legacyAutoStableKey]
+        case otherModelsStableKey:
+            [otherModelsStableKey, legacyAPIStableKey]
+        default:
+            [stableKey]
+        }
+    }
 
     static func matchesLegacyLabel(_ label: String, stableKey: String) -> Bool {
         let normalizedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
         switch stableKey {
         case totalStableKey:
             return normalizedLabel.caseInsensitiveCompare("Total") == .orderedSame
-        case autoStableKey:
-            return normalizedLabel.caseInsensitiveCompare("Auto") == .orderedSame
-        case apiStableKey:
-            return normalizedLabel.caseInsensitiveCompare("API") == .orderedSame
+        case cursorModelsStableKey:
+            return normalizedLabel.caseInsensitiveCompare("Cursor Models") == .orderedSame
+                || normalizedLabel.caseInsensitiveCompare("Auto") == .orderedSame
+        case otherModelsStableKey:
+            return normalizedLabel.caseInsensitiveCompare("Other Models") == .orderedSame
+                || normalizedLabel.caseInsensitiveCompare("API") == .orderedSame
         case onDemandStableKey:
             return normalizedLabel.lowercased().hasPrefix("on-demand")
         case grokBotWeeklyStableKey:
@@ -245,24 +271,16 @@ public final class CursorUsageProvider: UsageProvider {
         if let plan = usage.planUsage {
             bars.append(contentsOf: [
                 usageBar(
-                    stableKey: CursorUsageIdentity.totalStableKey,
-                    label: "Total",
-                    percent: plan.totalPercentUsed,
-                    reset: reset,
-                    resetDescription: resetDescription,
-                    billingPeriod: billingPeriod
-                ),
-                usageBar(
-                    stableKey: CursorUsageIdentity.autoStableKey,
-                    label: "Auto",
+                    stableKey: CursorUsageIdentity.cursorModelsStableKey,
+                    label: "Cursor Models",
                     percent: plan.autoPercentUsed,
                     reset: reset,
                     resetDescription: resetDescription,
                     billingPeriod: billingPeriod
                 ),
                 usageBar(
-                    stableKey: CursorUsageIdentity.apiStableKey,
-                    label: "API",
+                    stableKey: CursorUsageIdentity.otherModelsStableKey,
+                    label: "Other Models",
                     percent: plan.apiPercentUsed,
                     reset: reset,
                     resetDescription: resetDescription,
@@ -355,7 +373,7 @@ public final class CursorUsageProvider: UsageProvider {
         resetDescription: String?,
         billingPeriod: CursorBillingPeriod?
     ) -> UsageBar? {
-        guard let percent else {
+        guard let percent, percent.isFinite else {
             return nil
         }
 
@@ -399,13 +417,10 @@ public final class CursorUsageProvider: UsageProvider {
 
         var parts = ["Included usage"]
         if let auto = plan.autoPercentUsed {
-            parts.append("Auto \(formatPercent(auto))")
+            parts.append("Cursor Models \(formatPercent(auto))")
         }
         if let api = plan.apiPercentUsed {
-            parts.append("API \(formatPercent(api))")
-        }
-        if parts.count == 1, let total = plan.totalPercentUsed {
-            parts.append("Total \(formatPercent(total))")
+            parts.append("Other Models \(formatPercent(api))")
         }
 
         return parts.joined(separator: " - ")
@@ -491,7 +506,27 @@ private struct CursorBillingPeriod {
 private struct CursorPlanUsage: Decodable {
     let autoPercentUsed: Double?
     let apiPercentUsed: Double?
-    let totalPercentUsed: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case autoPercentUsed
+        case apiPercentUsed
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        autoPercentUsed = Self.decodeFinitePercent(.autoPercentUsed, from: container)
+        apiPercentUsed = Self.decodeFinitePercent(.apiPercentUsed, from: container)
+    }
+
+    private static func decodeFinitePercent(
+        _ key: CodingKeys,
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) -> Double? {
+        guard let value = try? container.decode(Double.self, forKey: key), value.isFinite else {
+            return nil
+        }
+        return value
+    }
 }
 
 private struct CursorSpendLimitUsage: Decodable {

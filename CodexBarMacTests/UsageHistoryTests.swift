@@ -281,7 +281,7 @@ final class UsageHistoryTests: XCTestCase {
     }
 
     @MainActor
-    func testUsageHistoryUsesStableCursorMetricsForFreshEphemeralResult() {
+    func testUsageHistoryMapsLegacyCursorMetricsIntoFreshSemanticSeries() {
         let suiteName = "CodexBarMacTests.HistoryPresentationCursor.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -303,8 +303,8 @@ final class UsageHistoryTests: XCTestCase {
             title: storedResult.title,
             subtitle: "Fresh usage",
             bars: [
-                UsageBar(stableKey: "api", label: "API requests", used: 100, limit: 100),
-                UsageBar(stableKey: "total", label: "Overall plan", used: 43, limit: 100),
+                UsageBar(stableKey: "other-models", label: "Other Models", used: 100, limit: 100),
+                UsageBar(stableKey: "cursor-models", label: "Cursor Models", used: 43, limit: 100),
             ],
             fetchedAt: firstFetch.addingTimeInterval(101 * 60)
         )
@@ -321,14 +321,18 @@ final class UsageHistoryTests: XCTestCase {
         )
 
         let options = store.historySeriesOptions(for: currentResult)
-        XCTAssertEqual(store.historySeries(for: currentResult).points.map(\.value), [0.08, 0.43])
+        XCTAssertEqual(store.historySeries(for: currentResult).points.map(\.value), [0.08, 1])
         XCTAssertEqual(
             options.first(where: { $0.id == "usage.total" })?.series.points.map(\.value),
-            [0.08, 0.43]
+            [0.08]
         )
         XCTAssertEqual(
-            options.first(where: { $0.id == "usage.api" })?.series.points.map(\.value),
+            options.first(where: { $0.id == "usage.other-models" })?.series.points.map(\.value),
             [0.9, 1]
+        )
+        XCTAssertEqual(
+            options.first(where: { $0.id == "usage.cursor-models" })?.series.points.map(\.value),
+            [0.43]
         )
         XCTAssertEqual(store.snapshots.count, 1)
     }
@@ -1956,7 +1960,7 @@ final class UsageHistoryTests: XCTestCase {
     }
 
     @MainActor
-    func testDailyHistoryKeepsStableBarIdentitiesFromSameAccountAndDay() {
+    func testDailyHistoryReplacesLegacyCursorBucketsWithSemanticBuckets() {
         let suiteName = "CodexBarMacTests.HistoryDailyBars.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -1968,7 +1972,8 @@ final class UsageHistoryTests: XCTestCase {
             subtitle: "Initial metrics",
             bars: [
                 UsageBar(stableKey: "total", label: "Total", used: 20, limit: 100),
-                UsageBar(stableKey: "auto", label: "Auto", used: 30, limit: 100),
+                UsageBar(label: "Auto", used: 30, limit: 100),
+                UsageBar(label: "API", used: 50, limit: 100),
             ],
             fetchedAt: firstFetch
         )
@@ -1979,8 +1984,8 @@ final class UsageHistoryTests: XCTestCase {
             title: firstResult.title,
             subtitle: "Updated metrics",
             bars: [
-                UsageBar(stableKey: "total", label: "Overall", used: 40, limit: 100),
-                UsageBar(stableKey: "api", label: "API", used: 80, limit: 100),
+                UsageBar(stableKey: "cursor-models", label: "Cursor Models", used: 40, limit: 100),
+                UsageBar(stableKey: "other-models", label: "Other Models", used: 80, limit: 100),
             ],
             isIncompleteRefresh: true,
             fetchedAt: latestFetch
@@ -1992,11 +1997,11 @@ final class UsageHistoryTests: XCTestCase {
 
         XCTAssertEqual(Set(store.dailySnapshots.compactMap { $0.bars.first?.stableKey }), [
             "total",
-            "auto",
-            "api",
+            "cursor-models",
+            "other-models",
         ])
         XCTAssertEqual(
-            store.dailySnapshots.first(where: { $0.bars.first?.stableKey == "total" })?
+            store.dailySnapshots.first(where: { $0.bars.first?.stableKey == "cursor-models" })?
                 .bars.first?.used,
             40
         )
@@ -2009,17 +2014,16 @@ final class UsageHistoryTests: XCTestCase {
             fetchedAt: latestFetch
         )
         let options = store.historySeriesOptions(for: currentResult)
-        XCTAssertEqual(options.first(where: { $0.id == "usage.total" })?.series.points.map(\.value), [
-            0.2,
+        XCTAssertEqual(options.first(where: { $0.id == "usage.total" })?.series.points.map(\.value), [0.2])
+        XCTAssertEqual(options.first(where: { $0.id == "usage.cursor-models" })?.series.points.map(\.value), [
+            0.3,
             0.4,
         ])
-        XCTAssertEqual(options.first(where: { $0.id == "usage.auto" })?.series.points.map(\.value), [
-            0.3,
-        ])
-        XCTAssertEqual(options.first(where: { $0.id == "usage.api" })?.series.points.map(\.value), [
+        XCTAssertEqual(options.first(where: { $0.id == "usage.other-models" })?.series.points.map(\.value), [
+            0.5,
             0.8,
         ])
-        XCTAssertEqual(store.historySeries(for: currentResult).points.map(\.value), [0.2, 0.4])
+        XCTAssertEqual(store.historySeries(for: currentResult).points.map(\.value), [0.2, 0.8])
     }
 
     @MainActor
@@ -2437,17 +2441,17 @@ final class UsageHistoryTests: XCTestCase {
     }
 
     @MainActor
-    func testCursorHistoryUsesStableTotalAndExposesDistinctMetricSeries() throws {
+    func testCursorHistoryPreservesLegacyTotalAndMapsLegacyModelBuckets() throws {
         let suiteName = "CodexBarMacTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let fetchedAt = Date(timeIntervalSince1970: 1_788_475_200)
-        let result = ProviderUsageResult(
+        let legacyResult = ProviderUsageResult(
             accountID: "cursor.personal",
             providerID: .cursor,
             title: "Cursor",
-            subtitle: "Current",
+            subtitle: "Legacy",
             bars: [
                 UsageBar(stableKey: "total", label: "Total", used: 125, limit: 100),
                 UsageBar(stableKey: "auto", label: "Auto", used: 29, limit: 100),
@@ -2464,53 +2468,61 @@ final class UsageHistoryTests: XCTestCase {
         )
         let store = UsageHistoryStore(defaults: defaults)
 
-        store.record(results: [result], now: fetchedAt)
+        store.record(results: [legacyResult], now: fetchedAt)
 
-        let snapshot = try XCTUnwrap(store.snapshots.first)
-        XCTAssertEqual(snapshot.bars.map(\.stableKey), ["total", "auto", "api", "on-demand", "grok-bot-weekly"])
-        XCTAssertEqual(snapshot.primaryValue, 1.25)
-        XCTAssertEqual(store.historySeries(for: result).points.map(\.value), [1.25])
-        XCTAssertEqual(store.historySeries(for: result).points.map(\.severity), [.critical])
-
-        let options = store.historySeriesOptions(for: result)
-        XCTAssertEqual(options.map(\.id), [
-            "usage.total",
-            "usage.auto",
-            "usage.api",
-            "usage.on-demand",
-            "usage.grok-bot-weekly",
-        ])
-        XCTAssertEqual(options.map(\.label), ["Total", "Auto", "API", "On-demand", "Grok Bot weekly"])
-        XCTAssertEqual(options.map { $0.series.points.map(\.value) }, [
-            [1.25],
-            [0.29],
-            [1.5],
-            [0],
-            [0.38],
-        ])
-
-        let reorderedAndRelabeledResult = ProviderUsageResult(
-            accountID: result.accountID,
-            providerID: result.providerID,
-            title: result.title,
-            subtitle: result.subtitle,
+        let currentResult = ProviderUsageResult(
+            accountID: legacyResult.accountID,
+            providerID: legacyResult.providerID,
+            title: legacyResult.title,
+            subtitle: "Current",
             bars: [
-                UsageBar(stableKey: "api", label: "API requests", used: 100, limit: 100),
-                UsageBar(stableKey: "on-demand", label: "On-demand spend", used: 0, limit: 20),
-                UsageBar(stableKey: "auto", label: "Included Auto", used: 29, limit: 100),
-                UsageBar(stableKey: "total", label: "Overall plan", used: 38, limit: 100),
+                UsageBar(stableKey: "cursor-models", label: "Cursor Models", used: 29, limit: 100),
+                UsageBar(stableKey: "other-models", label: "Other Models", used: 100, limit: 100),
+                UsageBar(
+                    stableKey: "on-demand",
+                    label: "On-demand $0.00 / $20.00",
+                    used: 0,
+                    limit: 20
+                ),
+                UsageBar(stableKey: "grok-bot-weekly", label: "Grok Bot weekly", used: 38, limit: 100),
             ],
             fetchedAt: fetchedAt.addingTimeInterval(60)
         )
 
+        let snapshot = try XCTUnwrap(store.snapshots.first)
+        XCTAssertEqual(snapshot.bars.map(\.stableKey), ["total", "auto", "api", "on-demand", "grok-bot-weekly"])
+        XCTAssertEqual(snapshot.primaryValue, 1.25)
+        XCTAssertEqual(store.historySeries(for: currentResult).points.map(\.value), [1.25, 1])
+        XCTAssertEqual(store.historySeries(for: currentResult).points.map(\.severity), [.critical, .critical])
+
+        let options = store.historySeriesOptions(for: currentResult)
+        XCTAssertEqual(options.map(\.id), [
+            "usage",
+            "usage.total",
+            "usage.cursor-models",
+            "usage.other-models",
+            "usage.on-demand",
+            "usage.grok-bot-weekly",
+        ])
         XCTAssertEqual(
-            store.historySeries(for: reorderedAndRelabeledResult).points.map(\.value),
-            [1.25, 0.38]
+            options.map(\.label),
+            [
+                "Total / highest available",
+                "Total",
+                "Cursor Models",
+                "Other Models",
+                "On-demand",
+                "Grok Bot weekly",
+            ]
         )
-        XCTAssertEqual(
-            store.historySeriesOptions(for: reorderedAndRelabeledResult).map(\.id),
-            options.map(\.id)
-        )
+        XCTAssertEqual(options.map { $0.series.points.map(\.value) }, [
+            [1.25, 1],
+            [1.25],
+            [0.29, 0.29],
+            [1.5, 1],
+            [0, 0],
+            [0.38, 0.38],
+        ])
     }
 
     @MainActor
@@ -2549,7 +2561,7 @@ final class UsageHistoryTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let fetchedAt = Date(timeIntervalSince1970: 1_788_475_200)
-        let result = ProviderUsageResult(
+        let legacyResult = ProviderUsageResult(
             accountID: "cursor.legacy",
             providerID: .cursor,
             title: "Cursor",
@@ -2569,7 +2581,7 @@ final class UsageHistoryTests: XCTestCase {
             fetchedAt: fetchedAt
         )
         let store = UsageHistoryStore(defaults: defaults)
-        store.record(results: [result], now: fetchedAt)
+        store.record(results: [legacyResult], now: fetchedAt)
 
         let encoded = try JSONEncoder().encode(store.snapshots)
         var payload = try XCTUnwrap(
@@ -2591,21 +2603,35 @@ final class UsageHistoryTests: XCTestCase {
             reloadedBars.first(where: { $0.label == "API" })?.effectiveSeverity,
             .critical
         )
-        XCTAssertEqual(reloadedStore.historySeries(for: result).points.map(\.value), [0.38])
+        let currentResult = ProviderUsageResult(
+            accountID: legacyResult.accountID,
+            providerID: legacyResult.providerID,
+            title: legacyResult.title,
+            subtitle: "Current",
+            bars: [
+                UsageBar(stableKey: "cursor-models", label: "Cursor Models", used: 50, limit: 100),
+                UsageBar(stableKey: "other-models", label: "Other Models", used: 20, limit: 100),
+                UsageBar(stableKey: "on-demand", label: "On-demand", used: 0, limit: 20),
+            ],
+            fetchedAt: fetchedAt.addingTimeInterval(60)
+        )
+        XCTAssertEqual(reloadedStore.historySeries(for: currentResult).points.map(\.value), [0.38, 0.5])
 
-        let options = reloadedStore.historySeriesOptions(for: result)
+        let options = reloadedStore.historySeriesOptions(for: currentResult)
         XCTAssertEqual(options.map(\.id), [
+            "usage",
             "usage.total",
-            "usage.auto",
-            "usage.api",
+            "usage.cursor-models",
+            "usage.other-models",
             "usage.on-demand",
         ])
         XCTAssertNil(options.first(where: { $0.id == "usage.unknown" }))
         XCTAssertEqual(options.map { $0.series.points.map(\.value) }, [
+            [0.38, 0.5],
             [0.38],
-            [0.29],
-            [1],
-            [0],
+            [0.29, 0.5],
+            [1, 0.2],
+            [0, 0],
         ])
     }
 

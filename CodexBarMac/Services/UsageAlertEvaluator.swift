@@ -47,6 +47,7 @@ public struct UsageAlertEvaluation: Equatable, Sendable {
 
 public enum UsageAlertEvaluator {
     private static let codexAdditionalResetJitterToleranceSeconds = 10.0
+    private static let cursorResetJitterToleranceSeconds = 10.0
     public static func activeAlertIDs(
         _ activeAlertIDs: Set<String>,
         belongingTo preservedAccountIDs: Set<String>,
@@ -116,7 +117,8 @@ public enum UsageAlertEvaluator {
                     alertID,
                     result: result,
                     bar: bar,
-                    activeAlertIDs: activeAlertIDs
+                    activeAlertIDs: activeAlertIDs,
+                    now: now
                 ) else {
                     continue
                 }
@@ -363,10 +365,27 @@ public enum UsageAlertEvaluator {
         _ alertID: String,
         result: ProviderUsageResult,
         bar: UsageBar,
-        activeAlertIDs: Set<String>
+        activeAlertIDs: Set<String>,
+        now: Date
     ) -> Bool {
         if activeAlertIDs.contains(alertID) {
             return true
+        }
+        if result.providerID == .cursor,
+           let metricStableKey = bar.stableKey {
+            let legacyKeys = CursorUsageIdentity.acceptedStableKeys(for: metricStableKey)
+                .subtracting([metricStableKey])
+            if legacyKeys.contains(where: { legacyStableKey in
+                legacyCursorAlertWasActive(
+                    stableKey: legacyStableKey,
+                    accountID: result.accountID,
+                    resetsAt: bar.resetsAt,
+                    activeAlertIDs: activeAlertIDs,
+                    now: now
+                )
+            }) {
+                return true
+            }
         }
         if result.providerID == .codex,
            let metricStableKey = bar.stableKey,
@@ -437,6 +456,33 @@ public enum UsageAlertEvaluator {
             legacyAlertID = "usage.\(result.accountID).\(legacyComponent)"
         }
         return activeAlertIDs.contains(legacyAlertID)
+    }
+
+    private static func legacyCursorAlertWasActive(
+        stableKey: String,
+        accountID: String,
+        resetsAt: Date?,
+        activeAlertIDs: Set<String>,
+        now: Date
+    ) -> Bool {
+        let prefix = "usage.\(accountID).\(normalizedKeyComponent(stableKey))"
+        if activeAlertIDs.contains(prefix) {
+            return true
+        }
+        if let resetsAt {
+            return containsActiveResetID(
+                prefix: "\(prefix).",
+                resetsAt: resetsAt,
+                activeAlertIDs: activeAlertIDs,
+                tolerance: cursorResetJitterToleranceSeconds
+            )
+        }
+        let resetPrefix = "\(prefix)."
+        let nowEpoch = Int(now.timeIntervalSince1970)
+        return activeAlertIDs.contains { activeID in
+            activeID.hasPrefix(resetPrefix)
+                && Int(activeID.dropFirst(resetPrefix.count)).map { $0 > nowEpoch } == true
+        }
     }
 
     private static func containsActiveResetID(
