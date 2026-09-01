@@ -117,7 +117,8 @@ public enum UsageAlertEvaluator {
                     alertID,
                     result: result,
                     bar: bar,
-                    activeAlertIDs: activeAlertIDs
+                    activeAlertIDs: activeAlertIDs,
+                    now: now
                 ) else {
                     continue
                 }
@@ -364,7 +365,8 @@ public enum UsageAlertEvaluator {
         _ alertID: String,
         result: ProviderUsageResult,
         bar: UsageBar,
-        activeAlertIDs: Set<String>
+        activeAlertIDs: Set<String>,
+        now: Date
     ) -> Bool {
         if activeAlertIDs.contains(alertID) {
             return true
@@ -378,7 +380,8 @@ public enum UsageAlertEvaluator {
                     stableKey: legacyStableKey,
                     accountID: result.accountID,
                     resetsAt: bar.resetsAt,
-                    activeAlertIDs: activeAlertIDs
+                    activeAlertIDs: activeAlertIDs,
+                    now: now
                 )
             }) {
                 return true
@@ -459,7 +462,8 @@ public enum UsageAlertEvaluator {
         stableKey: String,
         accountID: String,
         resetsAt: Date?,
-        activeAlertIDs: Set<String>
+        activeAlertIDs: Set<String>,
+        now: Date
     ) -> Bool {
         let prefix = "usage.\(accountID).\(normalizedKeyComponent(stableKey))"
         if activeAlertIDs.contains(prefix) {
@@ -474,9 +478,10 @@ public enum UsageAlertEvaluator {
             )
         }
         let resetPrefix = "\(prefix)."
+        let nowEpoch = Int(now.timeIntervalSince1970)
         return activeAlertIDs.contains { activeID in
             activeID.hasPrefix(resetPrefix)
-                && Int(activeID.dropFirst(resetPrefix.count)) != nil
+                && Int(activeID.dropFirst(resetPrefix.count)).map { $0 > nowEpoch } == true
         }
     }
 
