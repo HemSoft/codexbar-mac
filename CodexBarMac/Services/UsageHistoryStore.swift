@@ -202,7 +202,7 @@ public struct UsageHistorySnapshot: Identifiable, Equatable, Codable, Sendable {
         self.subtitle = snapshot.subtitle
         self.capturedAt = snapshot.capturedAt
         switch component {
-        case let .bar(bar):
+        case let .bar(bar, _):
             self.bars = [bar]
             self.creditsRemaining = nil
             self.monetaryMetrics = nil
@@ -354,14 +354,14 @@ public struct UsageHistoryPoint: Identifiable, Equatable, Sendable {
 }
 
 enum DailyUsageHistoryComponent {
-    case bar(UsageHistoryBarSnapshot)
+    case bar(UsageHistoryBarSnapshot, providerID: ProviderID)
     case credits
     case monetaryMetric(UsageHistoryMonetaryMetricSnapshot)
 
     var id: String {
         switch self {
-        case let .bar(bar):
-            "bar.\(Self.barIdentity(bar))"
+        case let .bar(bar, providerID):
+            "bar.\(Self.barIdentity(bar, providerID: providerID))"
         case .credits:
             "credits"
         case let .monetaryMetric(metric):
@@ -369,8 +369,16 @@ enum DailyUsageHistoryComponent {
         }
     }
 
-    static func barIdentity(_ bar: UsageHistoryBarSnapshot) -> String {
-        bar.stableKey ?? "legacy.\(bar.label.lowercased())"
+    static func barIdentity(
+        _ bar: UsageHistoryBarSnapshot,
+        providerID: ProviderID
+    ) -> String {
+        guard let stableKey = bar.stableKey else {
+            return "legacy.\(bar.label.lowercased())"
+        }
+        return providerID == .cursor
+            ? CursorUsageIdentity.canonicalStableKey(stableKey)
+            : stableKey
     }
 }
 
@@ -954,12 +962,7 @@ public final class UsageHistoryStore: ObservableObject {
         in snapshot: UsageHistorySnapshot
     ) -> UsageHistoryBarSnapshot? {
         snapshot.bars.first(where: {
-            $0.stableKey == CursorUsageIdentity.totalStableKey
-                || ($0.stableKey == nil
-                    && CursorUsageIdentity.matchesLegacyLabel(
-                        $0.label,
-                        stableKey: CursorUsageIdentity.totalStableKey
-                    ))
+            Self.matchesCursorBar($0, stableKey: CursorUsageIdentity.totalStableKey)
         }) ?? snapshot.bars.max(by: { $0.historyFractionUsed < $1.historyFractionUsed })
     }
 
@@ -972,12 +975,7 @@ public final class UsageHistoryStore: ObservableObject {
             accountID: accountID,
             points: snapshots.compactMap { snapshot in
                 snapshot.bars.first(where: {
-                    $0.stableKey == stableKey
-                        || ($0.stableKey == nil
-                            && CursorUsageIdentity.matchesLegacyLabel(
-                                $0.label,
-                                stableKey: stableKey
-                            ))
+                    Self.matchesCursorBar($0, stableKey: stableKey)
                 }).map {
                     UsageHistoryPoint(
                         id: snapshot.id,
@@ -989,6 +987,16 @@ public final class UsageHistoryStore: ObservableObject {
             },
             isBalance: false
         )
+    }
+
+    private static func matchesCursorBar(
+        _ bar: UsageHistoryBarSnapshot,
+        stableKey: String
+    ) -> Bool {
+        if let storedStableKey = bar.stableKey {
+            return CursorUsageIdentity.acceptedStableKeys(for: stableKey).contains(storedStableKey)
+        }
+        return CursorUsageIdentity.matchesLegacyLabel(bar.label, stableKey: stableKey)
     }
 
     private func cursorPrimaryUsageSeries(
@@ -1029,15 +1037,13 @@ public final class UsageHistoryStore: ObservableObject {
     ) -> [UsageHistorySeriesOption] {
         let metricOptions: [UsageHistorySeriesOption] =
             CursorUsageIdentity.metricDefinitions.compactMap { stableKey, label in
-                let isAvailable = currentBars.contains(where: { $0.stableKey == stableKey })
+                let acceptedStableKeys = CursorUsageIdentity.acceptedStableKeys(for: stableKey)
+                let isAvailable = currentBars.contains(where: {
+                    $0.stableKey.map(acceptedStableKeys.contains) == true
+                })
                     || snapshots.contains(where: { snapshot in
                         snapshot.bars.contains(where: {
-                            $0.stableKey == stableKey
-                                || ($0.stableKey == nil
-                                    && CursorUsageIdentity.matchesLegacyLabel(
-                                        $0.label,
-                                        stableKey: stableKey
-                                    ))
+                            Self.matchesCursorBar($0, stableKey: stableKey)
                         })
                     })
                 guard isAvailable else {
@@ -1196,7 +1202,9 @@ public final class UsageHistoryStore: ObservableObject {
     }
 
     private func updateDailySnapshots(from snapshot: UsageHistorySnapshot) {
-        var components = snapshot.bars.map(DailyUsageHistoryComponent.bar)
+        var components = snapshot.bars.map {
+            DailyUsageHistoryComponent.bar($0, providerID: snapshot.providerID)
+        }
         if snapshot.creditsRemaining != nil {
             components.append(.credits)
         }
@@ -1237,7 +1245,11 @@ public final class UsageHistoryStore: ObservableObject {
 
     private static func dailyComponentID(for snapshot: UsageHistorySnapshot) -> String {
         if let bar = snapshot.bars.first {
-            return "bar.\(DailyUsageHistoryComponent.barIdentity(bar))"
+            let identity = DailyUsageHistoryComponent.barIdentity(
+                bar,
+                providerID: snapshot.providerID
+            )
+            return "bar.\(identity)"
         }
         if snapshot.creditsRemaining != nil {
             return "credits"
