@@ -202,6 +202,53 @@ final class UsageAlertTests: XCTestCase {
         XCTAssertEqual(repeated.activeAlertIDs, ["usage.cursor.main.on-demand"])
     }
 
+    func testUsageAlertEvaluatorMigratesLegacyCursorModelAlertIdentities() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "cursor.main",
+            providerID: .cursor,
+            title: "Cursor",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "cursor-models",
+                    label: "Cursor Models",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+                UsageBar(
+                    stableKey: "other-models",
+                    label: "Other Models",
+                    used: 95,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 1_893_369_600)
+        )
+        let legacyAlertIDs: Set<String> = [
+            "usage.cursor.main.auto.1893456000",
+            "usage.cursor.main.api.1893456000",
+        ]
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: legacyAlertIDs
+        )
+
+        XCTAssertTrue(evaluation.notifications.isEmpty)
+        XCTAssertEqual(evaluation.activeAlertIDs, [
+            "usage.cursor.main.cursor-models.1893456000",
+            "usage.cursor.main.other-models.1893456000",
+        ])
+    }
+
     func testUsageAlertEvaluatorDeduplicatesBarsWithSameStableKey() {
         let result = ProviderUsageResult(
             accountID: "cursor.main",

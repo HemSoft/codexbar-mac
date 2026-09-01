@@ -368,6 +368,21 @@ public enum UsageAlertEvaluator {
         if activeAlertIDs.contains(alertID) {
             return true
         }
+        if result.providerID == .cursor,
+           let metricStableKey = bar.stableKey {
+            let legacyAlertIDs = CursorUsageIdentity.acceptedStableKeys(for: metricStableKey)
+                .subtracting([metricStableKey])
+                .map { legacyStableKey in
+                    let prefix = "usage.\(result.accountID).\(normalizedKeyComponent(legacyStableKey))"
+                    if let resetsAt = bar.resetsAt {
+                        return "\(prefix).\(Int(resetsAt.timeIntervalSince1970))"
+                    }
+                    return prefix
+                }
+            if !activeAlertIDs.isDisjoint(with: legacyAlertIDs) {
+                return true
+            }
+        }
         if result.providerID == .codex,
            let metricStableKey = bar.stableKey,
            let alternateRoleStableKey = alternateCodexArrayRoleStableKey(metricStableKey),
