@@ -374,6 +374,12 @@ enum DailyUsageHistoryComponent {
         providerID: ProviderID
     ) -> String {
         guard let stableKey = bar.stableKey else {
+            if providerID == .cursor,
+               let definition = CursorUsageIdentity.metricDefinitions.first(where: {
+                   CursorUsageIdentity.matchesLegacyLabel(bar.label, stableKey: $0.stableKey)
+               }) {
+                return definition.stableKey
+            }
             return "legacy.\(bar.label.lowercased())"
         }
         return providerID == .cursor

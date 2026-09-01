@@ -1972,7 +1972,8 @@ final class UsageHistoryTests: XCTestCase {
             subtitle: "Initial metrics",
             bars: [
                 UsageBar(stableKey: "total", label: "Total", used: 20, limit: 100),
-                UsageBar(stableKey: "auto", label: "Auto", used: 30, limit: 100),
+                UsageBar(label: "Auto", used: 30, limit: 100),
+                UsageBar(label: "API", used: 50, limit: 100),
             ],
             fetchedAt: firstFetch
         )
@@ -2019,6 +2020,7 @@ final class UsageHistoryTests: XCTestCase {
             0.4,
         ])
         XCTAssertEqual(options.first(where: { $0.id == "usage.other-models" })?.series.points.map(\.value), [
+            0.5,
             0.8,
         ])
         XCTAssertEqual(store.historySeries(for: currentResult).points.map(\.value), [0.2, 0.8])
