@@ -47,6 +47,7 @@ public struct UsageAlertEvaluation: Equatable, Sendable {
 
 public enum UsageAlertEvaluator {
     private static let codexAdditionalResetJitterToleranceSeconds = 10.0
+    private static let cursorResetJitterToleranceSeconds = 10.0
     public static func activeAlertIDs(
         _ activeAlertIDs: Set<String>,
         belongingTo preservedAccountIDs: Set<String>,
@@ -370,16 +371,16 @@ public enum UsageAlertEvaluator {
         }
         if result.providerID == .cursor,
            let metricStableKey = bar.stableKey {
-            let legacyAlertIDs = CursorUsageIdentity.acceptedStableKeys(for: metricStableKey)
+            let legacyKeys = CursorUsageIdentity.acceptedStableKeys(for: metricStableKey)
                 .subtracting([metricStableKey])
-                .map { legacyStableKey in
-                    let prefix = "usage.\(result.accountID).\(normalizedKeyComponent(legacyStableKey))"
-                    if let resetsAt = bar.resetsAt {
-                        return "\(prefix).\(Int(resetsAt.timeIntervalSince1970))"
-                    }
-                    return prefix
-                }
-            if !activeAlertIDs.isDisjoint(with: legacyAlertIDs) {
+            if legacyKeys.contains(where: { legacyStableKey in
+                legacyCursorAlertWasActive(
+                    stableKey: legacyStableKey,
+                    accountID: result.accountID,
+                    resetsAt: bar.resetsAt,
+                    activeAlertIDs: activeAlertIDs
+                )
+            }) {
                 return true
             }
         }
@@ -452,6 +453,31 @@ public enum UsageAlertEvaluator {
             legacyAlertID = "usage.\(result.accountID).\(legacyComponent)"
         }
         return activeAlertIDs.contains(legacyAlertID)
+    }
+
+    private static func legacyCursorAlertWasActive(
+        stableKey: String,
+        accountID: String,
+        resetsAt: Date?,
+        activeAlertIDs: Set<String>
+    ) -> Bool {
+        let prefix = "usage.\(accountID).\(normalizedKeyComponent(stableKey))"
+        if activeAlertIDs.contains(prefix) {
+            return true
+        }
+        if let resetsAt {
+            return containsActiveResetID(
+                prefix: "\(prefix).",
+                resetsAt: resetsAt,
+                activeAlertIDs: activeAlertIDs,
+                tolerance: cursorResetJitterToleranceSeconds
+            )
+        }
+        let resetPrefix = "\(prefix)."
+        return activeAlertIDs.contains { activeID in
+            activeID.hasPrefix(resetPrefix)
+                && Int(activeID.dropFirst(resetPrefix.count)) != nil
+        }
     }
 
     private static func containsActiveResetID(
