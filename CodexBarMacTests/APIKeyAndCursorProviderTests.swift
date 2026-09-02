@@ -687,8 +687,8 @@ final class APIKeyAndCursorProviderTests: XCTestCase {
         XCTAssertEqual(projectionCurrent[0], 1.374, accuracy: 0.000_001)
         XCTAssertEqual(projectionCurrent[1], 1.18, accuracy: 0.000_001)
         XCTAssertEqual(
-            result.cardInformationSections.first?.items.map(\.detail),
-            ["137%", "118%"]
+            result.subtitle,
+            "Included usage - Cursor Models 137% - Other Models 118%"
         )
 
         let historySnapshot = UsageHistorySnapshot(result: result)
