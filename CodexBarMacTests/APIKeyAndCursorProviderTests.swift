@@ -660,6 +660,46 @@ final class APIKeyAndCursorProviderTests: XCTestCase {
         ))
     }
 
+    func testCursorUsageParserPreservesOverLimitModelBuckets() throws {
+        let fetchedAt = Date(timeIntervalSince1970: 1_783_667_520)
+        let payload = """
+        {
+          "billingCycleStart": "1783036800000",
+          "billingCycleEnd": "1784332800000",
+          "planUsage": {
+            "autoPercentUsed": 137.4,
+            "apiPercentUsed": 118
+          }
+        }
+        """
+
+        let result = try XCTUnwrap(CursorUsageProvider.parseUsage(
+            Data(payload.utf8),
+            configuration: .defaultConfiguration(for: .cursor),
+            fetchedAt: fetchedAt
+        ))
+
+        XCTAssertEqual(result.bars.map(\.used), [137.4, 118])
+        XCTAssertEqual(result.bars.map(\.usageText), ["137%", "118%"])
+        XCTAssertEqual(result.bars.map(\.fractionUsed), [1, 1])
+        let projectionCurrent = result.bars.compactMap(\.projectionCurrent)
+        XCTAssertEqual(projectionCurrent.count, 2)
+        XCTAssertEqual(projectionCurrent[0], 1.374, accuracy: 0.000_001)
+        XCTAssertEqual(projectionCurrent[1], 1.18, accuracy: 0.000_001)
+        XCTAssertEqual(
+            result.subtitle,
+            "Included usage - Cursor Models 137% - Other Models 118%"
+        )
+
+        let historySnapshot = UsageHistorySnapshot(result: result)
+        XCTAssertEqual(historySnapshot.bars.map(\.used), [137.4, 118])
+        XCTAssertEqual(
+            try XCTUnwrap(historySnapshot.primaryValue),
+            1.374,
+            accuracy: 0.000_001
+        )
+    }
+
     func testCursorUsageParserHandlesIndependentMissingBoundaryAndMalformedBuckets() throws {
         let fixtures: [(payload: String, labels: [String], usage: [String])] = [
             (
@@ -676,6 +716,11 @@ final class APIKeyAndCursorProviderTests: XCTestCase {
                 #"{"planUsage":{"autoPercentUsed":"invalid","apiPercentUsed":24}}"#,
                 ["Other Models"],
                 ["24%"]
+            ),
+            (
+                #"{"planUsage":{"autoPercentUsed":-5,"apiPercentUsed":1e100}}"#,
+                ["Cursor Models"],
+                ["0%"]
             ),
         ]
 

@@ -57,6 +57,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Cursor Models and Other Models now preserve usage above 100% in dashboard,
+  projection, and History values while keeping gauges visually capped at full.
+  ([#187](https://github.com/HemSoft/codexbar-mac/issues/187))
 - History now records fresh usage or balance components from partial provider
   refreshes without timestamping cached components as newly fetched.
   ([#183](https://github.com/HemSoft/codexbar-mac/issues/183))

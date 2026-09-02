@@ -377,7 +377,7 @@ public final class CursorUsageProvider: UsageProvider {
             return nil
         }
 
-        let usedPercent = min(max(percent, 0), 100)
+        let usedPercent = max(percent, 0)
         return UsageBar(
             stableKey: stableKey,
             label: label,
@@ -457,7 +457,7 @@ public final class CursorUsageProvider: UsageProvider {
     }
 
     private static func formatPercent(_ value: Double) -> String {
-        "\(Int(min(max(value, 0), 100).rounded()))%"
+        "\(Int(max(value, 0).rounded()))%"
     }
 
     private static func formatCents(_ cents: Double) -> String {
@@ -522,7 +522,11 @@ private struct CursorPlanUsage: Decodable {
         _ key: CodingKeys,
         from container: KeyedDecodingContainer<CodingKeys>
     ) -> Double? {
-        guard let value = try? container.decode(Double.self, forKey: key), value.isFinite else {
+        guard
+            let value = try? container.decode(Double.self, forKey: key),
+            value.isFinite,
+            Int(exactly: max(value, 0).rounded()) != nil
+        else {
             return nil
         }
         return value
