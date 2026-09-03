@@ -520,10 +520,24 @@ struct ProviderSettingsView: View {
     }
 
     var metricsEmptyStateMessage: String {
-        guard usageResult != nil else {
-            return configuration.isEnabled
+        Self.metricsEmptyStateMessage(
+            for: usageResult,
+            isAccountEnabled: configuration.isEnabled
+        )
+    }
+
+    static func metricsEmptyStateMessage(
+        for result: ProviderUsageResult?,
+        isAccountEnabled: Bool
+    ) -> String {
+        guard let result else {
+            return isAccountEnabled
                 ? "No metrics discovered yet. Refresh this account to load its dashboard metrics."
                 : "Enable this account to discover its dashboard metrics."
+        }
+        if result.isIncompleteRefresh {
+            return "Could not discover dashboard metrics (\(result.subtitle)). "
+                + "Select Refresh Metrics to try again."
         }
         return "This account has no configurable dashboard metrics."
     }

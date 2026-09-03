@@ -222,6 +222,43 @@ final class DashboardTests: XCTestCase {
     }
 
     @MainActor
+    func testMetricDiscoveryFailurePromptsRetryInsteadOfReportingNoMetrics() {
+        let failedResult = ProviderUsageResult(
+            accountID: "codex.work",
+            providerID: .codex,
+            title: "Work Codex",
+            subtitle: "Request timed out",
+            bars: [],
+            isIncompleteRefresh: true,
+            fetchedAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+        let completedEmptyResult = ProviderUsageResult(
+            accountID: "codex.work",
+            providerID: .codex,
+            title: "Work Codex",
+            subtitle: "Live",
+            bars: [],
+            fetchedAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+
+        XCTAssertEqual(
+            ProviderSettingsView.metricsEmptyStateMessage(
+                for: failedResult,
+                isAccountEnabled: true
+            ),
+            "Could not discover dashboard metrics (Request timed out). "
+                + "Select Refresh Metrics to try again."
+        )
+        XCTAssertEqual(
+            ProviderSettingsView.metricsEmptyStateMessage(
+                for: completedEmptyResult,
+                isAccountEnabled: true
+            ),
+            "This account has no configurable dashboard metrics."
+        )
+    }
+
+    @MainActor
     func testAllHiddenStableBarsLeaveCardStateAndOtherContentAvailable() {
         let bars = [
             UsageBar(stableKey: "five-hour", label: "5-hour", used: 95, limit: 100),
