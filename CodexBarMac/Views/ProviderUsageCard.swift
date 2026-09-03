@@ -47,8 +47,8 @@ struct ProviderUsageCard: View {
                     .fill(cardSeverity.tint)
                     .frame(width: 10 * dashboardTextScale, height: 10 * dashboardTextScale)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(hiddenAlertAccessibilityLabel)
-                    .accessibilityHidden(hiddenAlerts.isEmpty)
+                    .accessibilityLabel(cardSeverityAccessibilityLabel)
+                    .accessibilityHidden(!showsCardSeverityAccessibility)
             }
 
             if showsAlertSummary {
@@ -203,6 +203,26 @@ struct ProviderUsageCard: View {
         hiddenAlerts
             .map { "\($0.title). \($0.message)" }
             .joined(separator: " ")
+    }
+
+    var showsCardSeverityAccessibility: Bool {
+        cardSeverity != .normal
+    }
+
+    var cardSeverityAccessibilityLabel: String {
+        let severityName = switch cardSeverity {
+        case .normal:
+            "Normal"
+        case .warning:
+            "Warning"
+        case .critical:
+            "Critical"
+        }
+        let status = "\(result.title) \(severityName) status."
+        guard !hiddenAlertAccessibilityLabel.isEmpty else {
+            return status
+        }
+        return "\(status) \(hiddenAlertAccessibilityLabel)"
     }
 
     private var statusColor: Color {

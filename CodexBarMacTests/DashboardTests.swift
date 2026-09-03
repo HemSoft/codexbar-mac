@@ -256,6 +256,25 @@ final class DashboardTests: XCTestCase {
             ),
             "This account has no configurable dashboard metrics."
         )
+
+        let failedCachedResult = ProviderUsageResult(
+            accountID: "codex.work",
+            providerID: .codex,
+            title: "Work Codex",
+            subtitle: "Request timed out",
+            bars: [UsageBar(stableKey: "weekly", label: "Weekly", used: 40, limit: 100)],
+            isIncompleteRefresh: true,
+            fetchedAt: Date(timeIntervalSince1970: 2_000_000_060)
+        )
+        XCTAssertEqual(
+            ProviderSettingsView.dashboardMetrics(from: failedCachedResult).map(\.id),
+            ["weekly"]
+        )
+        XCTAssertEqual(
+            ProviderSettingsView.metricsRefreshFailureMessage(for: failedCachedResult),
+            "Could not discover dashboard metrics (Request timed out). "
+                + "Select Refresh Metrics to try again."
+        )
     }
 
     @MainActor
@@ -316,6 +335,30 @@ final class DashboardTests: XCTestCase {
         )
 
         XCTAssertEqual(card.visibleBars, [unkeyed])
+    }
+
+    @MainActor
+    func testHiddenNonCodexMetricRetainsAccessibleCardSeverity() {
+        let result = ProviderUsageResult(
+            accountID: "claude.personal",
+            providerID: .claude,
+            title: "Claude",
+            subtitle: "Live",
+            bars: [UsageBar(stableKey: "weekly", label: "Weekly", used: 95, limit: 100)],
+            fetchedAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+        let card = ProviderUsageCard(
+            result: result,
+            historyOptions: [],
+            alerts: [],
+            isHistoryEnabled: false,
+            hiddenMetricKeys: ["weekly"]
+        )
+
+        XCTAssertTrue(card.visibleBars.isEmpty)
+        XCTAssertEqual(card.cardSeverity, .critical)
+        XCTAssertTrue(card.showsCardSeverityAccessibility)
+        XCTAssertEqual(card.cardSeverityAccessibilityLabel, "Claude Critical status.")
     }
 
 }

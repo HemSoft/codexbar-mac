@@ -218,7 +218,13 @@ struct ProviderSettingsView: View {
             }
 
             Section("Metrics") {
-                if dashboardMetrics.isEmpty {
+                if let metricsRefreshFailureMessage {
+                    Text(metricsRefreshFailureMessage)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("account-metrics-refresh-error")
+                }
+
+                if dashboardMetrics.isEmpty, metricsRefreshFailureMessage == nil {
                     Text(metricsEmptyStateMessage)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("account-metrics-empty-state")
@@ -526,6 +532,18 @@ struct ProviderSettingsView: View {
         )
     }
 
+    var metricsRefreshFailureMessage: String? {
+        Self.metricsRefreshFailureMessage(for: usageResult)
+    }
+
+    static func metricsRefreshFailureMessage(for result: ProviderUsageResult?) -> String? {
+        guard let result, result.isIncompleteRefresh else {
+            return nil
+        }
+        return "Could not discover dashboard metrics (\(result.subtitle)). "
+            + "Select Refresh Metrics to try again."
+    }
+
     static func metricsEmptyStateMessage(
         for result: ProviderUsageResult?,
         isAccountEnabled: Bool
@@ -536,8 +554,7 @@ struct ProviderSettingsView: View {
                 : "Enable this account to discover its dashboard metrics."
         }
         if result.isIncompleteRefresh {
-            return "Could not discover dashboard metrics (\(result.subtitle)). "
-                + "Select Refresh Metrics to try again."
+            return metricsRefreshFailureMessage(for: result) ?? "Metric discovery failed."
         }
         return "This account has no configurable dashboard metrics."
     }
