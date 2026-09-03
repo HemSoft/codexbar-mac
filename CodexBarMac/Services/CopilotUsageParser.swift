@@ -13,11 +13,23 @@ public enum CopilotUsageParser {
         if let premium = response.quotaSnapshots?.premiumInteractions,
            shouldIncludePremiumSnapshot(response: response, snapshot: premium) {
             let label = premiumInteractionsLabel(response: response, snapshot: premium)
-            bars.append(makeUsageBar(snapshot: premium, label: label, reset: reset, fetchedAt: fetchedAt))
+            bars.append(makeUsageBar(
+                snapshot: premium,
+                stableKey: "premium-interactions",
+                label: label,
+                reset: reset,
+                fetchedAt: fetchedAt
+            ))
         }
 
         if let chat = response.quotaSnapshots?.chat, !chat.unlimited, chat.entitlement > 0 {
-            bars.append(makeUsageBar(snapshot: chat, label: "Chat", reset: reset, fetchedAt: fetchedAt))
+            bars.append(makeUsageBar(
+                snapshot: chat,
+                stableKey: "chat",
+                label: "Chat",
+                reset: reset,
+                fetchedAt: fetchedAt
+            ))
         }
 
         return ProviderUsageResult(
@@ -57,12 +69,14 @@ public enum CopilotUsageParser {
 
     private static func makeUsageBar(
         snapshot: CopilotQuotaSnapshot,
+        stableKey: String,
         label: String,
         reset: CopilotReset,
         fetchedAt: Date
     ) -> UsageBar {
         if snapshot.unlimited && snapshot.hasQuota == false {
             return UsageBar(
+                stableKey: stableKey,
                 label: "\(label) - pool exhausted",
                 used: 1,
                 limit: 1,
@@ -73,6 +87,7 @@ public enum CopilotUsageParser {
 
         guard snapshot.entitlement > 0 else {
             return UsageBar(
+                stableKey: stableKey,
                 label: snapshot.unlimited ? "\(label) - unlimited" : "\(label) - no quota",
                 used: 0,
                 limit: 0,
@@ -85,6 +100,7 @@ public enum CopilotUsageParser {
         let formattedLabel = "\(label) (\(formatNumber(used)) / \(formatNumber(snapshot.entitlement)))"
         let projectionPeriod = monthlyProjectionPeriod(resetDate: reset.date, fetchedAt: fetchedAt)
         return UsageBar(
+            stableKey: stableKey,
             label: formattedLabel,
             used: Double(used),
             limit: Double(snapshot.entitlement),
@@ -280,6 +296,7 @@ public enum CopilotBillingUsageParser {
                 : nil
             return [
                 UsageBar(
+                    stableKey: "ai-credits",
                     label: "AI credits used (\(CopilotUsageParser.formatDecimalNumber(consumed)))",
                     used: consumed,
                     limit: 0,
@@ -295,6 +312,7 @@ public enum CopilotBillingUsageParser {
 
         return [
             UsageBar(
+                stableKey: "ai-credits",
                 label: "Current AI credits (\(CopilotUsageParser.formatDecimalNumber(consumed)) / \(CopilotUsageParser.formatDecimalNumber(total)))",
                 used: consumed,
                 limit: total,
