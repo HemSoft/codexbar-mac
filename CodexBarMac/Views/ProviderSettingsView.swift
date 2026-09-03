@@ -1,5 +1,10 @@
 import SwiftUI
 
+struct DashboardMetricOption: Identifiable, Equatable {
+    let id: String
+    let label: String
+}
+
 @MainActor
 enum CredentialMutationFlow {
     static func canSaveOpenCodeSettings(
@@ -67,6 +72,7 @@ enum CredentialMutationFlow {
 struct ProviderSettingsView: View {
     @ObservedObject var configurationStore: ProviderConfigurationStore
     let accountID: String
+    let initialUsageResult: ProviderUsageResult?
     var onAccountsInvalidated: @MainActor () -> Void = {}
     var onAccountRefreshRequested: @MainActor () async -> Void = {}
     var onCredentialInvalidated: @MainActor () -> Void = {}
@@ -91,6 +97,8 @@ struct ProviderSettingsView: View {
     @State private var isRefreshingOpenCode = false
     @State private var openCodeCredentialMessage: String?
     @State private var copilotAllotmentText = ""
+    @State private var usageResult: ProviderUsageResult?
+    @State private var isRefreshingMetrics = false
 #if canImport(AuthenticationServices) && canImport(AppKit)
     @State private var webAuthPresenter = ProviderWebAuthenticationPresenter()
 #endif
@@ -103,6 +111,7 @@ struct ProviderSettingsView: View {
     init(
         configurationStore: ProviderConfigurationStore,
         accountID: String,
+        initialUsageResult: ProviderUsageResult? = nil,
         onAccountsInvalidated: @escaping @MainActor () -> Void = {},
         onAccountRefreshRequested: @escaping @MainActor () async -> Void = {},
         onCredentialInvalidated: @escaping @MainActor () -> Void = {},
@@ -111,6 +120,7 @@ struct ProviderSettingsView: View {
     ) {
         self.configurationStore = configurationStore
         self.accountID = accountID
+        self.initialUsageResult = initialUsageResult
         self.onAccountsInvalidated = onAccountsInvalidated
         self.onAccountRefreshRequested = onAccountRefreshRequested
         self.onCredentialInvalidated = onCredentialInvalidated
@@ -121,6 +131,7 @@ struct ProviderSettingsView: View {
                 ?? ProviderID(rawValue: accountID).map(ProviderAccountConfiguration.defaultConfiguration)
                 ?? .defaultConfiguration(for: .codex)
         )
+        self._usageResult = State(initialValue: initialUsageResult)
     }
 
     var body: some View {
@@ -206,6 +217,42 @@ struct ProviderSettingsView: View {
                 }
             }
 
+            Section("Metrics") {
+                if dashboardMetrics.isEmpty {
+                    Text(metricsEmptyStateMessage)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("account-metrics-empty-state")
+                } else {
+                    ForEach(dashboardMetrics) { metric in
+                        Toggle(
+                            metric.label,
+                            isOn: Binding(
+                                get: { configuration.isDashboardMetricVisible(stableKey: metric.id) },
+                                set: { setMetricVisibility($0, stableKey: metric.id) }
+                            )
+                        )
+                        .accessibilityLabel(
+                            Self.metricAccessibilityLabel(
+                                accountName: configuration.displayName,
+                                metricName: metric.label
+                            )
+                        )
+                        .accessibilityIdentifier("account-metric-visibility-\(metric.id)")
+                    }
+                }
+
+                Button {
+                    refreshMetrics()
+                } label: {
+                    if isRefreshingMetrics {
+                        ProgressView()
+                    } else {
+                        Label("Refresh Metrics", systemImage: "arrow.clockwise")
+                    }
+                }
+                .disabled(isRefreshingMetrics || !configuration.isEnabled)
+            }
+
             if let lastError = configurationStore.lastError {
                 Section {
                     Text(lastError)
@@ -218,6 +265,9 @@ struct ProviderSettingsView: View {
         .onAppear {
             configurationStore.refreshSecretAvailability(including: [configuration])
             syncCopilotAllotmentText()
+        }
+        .onChange(of: initialUsageResult) { _, newValue in
+            usageResult = newValue
         }
         .onDisappear {
             codexSignInTask?.cancel()
@@ -463,6 +513,63 @@ struct ProviderSettingsView: View {
 
     private var providerID: ProviderID {
         configuration.providerID
+    }
+
+    var dashboardMetrics: [DashboardMetricOption] {
+        Self.dashboardMetrics(from: usageResult)
+    }
+
+    var metricsEmptyStateMessage: String {
+        guard usageResult != nil else {
+            return configuration.isEnabled
+                ? "No metrics discovered yet. Refresh this account to load its dashboard metrics."
+                : "Enable this account to discover its dashboard metrics."
+        }
+        return "This account has no configurable dashboard metrics."
+    }
+
+    static func dashboardMetrics(from result: ProviderUsageResult?) -> [DashboardMetricOption] {
+        guard let result else {
+            return []
+        }
+
+        var seenKeys = Set<String>()
+        return result.bars.compactMap { bar in
+            guard
+                let stableKey = bar.stableKey,
+                !stableKey.isEmpty,
+                seenKeys.insert(stableKey).inserted
+            else {
+                return nil
+            }
+            return DashboardMetricOption(id: stableKey, label: bar.label)
+        }
+    }
+
+    static func metricAccessibilityLabel(accountName: String, metricName: String) -> String {
+        "Show \(metricName) for \(accountName)"
+    }
+
+    private func setMetricVisibility(_ isVisible: Bool, stableKey: String) {
+        if isVisible {
+            configuration.hiddenDashboardMetricKeys.remove(stableKey)
+        } else {
+            configuration.hiddenDashboardMetricKeys.insert(stableKey)
+        }
+    }
+
+    private func refreshMetrics() {
+        guard !isRefreshingMetrics else {
+            return
+        }
+        isRefreshingMetrics = true
+        Task {
+            let result = await onAccountRefresh(configuration)
+            if let result {
+                usageResult = result
+            }
+            isRefreshingMetrics = false
+        }
     }
 
     private var availableAuthMethods: [ProviderAuthMethod] {

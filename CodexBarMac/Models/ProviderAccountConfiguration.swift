@@ -16,6 +16,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
     public var copilotTotalAllotment: Double?
     public var openCodeWorkspaceId: String
     public var showsCursorGrokBotWeekly: Bool
+    public var hiddenDashboardMetricKeys: Set<String>
 
     public init(
         id: String? = nil,
@@ -32,7 +33,8 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         githubCLIUsername: String = "",
         copilotTotalAllotment: Double? = nil,
         openCodeWorkspaceId: String = "",
-        showsCursorGrokBotWeekly: Bool = true
+        showsCursorGrokBotWeekly: Bool = true,
+        hiddenDashboardMetricKeys: Set<String> = []
     ) {
         self.id = id ?? providerID.rawValue
         self.providerID = providerID
@@ -49,6 +51,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         self.copilotTotalAllotment = copilotTotalAllotment
         self.openCodeWorkspaceId = openCodeWorkspaceId
         self.showsCursorGrokBotWeekly = showsCursorGrokBotWeekly
+        self.hiddenDashboardMetricKeys = hiddenDashboardMetricKeys
     }
 
     public var requiresSecret: Bool {
@@ -147,8 +150,16 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
             githubCLIUsername: githubCLIUsername,
             copilotTotalAllotment: copilotTotalAllotment,
             openCodeWorkspaceId: openCodeWorkspaceId,
-            showsCursorGrokBotWeekly: showsCursorGrokBotWeekly
+            showsCursorGrokBotWeekly: showsCursorGrokBotWeekly,
+            hiddenDashboardMetricKeys: []
         )
+    }
+
+    public func isDashboardMetricVisible(stableKey: String?) -> Bool {
+        guard let stableKey, !stableKey.isEmpty else {
+            return true
+        }
+        return !hiddenDashboardMetricKeys.contains(stableKey)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -167,6 +178,7 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         case copilotTotalAllotment
         case openCodeWorkspaceId
         case showsCursorGrokBotWeekly
+        case hiddenDashboardMetricKeys
     }
 
     public init(from decoder: Decoder) throws {
@@ -187,6 +199,10 @@ public struct ProviderAccountConfiguration: Identifiable, Equatable, Codable, Se
         self.copilotTotalAllotment = try container.decodeIfPresent(Double.self, forKey: .copilotTotalAllotment)
         self.openCodeWorkspaceId = try container.decodeIfPresent(String.self, forKey: .openCodeWorkspaceId) ?? ""
         self.showsCursorGrokBotWeekly = try container.decodeIfPresent(Bool.self, forKey: .showsCursorGrokBotWeekly) ?? true
+        self.hiddenDashboardMetricKeys = try container.decodeIfPresent(
+            Set<String>.self,
+            forKey: .hiddenDashboardMetricKeys
+        ) ?? []
     }
 }
 

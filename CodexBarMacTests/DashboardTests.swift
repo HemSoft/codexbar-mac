@@ -179,4 +179,103 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.accountID), ["normal", "critical"])
     }
 
+    func testDiscoveredDashboardMetricsUseStableKeysWithoutMergingEqualLabels() {
+        let result = ProviderUsageResult(
+            accountID: "codex.work",
+            providerID: .codex,
+            title: "Work Codex",
+            subtitle: "Live",
+            bars: [
+                UsageBar(stableKey: "window-604800", label: "Weekly", used: 20, limit: 100),
+                UsageBar(
+                    stableKey: "bucket-spark.window-18000",
+                    label: "Model limit",
+                    used: 30,
+                    limit: 100
+                ),
+                UsageBar(
+                    stableKey: "bucket-other.window-18000",
+                    label: "Model limit",
+                    used: 40,
+                    limit: 100
+                ),
+                UsageBar(label: "Legacy label only", used: 50, limit: 100),
+            ],
+            fetchedAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+
+        let metrics = ProviderSettingsView.dashboardMetrics(from: result)
+
+        XCTAssertEqual(
+            metrics.map(\.id),
+            ["window-604800", "bucket-spark.window-18000", "bucket-other.window-18000"]
+        )
+        XCTAssertEqual(metrics.map(\.label), ["Weekly", "Model limit", "Model limit"])
+        XCTAssertEqual(
+            ProviderSettingsView.metricAccessibilityLabel(
+                accountName: "Work Codex",
+                metricName: "Weekly"
+            ),
+            "Show Weekly for Work Codex"
+        )
+    }
+
+    func testAllHiddenStableBarsLeaveCardStateAndOtherContentAvailable() {
+        let bars = [
+            UsageBar(stableKey: "five-hour", label: "5-hour", used: 95, limit: 100),
+            UsageBar(stableKey: "weekly", label: "Weekly", used: 40, limit: 100),
+        ]
+        let monetaryMetric = ProviderMonetaryMetric(
+            kind: .spent,
+            label: "Spent",
+            minorUnits: 250,
+            currencyCode: "USD",
+            decimalPlaces: 2
+        )
+        let result = ProviderUsageResult(
+            accountID: "codex.work",
+            providerID: .codex,
+            title: "Work Codex",
+            subtitle: "Live",
+            bars: bars,
+            creditsRemaining: 12,
+            monetaryMetrics: [monetaryMetric],
+            usageMessages: ["Provider notice"],
+            fetchedAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+        let card = ProviderUsageCard(
+            result: result,
+            historyOptions: [],
+            isHistoryEnabled: true,
+            hiddenMetricKeys: ["five-hour", "weekly"]
+        )
+
+        XCTAssertTrue(card.visibleBars.isEmpty)
+        XCTAssertEqual(card.cardSeverity, .critical)
+        XCTAssertTrue(card.showsHistory)
+        XCTAssertTrue(card.showsCreditBalance)
+        XCTAssertEqual(card.result.monetaryMetrics, [monetaryMetric])
+        XCTAssertEqual(card.result.usageMessages, ["Provider notice"])
+    }
+
+    func testBarsWithoutStableKeysRemainVisible() {
+        let keyed = UsageBar(stableKey: "weekly", label: "Weekly", used: 40, limit: 100)
+        let unkeyed = UsageBar(label: "Legacy", used: 20, limit: 100)
+        let result = ProviderUsageResult(
+            providerID: .codex,
+            title: "Codex",
+            subtitle: "Live",
+            bars: [keyed, unkeyed],
+            fetchedAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+        let card = ProviderUsageCard(
+            result: result,
+            historyOptions: [],
+            isHistoryEnabled: false,
+            hiddenMetricKeys: ["weekly"]
+        )
+
+        XCTAssertEqual(card.visibleBars, [unkeyed])
+    }
+
 }

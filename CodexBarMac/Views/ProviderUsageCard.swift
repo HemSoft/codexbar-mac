@@ -6,6 +6,7 @@ struct ProviderUsageCard: View {
     let historyOptions: [UsageHistorySeriesOption]
     let alerts: [UsageAlertDetail]
     let isHistoryEnabled: Bool
+    let hiddenMetricKeys: Set<String>
 
     @State private var isShowingHistory = false
     @Environment(\.dashboardTextScale) private var dashboardTextScale
@@ -14,12 +15,14 @@ struct ProviderUsageCard: View {
         result: ProviderUsageResult,
         historyOptions: [UsageHistorySeriesOption],
         alerts: [UsageAlertDetail] = [],
-        isHistoryEnabled: Bool
+        isHistoryEnabled: Bool,
+        hiddenMetricKeys: Set<String> = []
     ) {
         self.result = result
         self.historyOptions = historyOptions
         self.alerts = alerts
         self.isHistoryEnabled = isHistoryEnabled
+        self.hiddenMetricKeys = hiddenMetricKeys
     }
 
     var body: some View {
@@ -52,7 +55,7 @@ struct ProviderUsageCard: View {
                 UsageAlertSummaryView(alerts: displayedAlerts)
             }
 
-            if let creditsRemaining = result.creditsRemaining, result.bars.isEmpty {
+            if let creditsRemaining = result.creditsRemaining, showsCreditBalance {
                 Text(Self.currencyFormatter.string(from: NSNumber(value: creditsRemaining)) ?? "$0.00")
                     .dashboardFont(size: 34, weight: .semibold, design: .rounded)
                     .foregroundStyle(Color.primary)
@@ -61,7 +64,7 @@ struct ProviderUsageCard: View {
                     .lineLimit(1)
             }
 
-            ForEach(result.bars) { bar in
+            ForEach(visibleBars) { bar in
                 VStack(alignment: .leading, spacing: 6 * dashboardTextScale) {
                     HStack {
                         Text(bar.label)
@@ -153,6 +156,19 @@ struct ProviderUsageCard: View {
     private var history: UsageHistorySeries {
         historyOptions.first?.series
             ?? UsageHistorySeries(accountID: result.accountID, points: [], isBalance: false)
+    }
+
+    var visibleBars: [UsageBar] {
+        result.bars.filter { bar in
+            guard let stableKey = bar.stableKey, !stableKey.isEmpty else {
+                return true
+            }
+            return !hiddenMetricKeys.contains(stableKey)
+        }
+    }
+
+    var showsCreditBalance: Bool {
+        result.creditsRemaining != nil && visibleBars.isEmpty
     }
 
     var showsHistory: Bool {

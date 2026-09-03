@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Account settings can now hide individual discovered usage bars from the
+  dashboard without changing alerts, History, or provider refreshes.
+  ([#189](https://github.com/HemSoft/codexbar-mac/issues/189))
 - Added 90 days of daily usage history alongside existing frequent samples,
   with History controls for today, 3 days, 7 days, a month, and 3 months.
   ([#181](https://github.com/HemSoft/codexbar-mac/issues/181))

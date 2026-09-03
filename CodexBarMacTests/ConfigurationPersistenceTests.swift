@@ -2616,4 +2616,76 @@ final class ConfigurationPersistenceTests: XCTestCase {
         XCTAssertNil(reloadedStore.configuration(accountID: account.id)?.groupID)
     }
 
+    func testProviderAccountConfigurationDefaultsLegacyMetricVisibilityOn() throws {
+        let json = """
+        {
+          "id": "codex.personal",
+          "providerID": "codex",
+          "isEnabled": true,
+          "accountLabel": "Personal",
+          "authMethod": "codexAuthJSON"
+        }
+        """
+
+        let configuration = try JSONDecoder().decode(
+            ProviderAccountConfiguration.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertTrue(configuration.hiddenDashboardMetricKeys.isEmpty)
+        XCTAssertTrue(configuration.isDashboardMetricVisible(stableKey: "window-604800"))
+        XCTAssertTrue(configuration.isDashboardMetricVisible(stableKey: nil))
+        XCTAssertTrue(configuration.isDashboardMetricVisible(stableKey: ""))
+    }
+
+    @MainActor
+    func testDashboardMetricVisibilityPersistsPerAccountAndDefaultsNewMetricsOn() throws {
+        let suiteName = "CodexBarMacTests.MetricVisibility.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = ProviderConfigurationStore(defaults: defaults, secretStore: InMemorySecretStore())
+        var personal = store.addAccount(for: .codex)
+        let work = store.addAccount(for: .codex)
+        let stableKeys = [
+            "window-604800",
+            "bucket-spark.window-18000",
+            "bucket-spark.window-604800",
+        ]
+
+        for stableKey in stableKeys {
+            XCTAssertTrue(personal.isDashboardMetricVisible(stableKey: stableKey))
+        }
+        personal.hiddenDashboardMetricKeys.insert(stableKeys[1])
+        XCTAssertTrue(store.update(personal))
+
+        let reloadedStore = ProviderConfigurationStore(
+            defaults: defaults,
+            secretStore: InMemorySecretStore()
+        )
+        let reloadedPersonal = try XCTUnwrap(
+            reloadedStore.configuration(accountID: personal.id)
+        )
+        let reloadedWork = try XCTUnwrap(reloadedStore.configuration(accountID: work.id))
+
+        XCTAssertTrue(reloadedPersonal.isDashboardMetricVisible(stableKey: stableKeys[0]))
+        XCTAssertFalse(reloadedPersonal.isDashboardMetricVisible(stableKey: stableKeys[1]))
+        XCTAssertTrue(reloadedPersonal.isDashboardMetricVisible(stableKey: stableKeys[2]))
+        XCTAssertTrue(reloadedPersonal.isDashboardMetricVisible(stableKey: "future-bucket"))
+        XCTAssertTrue(reloadedPersonal.isDashboardMetricVisible(stableKey: nil))
+        XCTAssertTrue(reloadedWork.isDashboardMetricVisible(stableKey: stableKeys[1]))
+    }
+
+    func testNewAccountDoesNotInheritHiddenDashboardMetrics() {
+        var configuration = ProviderAccountConfiguration.defaultConfiguration(for: .codex)
+        configuration.hiddenDashboardMetricKeys = ["weekly"]
+
+        let newAccount = configuration.withNewAccountID()
+
+        XCTAssertTrue(newAccount.hiddenDashboardMetricKeys.isEmpty)
+        XCTAssertTrue(newAccount.isDashboardMetricVisible(stableKey: "weekly"))
+    }
+
 }

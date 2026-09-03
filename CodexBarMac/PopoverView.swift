@@ -84,7 +84,10 @@ struct DashboardView: View {
                                 alerts: usageAlertsByAccountID[result.accountID] ?? [],
                                 isHistoryEnabled: configurationStore
                                     .configuration(accountID: result.accountID)?
-                                    .showsHistory ?? true
+                                    .showsHistory ?? true,
+                                hiddenMetricKeys: configurationStore
+                                    .configuration(accountID: result.accountID)?
+                                    .hiddenDashboardMetricKeys ?? []
                             )
                         }
                     }

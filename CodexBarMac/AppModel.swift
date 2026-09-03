@@ -163,6 +163,10 @@ final class AppModel: ObservableObject {
         )
     }
 
+    func usageResult(accountID: String) -> ProviderUsageResult? {
+        refreshService.results.first { $0.accountID == accountID }
+    }
+
     var lastRefreshedText: String {
         guard let lastRefreshedAt else {
             return "Not refreshed yet"

@@ -150,6 +150,7 @@ struct SettingsView: View {
                                 ProviderSettingsView(
                                     configurationStore: configurationStore,
                                     accountID: configuration.id,
+                                    initialUsageResult: model.usageResult(accountID: configuration.id),
                                     onAccountsInvalidated: {
                                         model.invalidateAccounts()
                                     },
