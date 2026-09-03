@@ -116,11 +116,18 @@ final class GeminiProviderTests: XCTestCase {
         )
 
         XCTAssertEqual(result.bars.count, 2)
+        XCTAssertEqual(result.bars.map(\.stableKey), ["pro", "flash"])
         XCTAssertEqual(result.bars[0].label, "Pro (Code Assist)")
         XCTAssertEqual(result.bars[0].used, 0.28, accuracy: 0.0001)
         XCTAssertEqual(result.bars[1].label, "Flash")
         XCTAssertEqual(result.bars[1].used, 0.55, accuracy: 0.0001)
         XCTAssertEqual(result.bars[0].resetDescription, "Resets in 2h 5m")
+
+        let otherTierResult = try XCTUnwrap(
+            GeminiUsageParser.parseQuota(Data(json.utf8), tierName: "Enterprise", fetchedAt: fetchedAt)
+        )
+        XCTAssertEqual(otherTierResult.bars[0].label, "Pro (Enterprise)")
+        XCTAssertEqual(otherTierResult.bars.map(\.stableKey), result.bars.map(\.stableKey))
     }
 
     func testGeminiUsageParserExcludesFlashLiteFromFlashAggregate() throws {

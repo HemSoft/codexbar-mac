@@ -738,6 +738,8 @@ final class UsageHistoryTests: XCTestCase {
         let returnedResult = await model.refreshAccount(configuration)
 
         XCTAssertEqual(returnedResult?.fetchedAt, refreshedAt)
+        XCTAssertEqual(returnedResult?.bars.first?.used, 35)
+        XCTAssertEqual(returnedResult?.creditsRemaining, 12)
         XCTAssertEqual(model.displayedResults.first?.creditsRemaining, 12)
         XCTAssertEqual(historyStore.snapshots.count, 1)
         XCTAssertEqual(historyStore.snapshots[0].bars.first?.used, 35)

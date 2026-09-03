@@ -230,6 +230,7 @@ public enum GeminiUsageParser {
 
         if foundPro {
             bars.append(makeUsageBar(
+                stableKey: "pro",
                 label: "Pro\(tierSuffix)",
                 remainingFraction: lowestProRemaining,
                 resetsAt: proReset,
@@ -239,6 +240,7 @@ public enum GeminiUsageParser {
 
         if foundFlash {
             bars.append(makeUsageBar(
+                stableKey: "flash",
                 label: "Flash",
                 remainingFraction: lowestFlashRemaining,
                 resetsAt: flashReset,
@@ -284,6 +286,7 @@ public enum GeminiUsageParser {
     }
 
     private static func makeUsageBar(
+        stableKey: String,
         label: String,
         remainingFraction: Double,
         resetsAt: Date?,
@@ -291,7 +294,7 @@ public enum GeminiUsageParser {
     ) -> UsageBar {
         let used = min(max(1.0 - remainingFraction, 0), 1)
         return UsageBar(
-            stableKey: label,
+            stableKey: stableKey,
             label: label,
             used: used,
             limit: 1,

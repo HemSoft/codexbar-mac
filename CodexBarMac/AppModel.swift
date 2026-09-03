@@ -308,7 +308,7 @@ final class AppModel: ObservableObject {
             results: alertEligibleResults(),
             preserving: refreshService.incompleteRefreshAccountIDs
         )
-        return result
+        return usageResult(accountID: configuration.id) ?? result
     }
 
     func quit() {
