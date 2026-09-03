@@ -202,6 +202,82 @@ final class UsageAlertTests: XCTestCase {
         XCTAssertEqual(repeated.activeAlertIDs, ["usage.cursor.main.on-demand"])
     }
 
+    func testUsageAlertEvaluatorMigratesLegacyCopilotAlertIdentities() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let results = [
+            ProviderUsageResult(
+                accountID: "copilot.personal",
+                providerID: .copilot,
+                title: "GitHub Copilot",
+                subtitle: "Live usage",
+                bars: [
+                    UsageBar(
+                        stableKey: "premium-interactions",
+                        label: "AI credits (90 / 100)",
+                        used: 90,
+                        limit: 100,
+                        resetsAt: resetAt
+                    ),
+                ],
+                fetchedAt: resetAt.addingTimeInterval(-86_400)
+            ),
+            ProviderUsageResult(
+                accountID: "copilot.organization-limited",
+                providerID: .copilot,
+                title: "GitHub Copilot Organization",
+                subtitle: "Live usage",
+                bars: [
+                    UsageBar(
+                        stableKey: "ai-credits",
+                        label: "Current AI credits (90 / 100)",
+                        used: 90,
+                        limit: 100,
+                        resetsAt: resetAt
+                    ),
+                ],
+                fetchedAt: resetAt.addingTimeInterval(-86_400)
+            ),
+            ProviderUsageResult(
+                accountID: "copilot.organization-unlimited",
+                providerID: .copilot,
+                title: "GitHub Copilot Organization",
+                subtitle: "Live usage",
+                bars: [
+                    UsageBar(
+                        stableKey: "ai-credits",
+                        label: "AI credits used (90)",
+                        used: 90,
+                        limit: 100,
+                        resetsAt: resetAt
+                    ),
+                ],
+                fetchedAt: resetAt.addingTimeInterval(-86_400)
+            ),
+        ]
+        let legacyAlertIDs: Set<String> = [
+            "usage.copilot.personal.ai-credits.1893456000",
+            "usage.copilot.organization-limited.current-ai-credits.1893456000",
+            "usage.copilot.organization-unlimited.ai-credits-used.1893456000",
+        ]
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: results,
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: legacyAlertIDs
+        )
+
+        XCTAssertTrue(evaluation.notifications.isEmpty)
+        XCTAssertEqual(evaluation.activeAlertIDs, [
+            "usage.copilot.personal.premium-interactions.1893456000",
+            "usage.copilot.organization-limited.ai-credits.1893456000",
+            "usage.copilot.organization-unlimited.ai-credits.1893456000",
+        ])
+    }
+
     func testUsageAlertEvaluatorMigratesLegacyCursorModelAlertIdentities() {
         let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
         let result = ProviderUsageResult(

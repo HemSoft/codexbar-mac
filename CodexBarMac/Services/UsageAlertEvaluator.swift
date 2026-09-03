@@ -371,6 +371,17 @@ public enum UsageAlertEvaluator {
         if activeAlertIDs.contains(alertID) {
             return true
         }
+        if result.providerID == .copilot,
+           let metricStableKey = bar.stableKey,
+           copilotLegacyUsageKeys(for: metricStableKey).contains(where: { legacyKey in
+               activeAlertIDs.contains(usageAlertID(
+                   accountID: result.accountID,
+                   stableKey: legacyKey,
+                   resetsAt: bar.resetsAt
+               ))
+           }) {
+            return true
+        }
         if result.providerID == .cursor,
            let metricStableKey = bar.stableKey {
             let legacyKeys = CursorUsageIdentity.acceptedStableKeys(for: metricStableKey)
@@ -456,6 +467,29 @@ public enum UsageAlertEvaluator {
             legacyAlertID = "usage.\(result.accountID).\(legacyComponent)"
         }
         return activeAlertIDs.contains(legacyAlertID)
+    }
+
+    private static func copilotLegacyUsageKeys(for stableKey: String) -> Set<String> {
+        switch stableKey {
+        case "premium-interactions":
+            ["ai-credits"]
+        case "ai-credits":
+            ["current-ai-credits", "ai-credits-used"]
+        default:
+            []
+        }
+    }
+
+    private static func usageAlertID(
+        accountID: String,
+        stableKey: String,
+        resetsAt: Date?
+    ) -> String {
+        let baseID = "usage.\(accountID).\(stableKey)"
+        guard let resetsAt else {
+            return baseID
+        }
+        return "\(baseID).\(Int(resetsAt.timeIntervalSince1970))"
     }
 
     private static func legacyCursorAlertWasActive(
