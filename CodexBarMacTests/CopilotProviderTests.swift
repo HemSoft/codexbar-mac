@@ -254,6 +254,7 @@ final class CopilotProviderTests: XCTestCase {
 
         XCTAssertEqual(result.providerID, .copilot)
         XCTAssertEqual(result.title, "GitHub Copilot (octocat) - Pro")
+        XCTAssertEqual(result.bars.map(\.stableKey), ["premium-interactions", "chat"])
         XCTAssertEqual(result.bars.map(\.label), ["Premium interactions (1,500 / 2,000)", "Chat (88 / 100)"])
         XCTAssertEqual(result.bars.map(\.usageText), ["75%", "88%"])
         XCTAssertEqual(result.subtitle, "Resets in 3d")
@@ -1181,6 +1182,7 @@ final class CopilotProviderTests: XCTestCase {
         XCTAssertEqual(result.accountID, "copilot.org")
         XCTAssertEqual(result.title, "Relias Engineering")
         XCTAssertEqual(result.subtitle, "Live GitHub Copilot usage for Relias-Engineering")
+        XCTAssertEqual(result.bars.map(\.stableKey), ["ai-credits"])
         XCTAssertEqual(result.bars.map(\.label), [
             "Current AI credits (1,500 / 350,000)",
         ])
@@ -1217,6 +1219,7 @@ final class CopilotProviderTests: XCTestCase {
             fetchedAt: fetchedAt
         ))
 
+        XCTAssertEqual(result.bars.map(\.stableKey), ["ai-credits"])
         XCTAssertEqual(result.bars.map(\.label), ["AI credits used (1,500)"])
         XCTAssertEqual(
             result.bars.first?.projectionDescription(at: fetchedAt),

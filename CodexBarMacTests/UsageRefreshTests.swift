@@ -658,6 +658,7 @@ final class UsageRefreshTests: XCTestCase {
         presentationOnly.accountLabel = "Renamed"
         presentationOnly.groupID = "work"
         presentationOnly.showsHistory = false
+        presentationOnly.hiddenDashboardMetricKeys = ["weekly"]
         XCTAssertTrue(service.hasSameRefreshInputs(original, presentationOnly))
 
         var inputChanges: [ProviderAccountConfiguration] = []

@@ -6,6 +6,7 @@ struct ProviderUsageCard: View {
     let historyOptions: [UsageHistorySeriesOption]
     let alerts: [UsageAlertDetail]
     let isHistoryEnabled: Bool
+    let hiddenMetricKeys: Set<String>
 
     @State private var isShowingHistory = false
     @Environment(\.dashboardTextScale) private var dashboardTextScale
@@ -14,12 +15,14 @@ struct ProviderUsageCard: View {
         result: ProviderUsageResult,
         historyOptions: [UsageHistorySeriesOption],
         alerts: [UsageAlertDetail] = [],
-        isHistoryEnabled: Bool
+        isHistoryEnabled: Bool,
+        hiddenMetricKeys: Set<String> = []
     ) {
         self.result = result
         self.historyOptions = historyOptions
         self.alerts = alerts
         self.isHistoryEnabled = isHistoryEnabled
+        self.hiddenMetricKeys = hiddenMetricKeys
     }
 
     var body: some View {
@@ -44,15 +47,15 @@ struct ProviderUsageCard: View {
                     .fill(cardSeverity.tint)
                     .frame(width: 10 * dashboardTextScale, height: 10 * dashboardTextScale)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(hiddenAlertAccessibilityLabel)
-                    .accessibilityHidden(hiddenAlerts.isEmpty)
+                    .accessibilityLabel(cardSeverityAccessibilityLabel)
+                    .accessibilityHidden(!showsCardSeverityAccessibility)
             }
 
             if showsAlertSummary {
                 UsageAlertSummaryView(alerts: displayedAlerts)
             }
 
-            if let creditsRemaining = result.creditsRemaining, result.bars.isEmpty {
+            if let creditsRemaining = result.creditsRemaining, showsCreditBalance {
                 Text(Self.currencyFormatter.string(from: NSNumber(value: creditsRemaining)) ?? "$0.00")
                     .dashboardFont(size: 34, weight: .semibold, design: .rounded)
                     .foregroundStyle(Color.primary)
@@ -61,7 +64,7 @@ struct ProviderUsageCard: View {
                     .lineLimit(1)
             }
 
-            ForEach(result.bars) { bar in
+            ForEach(visibleBars) { bar in
                 VStack(alignment: .leading, spacing: 6 * dashboardTextScale) {
                     HStack {
                         Text(bar.label)
@@ -155,6 +158,19 @@ struct ProviderUsageCard: View {
             ?? UsageHistorySeries(accountID: result.accountID, points: [], isBalance: false)
     }
 
+    var visibleBars: [UsageBar] {
+        result.bars.filter { bar in
+            guard let stableKey = bar.stableKey, !stableKey.isEmpty else {
+                return true
+            }
+            return !hiddenMetricKeys.contains(stableKey)
+        }
+    }
+
+    var showsCreditBalance: Bool {
+        result.creditsRemaining != nil && visibleBars.isEmpty
+    }
+
     var showsHistory: Bool {
         isHistoryEnabled && (!history.points.isEmpty
             || !result.bars.isEmpty
@@ -169,14 +185,30 @@ struct ProviderUsageCard: View {
         guard result.providerID == .codex else {
             return alerts
         }
-        return alerts.filter { $0.kind != .usage }
+        return alerts.filter {
+            $0.kind != .usage || hiddenBarUsageAlertIDs.contains($0.id)
+        }
     }
 
     var hiddenAlerts: [UsageAlertDetail] {
         guard result.providerID == .codex else {
             return []
         }
-        return alerts.filter { $0.kind == .usage }
+        return alerts.filter {
+            $0.kind == .usage && !hiddenBarUsageAlertIDs.contains($0.id)
+        }
+    }
+
+    private var hiddenBarUsageAlertIDs: Set<String> {
+        Set(result.bars.compactMap { bar in
+            guard
+                let stableKey = bar.stableKey,
+                hiddenMetricKeys.contains(stableKey)
+            else {
+                return nil
+            }
+            return UsageAlertEvaluator.usageAlertID(for: result, bar: bar)
+        })
     }
 
     var showsAlertSummary: Bool {
@@ -187,6 +219,26 @@ struct ProviderUsageCard: View {
         hiddenAlerts
             .map { "\($0.title). \($0.message)" }
             .joined(separator: " ")
+    }
+
+    var showsCardSeverityAccessibility: Bool {
+        cardSeverity != .normal
+    }
+
+    var cardSeverityAccessibilityLabel: String {
+        let severityName = switch cardSeverity {
+        case .normal:
+            "Normal"
+        case .warning:
+            "Warning"
+        case .critical:
+            "Critical"
+        }
+        let status = "\(result.title) \(severityName) status."
+        guard !hiddenAlertAccessibilityLabel.isEmpty else {
+            return status
+        }
+        return "\(status) \(hiddenAlertAccessibilityLabel)"
     }
 
     private var statusColor: Color {

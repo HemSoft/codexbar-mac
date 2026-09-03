@@ -96,7 +96,7 @@ public enum UsageAlertEvaluator {
 
         for result in results {
             for bar in result.bars where bar.fractionUsed >= settings.usageThreshold {
-                let alertID = alertID(for: result, bar: bar)
+                let alertID = usageAlertID(for: result, bar: bar)
                 let hasAlreadyQueuedAlert = nextActiveAlertIDs.contains(alertID)
                 nextActiveAlertIDs.insert(alertID)
 
@@ -325,7 +325,7 @@ public enum UsageAlertEvaluator {
         return max(bar.used / bar.limit, 0)
     }
 
-    private static func alertID(for result: ProviderUsageResult, bar: UsageBar) -> String {
+    static func usageAlertID(for result: ProviderUsageResult, bar: UsageBar) -> String {
         let stableKey = stableUsageKey(for: bar, providerID: result.providerID)
         if let resetsAt = bar.resetsAt {
             return "usage.\(result.accountID).\(stableKey).\(Int(resetsAt.timeIntervalSince1970))"
@@ -369,6 +369,26 @@ public enum UsageAlertEvaluator {
         now: Date
     ) -> Bool {
         if activeAlertIDs.contains(alertID) {
+            return true
+        }
+        if result.providerID == .copilot,
+           let metricStableKey = bar.stableKey,
+           copilotLegacyUsageKeys(for: metricStableKey).contains(where: { legacyKey in
+               activeAlertIDs.contains(usageAlertID(
+                   accountID: result.accountID,
+                   stableKey: legacyKey,
+                   resetsAt: bar.resetsAt
+               ))
+           }) {
+            return true
+        }
+        if result.providerID == .gemini,
+           bar.stableKey == "pro",
+           legacyGeminiProAlertWasActive(
+               accountID: result.accountID,
+               resetsAt: bar.resetsAt,
+               activeAlertIDs: activeAlertIDs
+           ) {
             return true
         }
         if result.providerID == .cursor,
@@ -456,6 +476,53 @@ public enum UsageAlertEvaluator {
             legacyAlertID = "usage.\(result.accountID).\(legacyComponent)"
         }
         return activeAlertIDs.contains(legacyAlertID)
+    }
+
+    private static func copilotLegacyUsageKeys(for stableKey: String) -> Set<String> {
+        switch stableKey {
+        case "premium-interactions":
+            [
+                "ai-credits",
+                "premium-interactions-pool-exhausted",
+                "ai-credits-pool-exhausted",
+            ]
+        case "ai-credits":
+            ["current-ai-credits", "ai-credits-used"]
+        default:
+            []
+        }
+    }
+
+    private static func legacyGeminiProAlertWasActive(
+        accountID: String,
+        resetsAt: Date?,
+        activeAlertIDs: Set<String>
+    ) -> Bool {
+        let prefix = "usage.\(accountID).pro-"
+        if let resetsAt {
+            let suffix = ".\(Int(resetsAt.timeIntervalSince1970))"
+            return activeAlertIDs.contains {
+                $0.hasPrefix(prefix) && $0.hasSuffix(suffix)
+            }
+        }
+        return activeAlertIDs.contains {
+            guard $0.hasPrefix(prefix) else {
+                return false
+            }
+            return !$0.dropFirst(prefix.count).contains(".")
+        }
+    }
+
+    private static func usageAlertID(
+        accountID: String,
+        stableKey: String,
+        resetsAt: Date?
+    ) -> String {
+        let baseID = "usage.\(accountID).\(stableKey)"
+        guard let resetsAt else {
+            return baseID
+        }
+        return "\(baseID).\(Int(resetsAt.timeIntervalSince1970))"
     }
 
     private static func legacyCursorAlertWasActive(

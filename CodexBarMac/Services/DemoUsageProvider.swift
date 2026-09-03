@@ -46,6 +46,7 @@ public extension DemoUsageProvider {
                 providerID: .codex,
                 bars: [
                     UsageBar(
+                        stableKey: "window-18000",
                         label: "5-hour usage limit",
                         used: 42,
                         limit: 100,
@@ -53,6 +54,7 @@ public extension DemoUsageProvider {
                         projectionDescriptionOverride: "Projected to stay under limit"
                     ),
                     UsageBar(
+                        stableKey: "window-604800",
                         label: "Weekly usage limit",
                         used: 68,
                         limit: 100,
@@ -65,6 +67,7 @@ public extension DemoUsageProvider {
                 providerID: .copilot,
                 bars: [
                     UsageBar(
+                        stableKey: "premium-interactions",
                         label: "Premium requests",
                         used: 73,
                         limit: 100,
@@ -77,6 +80,7 @@ public extension DemoUsageProvider {
                 providerID: .claude,
                 bars: [
                     UsageBar(
+                        stableKey: "session",
                         label: "5-hour usage limit",
                         used: 36,
                         limit: 100,
@@ -133,6 +137,7 @@ public extension DemoUsageProvider {
                 providerID: .cursor,
                 bars: [
                     UsageBar(
+                        stableKey: CursorUsageIdentity.cursorModelsStableKey,
                         label: "Monthly included usage",
                         used: 51,
                         limit: 100,
