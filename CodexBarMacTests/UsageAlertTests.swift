@@ -253,11 +253,45 @@ final class UsageAlertTests: XCTestCase {
                 ],
                 fetchedAt: resetAt.addingTimeInterval(-86_400)
             ),
+            ProviderUsageResult(
+                accountID: "copilot.exhausted-premium",
+                providerID: .copilot,
+                title: "GitHub Copilot",
+                subtitle: "Live usage",
+                bars: [
+                    UsageBar(
+                        stableKey: "premium-interactions",
+                        label: "Premium interactions - pool exhausted",
+                        used: 1,
+                        limit: 1,
+                        resetsAt: resetAt
+                    ),
+                ],
+                fetchedAt: resetAt.addingTimeInterval(-86_400)
+            ),
+            ProviderUsageResult(
+                accountID: "copilot.exhausted-credits",
+                providerID: .copilot,
+                title: "GitHub Copilot",
+                subtitle: "Live usage",
+                bars: [
+                    UsageBar(
+                        stableKey: "premium-interactions",
+                        label: "AI credits - pool exhausted",
+                        used: 1,
+                        limit: 1,
+                        resetsAt: resetAt
+                    ),
+                ],
+                fetchedAt: resetAt.addingTimeInterval(-86_400)
+            ),
         ]
         let legacyAlertIDs: Set<String> = [
             "usage.copilot.personal.ai-credits.1893456000",
             "usage.copilot.organization-limited.current-ai-credits.1893456000",
             "usage.copilot.organization-unlimited.ai-credits-used.1893456000",
+            "usage.copilot.exhausted-premium.premium-interactions-pool-exhausted.1893456000",
+            "usage.copilot.exhausted-credits.ai-credits-pool-exhausted.1893456000",
         ]
 
         let evaluation = UsageAlertEvaluator.evaluate(
@@ -275,7 +309,42 @@ final class UsageAlertTests: XCTestCase {
             "usage.copilot.personal.premium-interactions.1893456000",
             "usage.copilot.organization-limited.ai-credits.1893456000",
             "usage.copilot.organization-unlimited.ai-credits.1893456000",
+            "usage.copilot.exhausted-premium.premium-interactions.1893456000",
+            "usage.copilot.exhausted-credits.premium-interactions.1893456000",
         ])
+    }
+
+    func testUsageAlertEvaluatorMigratesLegacyGeminiTierAlertIdentity() {
+        let resetAt = Date(timeIntervalSince1970: 1_893_456_000)
+        let result = ProviderUsageResult(
+            accountID: "gemini.personal",
+            providerID: .gemini,
+            title: "Gemini",
+            subtitle: "Live usage",
+            bars: [
+                UsageBar(
+                    stableKey: "pro",
+                    label: "Pro (Enterprise)",
+                    used: 90,
+                    limit: 100,
+                    resetsAt: resetAt
+                ),
+            ],
+            fetchedAt: resetAt.addingTimeInterval(-86_400)
+        )
+
+        let evaluation = UsageAlertEvaluator.evaluate(
+            results: [result],
+            settings: UsageAlertSettings(
+                isEnabled: true,
+                usageThreshold: 0.80,
+                includesSeverityAlerts: false
+            ),
+            activeAlertIDs: ["usage.gemini.personal.pro-code-assist.1893456000"]
+        )
+
+        XCTAssertTrue(evaluation.notifications.isEmpty)
+        XCTAssertEqual(evaluation.activeAlertIDs, ["usage.gemini.personal.pro.1893456000"])
     }
 
     func testUsageAlertEvaluatorMigratesLegacyCursorModelAlertIdentities() {

@@ -382,6 +382,15 @@ public enum UsageAlertEvaluator {
            }) {
             return true
         }
+        if result.providerID == .gemini,
+           bar.stableKey == "pro",
+           legacyGeminiProAlertWasActive(
+               accountID: result.accountID,
+               resetsAt: bar.resetsAt,
+               activeAlertIDs: activeAlertIDs
+           ) {
+            return true
+        }
         if result.providerID == .cursor,
            let metricStableKey = bar.stableKey {
             let legacyKeys = CursorUsageIdentity.acceptedStableKeys(for: metricStableKey)
@@ -472,11 +481,35 @@ public enum UsageAlertEvaluator {
     private static func copilotLegacyUsageKeys(for stableKey: String) -> Set<String> {
         switch stableKey {
         case "premium-interactions":
-            ["ai-credits"]
+            [
+                "ai-credits",
+                "premium-interactions-pool-exhausted",
+                "ai-credits-pool-exhausted",
+            ]
         case "ai-credits":
             ["current-ai-credits", "ai-credits-used"]
         default:
             []
+        }
+    }
+
+    private static func legacyGeminiProAlertWasActive(
+        accountID: String,
+        resetsAt: Date?,
+        activeAlertIDs: Set<String>
+    ) -> Bool {
+        let prefix = "usage.\(accountID).pro-"
+        if let resetsAt {
+            let suffix = ".\(Int(resetsAt.timeIntervalSince1970))"
+            return activeAlertIDs.contains {
+                $0.hasPrefix(prefix) && $0.hasSuffix(suffix)
+            }
+        }
+        return activeAlertIDs.contains {
+            guard $0.hasPrefix(prefix) else {
+                return false
+            }
+            return !$0.dropFirst(prefix.count).contains(".")
         }
     }
 
