@@ -185,14 +185,30 @@ struct ProviderUsageCard: View {
         guard result.providerID == .codex else {
             return alerts
         }
-        return alerts.filter { $0.kind != .usage }
+        return alerts.filter {
+            $0.kind != .usage || hiddenBarUsageAlertIDs.contains($0.id)
+        }
     }
 
     var hiddenAlerts: [UsageAlertDetail] {
         guard result.providerID == .codex else {
             return []
         }
-        return alerts.filter { $0.kind == .usage }
+        return alerts.filter {
+            $0.kind == .usage && !hiddenBarUsageAlertIDs.contains($0.id)
+        }
+    }
+
+    private var hiddenBarUsageAlertIDs: Set<String> {
+        Set(result.bars.compactMap { bar in
+            guard
+                let stableKey = bar.stableKey,
+                hiddenMetricKeys.contains(stableKey)
+            else {
+                return nil
+            }
+            return UsageAlertEvaluator.usageAlertID(for: result, bar: bar)
+        })
     }
 
     var showsAlertSummary: Bool {

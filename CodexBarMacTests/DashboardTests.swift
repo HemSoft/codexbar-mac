@@ -301,9 +301,26 @@ final class DashboardTests: XCTestCase {
             usageMessages: ["Provider notice"],
             fetchedAt: Date(timeIntervalSince1970: 2_000_000_000)
         )
+        let hiddenUsageAlert = UsageAlertDetail(
+            id: UsageAlertEvaluator.usageAlertID(for: result, bar: bars[0]),
+            accountID: result.accountID,
+            kind: .usage,
+            title: "5-hour at 95%",
+            message: "95 of 100 used. Alert threshold: 90%.",
+            severity: .critical
+        )
+        let visibleUsageAlert = UsageAlertDetail(
+            id: UsageAlertEvaluator.usageAlertID(for: result, bar: bars[1]),
+            accountID: result.accountID,
+            kind: .usage,
+            title: "Weekly at 40%",
+            message: "40 of 100 used. Alert threshold: 30%.",
+            severity: .warning
+        )
         let card = ProviderUsageCard(
             result: result,
             historyOptions: [],
+            alerts: [hiddenUsageAlert, visibleUsageAlert],
             isHistoryEnabled: true,
             hiddenMetricKeys: ["five-hour", "weekly"]
         )
@@ -312,8 +329,21 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(card.cardSeverity, .critical)
         XCTAssertTrue(card.showsHistory)
         XCTAssertTrue(card.showsCreditBalance)
+        XCTAssertEqual(card.displayedAlerts, [hiddenUsageAlert, visibleUsageAlert])
+        XCTAssertTrue(card.hiddenAlerts.isEmpty)
+        XCTAssertTrue(card.showsAlertSummary)
         XCTAssertEqual(card.result.monetaryMetrics, [monetaryMetric])
         XCTAssertEqual(card.result.usageMessages, ["Provider notice"])
+
+        let partlyHiddenCard = ProviderUsageCard(
+            result: result,
+            historyOptions: [],
+            alerts: [hiddenUsageAlert, visibleUsageAlert],
+            isHistoryEnabled: true,
+            hiddenMetricKeys: ["five-hour"]
+        )
+        XCTAssertEqual(partlyHiddenCard.displayedAlerts, [hiddenUsageAlert])
+        XCTAssertEqual(partlyHiddenCard.hiddenAlerts, [visibleUsageAlert])
     }
 
     @MainActor

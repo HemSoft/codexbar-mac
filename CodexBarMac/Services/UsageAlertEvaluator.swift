@@ -96,7 +96,7 @@ public enum UsageAlertEvaluator {
 
         for result in results {
             for bar in result.bars where bar.fractionUsed >= settings.usageThreshold {
-                let alertID = alertID(for: result, bar: bar)
+                let alertID = usageAlertID(for: result, bar: bar)
                 let hasAlreadyQueuedAlert = nextActiveAlertIDs.contains(alertID)
                 nextActiveAlertIDs.insert(alertID)
 
@@ -325,7 +325,7 @@ public enum UsageAlertEvaluator {
         return max(bar.used / bar.limit, 0)
     }
 
-    private static func alertID(for result: ProviderUsageResult, bar: UsageBar) -> String {
+    static func usageAlertID(for result: ProviderUsageResult, bar: UsageBar) -> String {
         let stableKey = stableUsageKey(for: bar, providerID: result.providerID)
         if let resetsAt = bar.resetsAt {
             return "usage.\(result.accountID).\(stableKey).\(Int(resetsAt.timeIntervalSince1970))"
