@@ -179,6 +179,7 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.accountID), ["normal", "critical"])
     }
 
+    @MainActor
     func testDiscoveredDashboardMetricsUseStableKeysWithoutMergingEqualLabels() {
         let result = ProviderUsageResult(
             accountID: "codex.work",
@@ -220,6 +221,7 @@ final class DashboardTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testAllHiddenStableBarsLeaveCardStateAndOtherContentAvailable() {
         let bars = [
             UsageBar(stableKey: "five-hour", label: "5-hour", used: 95, limit: 100),
@@ -258,6 +260,7 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(card.result.usageMessages, ["Provider notice"])
     }
 
+    @MainActor
     func testBarsWithoutStableKeysRemainVisible() {
         let keyed = UsageBar(stableKey: "weekly", label: "Weekly", used: 40, limit: 100)
         let unkeyed = UsageBar(label: "Legacy", used: 20, limit: 100)
