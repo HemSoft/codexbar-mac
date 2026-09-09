@@ -1,0 +1,57 @@
+{
+  "audit_issue": "https://github.com/HemSoft/codexbar-mac/issues/193",
+  "change_policy": "Review baseline edits in the PR. Record evidence and rationale in FUNCTION-RISK.md. Never regenerate automatically in CI.",
+  "complexity_basis": "SwiftLint 0.65.1 decision count starts at zero",
+  "coverage_basis": "xccov function executable lines",
+  "measured_at": "2026-09-09",
+  "measured_source_revision": "c9a55815a5772da92ecbe117fb7f91d36dfda78e",
+  "platforms": {
+    "mac": {
+      "high_risk": {
+        "CodexBarMac/Services/CodexUsageProvider.swift::CodexUsageProvider.private func fetchUsage ( configuration : ProviderAccountConfiguration , credentials : CodexCredentials , location : CredentialLocation , canRefresh : Bool , fallbackLocations : [ CredentialLocation ] ) async throws -> ProviderUsageResult": {
+          "complexity": 10,
+          "covered_lines": 23,
+          "crap_exact": "1559655/48778",
+          "executable_lines": 58,
+          "reason": "Existing credential fallback orchestration risk measured for #193; add focused fallback-path coverage before raising this ceiling.",
+          "target": "CodexBarMac.app"
+        },
+        "CodexBarMac/Services/LaunchAtLoginManager.swift::LaunchAtLoginManager.public func refreshFromSystem ( )": {
+          "complexity": 8,
+          "covered_lines": 0,
+          "crap_exact": "72/1",
+          "executable_lines": 42,
+          "reason": "Existing SMAppService state reconciliation risk measured for #193; introduce an injectable service adapter before raising this ceiling.",
+          "target": "CodexBarMac.app"
+        },
+        "CodexBarMac/Services/ProviderConfigurationStore.swift::ProviderConfigurationStore.public func applyLocalCredentialDiscoveries ( _ discovery : LocalCredentialDiscovery . Result = LocalCredentialDiscovery . discover ( ) )": {
+          "complexity": 25,
+          "covered_lines": 91,
+          "crap_exact": "119839525/2515456",
+          "executable_lines": 136,
+          "reason": "Existing local credential reconciliation risk measured for #193; add missing discovery-state cases before raising this ceiling.",
+          "target": "CodexBarMac.app"
+        },
+        "CodexBarMac/Views/ProviderSettingsView.swift::ProviderSettingsView.@ MainActor private func saveOpenCodeCredential ( )": {
+          "complexity": 8,
+          "covered_lines": 0,
+          "crap_exact": "72/1",
+          "executable_lines": 54,
+          "reason": "Existing private SwiftUI credential-save workflow risk measured for #193; extract a testable service seam before raising this ceiling.",
+          "target": "CodexBarMac.app"
+        },
+        "CodexBarMac/Views/SettingsView.swift::SettingsView.@ MainActor private func syncUsageAlertAuthorizationState ( ) async": {
+          "complexity": 7,
+          "covered_lines": 0,
+          "crap_exact": "56/1",
+          "executable_lines": 28,
+          "reason": "Existing notification authorization workflow risk measured for #193; add an injectable authorization adapter before raising this ceiling.",
+          "target": "CodexBarMac.app"
+        }
+      },
+      "unmatched": {}
+    }
+  },
+  "schema": 1,
+  "toolchain": "Xcode 26.6 (17F113)"
+}
