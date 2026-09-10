@@ -3,10 +3,11 @@
 The required `Build and Test` CI job collects coverage and runs
 `scripts/function-risk/measure.py`. A collection error or failed baseline
 comparison fails that existing status check. The job publishes the compact
-`function-risk-mac` artifact after a successful or failed measurement. It
-contains raw xccov coverage, SwiftLint output, parsed declarations, the policy,
-the reviewed baseline, the test summary, and JSON and Markdown reports. The
-artifact remains available for 14 days.
+`function-risk-mac-<run-attempt>` artifact after a successful or failed
+measurement. The attempt suffix prevents a rerun from colliding with the
+original artifact. It contains raw xccov coverage, SwiftLint output, parsed
+declarations, the policy, the reviewed baseline, the test summary, and JSON and
+Markdown reports. The artifact remains available for 14 days.
 
 If Xcode tests fail before measurement, CI preserves the full xcresult instead.
 It does not attempt a strict upload for a measurement directory that was never

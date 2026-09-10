@@ -257,7 +257,13 @@ def gate(report, baseline):
             continue
         if row['status'] == 'unmatched':
             prior = unmatched.get(identifier)
-            if not prior or not prior.get('reason') or prior['source_sha256'] != row['source_sha256'] or prior['complexity'] != row['complexity']:
+            if (
+                type(row['complexity']) is not int
+                or not prior
+                or not prior.get('reason')
+                or prior.get('source_sha256') != row['source_sha256']
+                or prior.get('complexity') != row['complexity']
+            ):
                 errors.append(f'Unmatched production declaration needs reviewed evidence: {identifier}')
             if prior:
                 seen_unmatched.add(identifier)

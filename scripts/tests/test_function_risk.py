@@ -164,6 +164,20 @@ class FunctionRiskTests(unittest.TestCase):
             'Unmatched production declaration needs reviewed evidence: ' + row['id'],
         ])
 
+    def test_unmatched_exception_requires_measured_numeric_complexity(self):
+        self.complexity = []
+        self.target['files'][0]['functions'] = []
+        report = self.measure()
+        row = report['functions'][0]
+        self.baseline['platforms']['mac']['unmatched'][row['id']] = dict(
+            source_sha256=row['source_sha256'],
+            complexity=None,
+            reason='Fixture must not waive missing complexity evidence',
+        )
+        self.assertEqual(METRICS.gate(report, self.baseline), [
+            'Unmatched production declaration needs reviewed evidence: ' + row['id'],
+        ])
+
     def test_removed_high_risk_symbol_requires_baseline_review(self):
         self.baseline['platforms']['mac']['high_risk']['deleted'] = dict(complexity=6, covered_lines=0, executable_lines=8)
         self.assertTrue(any('disappeared' in error for error in METRICS.gate(self.measure(), self.baseline)))
