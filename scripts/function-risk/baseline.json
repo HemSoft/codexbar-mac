@@ -24,6 +24,14 @@
           "reason": "Existing SMAppService state reconciliation risk measured for #193; introduce an injectable service adapter before raising this ceiling.",
           "target": "CodexBarMac.app"
         },
+        "CodexBarMac/Services/LaunchAtLoginManager.swift::LaunchAtLoginManager.public init ( defaults : UserDefaults = . standard )": {
+          "complexity": 8,
+          "covered_lines": 10,
+          "crap_exact": "2035448/59319",
+          "executable_lines": 39,
+          "reason": "Existing host-dependent SMAppService initialization risk measured on the macos-26 CI runner for #193; introduce an injectable service adapter before raising this ceiling.",
+          "target": "CodexBarMac.app"
+        },
         "CodexBarMac/Services/ProviderConfigurationStore.swift::ProviderConfigurationStore.public func applyLocalCredentialDiscoveries ( _ discovery : LocalCredentialDiscovery . Result = LocalCredentialDiscovery . discover ( ) )": {
           "complexity": 25,
           "covered_lines": 91,

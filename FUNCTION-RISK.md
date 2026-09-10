@@ -115,13 +115,16 @@ entries, and source-hash invalidation. They leave no broken production source.
 
 Issue [#193](https://github.com/HemSoft/codexbar-mac/issues/193) audited source
 revision `c9a55815a5772da92ecbe117fb7f91d36dfda78e` with Xcode 26.6 build
-17F113 on September 9, 2026. All 451 tests passed with no failures or skips.
-`CodexBarMac.app` covered 13,891 of 22,135 executable lines, or 62.76%.
+17F113 on September 9, 2026. The local run covered 13,891 of 22,135
+`CodexBarMac.app` executable lines, or 62.76%. The first `macos-26` CI run
+covered 13,958 of 22,135 lines, or 63.06%. Both runs had 451 passing tests and
+no failures or skips.
 
 The function inventory has 841 scored declarations and no unmatched production
 declaration. The full report retains 1,443 unscored xccov entries, including
 test files, property accessors, initialization expressions, closures, and
-synthesized symbols. The reviewed baseline records these five scores above 30:
+synthesized symbols. The reviewed baseline records these six scores above 30
+across the local and CI environments:
 
 | CRAP | CC | Covered / executable | Declaration |
 | ---: | ---: | ---: | --- |
@@ -129,6 +132,7 @@ synthesized symbols. The reviewed baseline records these five scores above 30:
 | 72.0000 | 8 | 0 / 54 | `ProviderSettingsView.saveOpenCodeCredential()` |
 | 56.0000 | 7 | 0 / 28 | `SettingsView.syncUsageAlertAuthorizationState()` |
 | 47.6413 | 25 | 91 / 136 | `ProviderConfigurationStore.applyLocalCredentialDiscoveries(_:)` |
+| 34.3136 | 8 | 10 / 39 | `LaunchAtLoginManager.init(defaults:)` on the `macos-26` CI runner |
 | 31.9746 | 10 | 23 / 58 | `CodexUsageProvider.fetchUsage(...)` |
 
 These are ceilings, not exemptions from review. A change to one of these
