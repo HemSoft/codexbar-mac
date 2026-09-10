@@ -2,9 +2,18 @@
 set -euo pipefail
 
 destination="${1:?usage: install-swiftlint.sh <destination-directory>}"
-version="0.65.1"
-archive_url="https://github.com/realm/SwiftLint/releases/download/${version}/portable_swiftlint.zip"
-archive_sha256="c1e429b0599cf1b516f369a2d9ec04eaf0e436f3c12b637df8851fa52ff694d0"
+script_directory="$(cd "$(dirname "$0")" && pwd)"
+policy="$script_directory/policy.json"
+IFS=$'\t' read -r version archive_url archive_sha256 < <(
+  python3 - "$policy" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as stream:
+    tools = json.load(stream)['tools']
+print('\t'.join((tools['swiftlint'], tools['swiftlint_archive'], tools['swiftlint_archive_sha256'])))
+PY
+)
 archive="$destination/portable_swiftlint.zip"
 executable="$destination/swiftlint"
 

@@ -103,6 +103,22 @@ def validate_source_inventory(files, source_paths):
         )
 
 
+def validate_coverage_counts(label, item):
+    covered = item.get('coveredLines')
+    executable = item.get('executableLines')
+    if (
+        type(covered) is not int
+        or type(executable) is not int
+        or covered < 0
+        or executable < 0
+        or covered > executable
+    ):
+        raise ValueError(
+            f'Invalid xccov counts for {label}: coveredLines={covered!r}, '
+            f'executableLines={executable!r}'
+        )
+
+
 def unmeasured_kind(name):
     if 'closure #' in name:
         return 'Closure: SwiftLint includes its decisions in the enclosing func/init when present; no independent score.'
@@ -110,6 +126,8 @@ def unmeasured_kind(name):
         return 'Stored-property initialization: outside SwiftLint func/init complexity scope.'
     if re.search(r'\.(getter|setter|modify|read)$', name):
         return 'Accessor: outside SwiftLint func/init complexity scope.'
+    if name.endswith('.deinit') or name.endswith('.__deallocating_deinit'):
+        return 'Deinitializer: outside SwiftLint func/init complexity scope.'
     return None
 
 
@@ -138,9 +156,11 @@ def measure(platform, declarations, complexity, coverage, source_paths, policy):
             errors.append(f'Missing coverage target {name}')
             continue
         target = targets[name]
+        validate_coverage_counts(f'target {name}', target)
         if target['executableLines'] <= 0:
             errors.append(f'Empty coverage target {name}')
         for file in target['files']:
+            validate_coverage_counts(f"file {file.get('path')!r} in target {name}", file)
             try:
                 path = relative(file['path'], source_paths)
             except ValueError:
@@ -150,6 +170,10 @@ def measure(platform, declarations, complexity, coverage, source_paths, policy):
                 exclusions.append(dict(target=name, path=path, reason='Test source or source outside this platform production Sources phases.', functions=file['functions']))
                 continue
             for function in file['functions']:
+                validate_coverage_counts(
+                    f"function {function.get('name')!r} in {file.get('path')!r}",
+                    function,
+                )
                 functions[path].append(dict(function, target=name))
     for name, target in targets.items():
         if name not in settings['coverage_targets']:
@@ -209,10 +233,14 @@ def measure(platform, declarations, complexity, coverage, source_paths, policy):
             if identifier not in consumed:
                 reason = unmeasured_kind(function['name'])
                 if not reason:
-                    # Other compiled copies remain visible with their own counters.
-                    reason = 'Unjoined xccov declaration or secondary compiled copy; no complexity assigned.'
+                    reason = 'Unrecognized unjoined xccov production declaration; no complexity assigned.'
+                    errors.append(
+                        f"Unrecognized unjoined xccov production declaration: "
+                        f"{path}:{function['lineNumber']} {function['name']}"
+                    )
                 exclusions.append(dict(path=path, reason=reason, **function))
-    return dict(schema=1, platform=platform, coverage_basis='xccov function executable-line coverage', complexity_basis='SwiftLint 0.65.1 decision count, starts at zero', functions=rows, excluded_coverage=exclusions, errors=errors)
+    complexity_basis = f"SwiftLint {policy['tools']['swiftlint']} decision count, starts at zero"
+    return dict(schema=1, platform=platform, coverage_basis='xccov function executable-line coverage', complexity_basis=complexity_basis, functions=rows, excluded_coverage=exclusions, errors=errors)
 
 
 def gate(report, baseline):
@@ -253,7 +281,7 @@ def gate(report, baseline):
 def markdown(report):
     scored = [r for r in report['functions'] if r['status'] == 'scored']
     queue = sorted((r for r in scored if risk(r) >= 15), key=lambda r: (-risk(r), r['id']))
-    lines = [f"# {report['platform']} function risk", '', f"{len(scored)} scored declarations; {sum(r['status'] == 'unmatched' for r in report['functions'])} unmatched; {sum(r['status'] == 'excluded' for r in report['functions'])} excluded source declarations.", '', 'Function executable-line coverage; SwiftLint 0.65.1 decision count starts at zero. JSON contains the complete declaration and exclusion inventory, exact fractions, source hashes and tool versions.', '', 'Scores 15 through 30 form the review queue. Existing scores above 30 remain visible and may not exceed their baseline ceiling.', '', '| CRAP | Decisions | Coverage | Covered / executable lines | Target | Declaration |', '| ---: | ---: | ---: | ---: | --- | --- |']
+    lines = [f"# {report['platform']} function risk", '', f"{len(scored)} scored declarations; {sum(r['status'] == 'unmatched' for r in report['functions'])} unmatched; {sum(r['status'] == 'excluded' for r in report['functions'])} excluded source declarations.", '', f"Function executable-line coverage; {report['complexity_basis']}. JSON contains the complete declaration and exclusion inventory, exact fractions, source hashes and tool versions.", '', 'Scores 15 through 30 form the review queue. Existing scores above 30 remain visible and may not exceed their baseline ceiling.', '', '| CRAP | Decisions | Coverage | Covered / executable lines | Target | Declaration |', '| ---: | ---: | ---: | ---: | --- | --- |']
     for row in queue:
         coverage = 100 * float(Fraction(row['covered_lines'], row['executable_lines']))
         lines.append(f"| {row['crap']:.4f} | {row['complexity']} | {coverage:.2f}% | {row['covered_lines']} / {row['executable_lines']} | {row['target']} | {row['path']}:{row['line']} `{row['symbol']}` |")
@@ -315,7 +343,7 @@ def main():
     args = parser.parse_args()
     try:
         return collect(args)
-    except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, TypeError, KeyError, OSError, subprocess.CalledProcessError) as error:
         args.output.mkdir(parents=True, exist_ok=True)
         (args.output / 'failure.txt').write_text(str(error) + '\n')
         print(f'Function risk measurement failed: {error}', file=sys.stderr)

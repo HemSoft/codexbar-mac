@@ -66,10 +66,13 @@ source hash, status, and reason where applicable.
 - A removed high-risk declaration requires a baseline edit. CI never regenerates
   the baseline.
 
-Accessors, stored-property initialization, standalone closures, and synthesized
-symbols do not have an independent SwiftLint function or initializer score.
-Xccov rows for them remain in `excluded_coverage` with a reason. This includes
-preview closures. Generated or external source also stays visible there.
+Accessors, stored-property initialization, standalone closures, deinitializers,
+and synthesized symbols do not have an independent SwiftLint function or
+initializer score. Xccov rows for the explicitly recognized forms remain in
+`excluded_coverage` with a bounded reason. This includes preview closures and
+the `deinit` and `__deallocating_deinit` symbol variants. Any other unjoined
+production xccov declaration fails the gate instead of becoming a generic
+exclusion. Generated or external source also stays visible in the report.
 Platform-inactive function bodies are parsed but cannot receive xccov counters;
 they require an individual unmatched baseline entry with a reason, exact source
 hash, and measured complexity. The initial Mac baseline has no unmatched or
@@ -108,8 +111,10 @@ The failure fixtures use temporary source and evidence. Their six-decision
 uncovered function scores 42 and fails as a new risk, then full coverage lowers
 the score to 6 and passes. Other fixtures cover a baseline increase smaller
 than display precision, malformed counts, missing and ambiguous coverage,
-duplicate identities, both kinds of source inventory drift, stale baseline
-entries, and source-hash invalidation. They leave no broken production source.
+duplicate identities, both kinds of source inventory drift, malformed xccov
+aggregate counts, stale baseline entries, source-hash invalidation, recognized
+deinitializers, and unknown production xccov declarations. They leave no broken
+production source.
 
 ## Initial baseline
 

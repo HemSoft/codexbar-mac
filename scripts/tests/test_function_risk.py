@@ -3,6 +3,7 @@ import copy
 from fractions import Fraction
 import importlib.util
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -24,8 +25,8 @@ class FunctionRiskTests(unittest.TestCase):
         self.declaration = dict(path='Example.swift', symbol='.func uncovered ( _ value : Int )', kind='function', line=1, bodyLine=1, endLine=8, lintLine=1, lintColumn=1)
         self.complexity = [dict(file=str(self.root / 'Example.swift'), line=1, character=1, rule_id='cyclomatic_complexity', reason='Function should have complexity -1 or less; currently complexity is 6')]
         self.function = dict(name='uncovered(_:)', lineNumber=1, coveredLines=0, executableLines=8)
-        self.target = dict(name='Example.app', coveredLines=0, executableLines=8, files=[dict(path=str(self.root / 'Example.swift'), functions=[self.function])])
-        self.policy = dict(platforms=dict(mac=dict(coverage_targets=['Example.app'])), excluded_files={}, excluded_symbols={})
+        self.target = dict(name='Example.app', coveredLines=0, executableLines=8, files=[dict(path=str(self.root / 'Example.swift'), coveredLines=0, executableLines=8, functions=[self.function])])
+        self.policy = dict(tools=dict(swiftlint='fixture-version'), platforms=dict(mac=dict(coverage_targets=['Example.app'])), excluded_files={}, excluded_symbols={})
         self.baseline = dict(platforms=dict(mac=dict(high_risk={}, unmatched={})))
 
     def measure(self, declarations=None, targets=None):
@@ -126,6 +127,19 @@ class FunctionRiskTests(unittest.TestCase):
         self.function['executableLines'] = 0
         self.assertEqual(self.measure()['functions'][0]['status'], 'unmatched')
 
+    def test_malformed_target_and_file_aggregate_counts_fail(self):
+        for item, covered, executable in [
+            (self.target, 999, 1),
+            (self.target['files'][0], -9, -1),
+            (self.target, True, 8),
+        ]:
+            with self.subTest(item=item, covered=covered, executable=executable):
+                original = item['coveredLines'], item['executableLines']
+                item['coveredLines'], item['executableLines'] = covered, executable
+                with self.assertRaisesRegex(ValueError, 'Invalid xccov counts'):
+                    self.measure()
+                item['coveredLines'], item['executableLines'] = original
+
     def test_missing_complexity_fails_even_with_full_coverage(self):
         self.complexity = []
         self.function['coveredLines'] = 8
@@ -174,6 +188,50 @@ class FunctionRiskTests(unittest.TestCase):
         self.assertEqual(len(report['excluded_coverage']), 2)
         self.assertEqual(report['functions'][0]['complexity'], 6)
         self.assertIsNone(METRICS.unmeasured_kind('Example.readSecret(account:)'))
+
+    def test_known_deinitializer_variants_are_excluded_with_a_bounded_reason(self):
+        self.target['files'][0]['functions'] += [
+            dict(self.function, name='Example.deinit'),
+            dict(self.function, name='Example.__deallocating_deinit'),
+        ]
+        report = self.measure()
+        deinitializers = [
+            item for item in report['excluded_coverage']
+            if item['name'].endswith('deinit')
+        ]
+        self.assertEqual(len(deinitializers), 2)
+        self.assertTrue(all(item['reason'].startswith('Deinitializer:') for item in deinitializers))
+        self.assertEqual(report['errors'], [])
+
+    def test_unclassified_production_xccov_declaration_fails_closed(self):
+        self.target['files'][0]['functions'].append(
+            dict(self.function, name='Example.mystery()', lineNumber=2)
+        )
+        report = self.measure()
+        self.assertIn(
+            'Unrecognized unjoined xccov production declaration: Example.swift:2 Example.mystery()',
+            METRICS.gate(report, self.baseline),
+        )
+        mystery = next(
+            item for item in report['excluded_coverage']
+            if item['name'] == 'Example.mystery()'
+        )
+        self.assertIn('Unrecognized unjoined', mystery['reason'])
+
+    def test_markdown_uses_reported_complexity_basis(self):
+        report = self.measure()
+        self.assertIn('SwiftLint fixture-version decision count', METRICS.markdown(report))
+
+    def test_type_error_writes_failure_artifact(self):
+        output = self.root / 'failure-artifact'
+        arguments = [
+            'measure.py', '--result', str(self.root / 'result.xcresult'),
+            '--output', str(output),
+        ]
+        with patch.object(METRICS, 'collect', side_effect=TypeError('bad xccov type')):
+            with patch.object(sys, 'argv', arguments):
+                self.assertEqual(METRICS.main(), 1)
+        self.assertEqual((output / 'failure.txt').read_text(), 'bad xccov type\n')
 
 
 if __name__ == '__main__':
