@@ -52,6 +52,13 @@ Run unit tests (same command used by CI):
 ./test.sh
 ```
 
+The required Mac test job also collects function executable-line coverage and
+enforces the reviewed CRAP ceilings in `scripts/function-risk/baseline.json`.
+See [FUNCTION-RISK.md](FUNCTION-RISK.md) for the pinned tools, gate policy,
+failure fixtures, and local reproduction command. New production scores above
+30, increases above existing high-risk ceilings, and unexplained measurement
+gaps fail `Build and Test`.
+
 Open the project in Xcode:
 
 ```sh

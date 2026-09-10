@@ -32,3 +32,4 @@ dist/
 
 # Tooling
 .claude/settings.local.json
+scripts/**/__pycache__/

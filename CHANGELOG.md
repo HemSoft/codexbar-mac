@@ -170,6 +170,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Developer Experience
 
+- Added function-level executable-line coverage and CRAP risk reports to the
+  required Mac test check, with a reviewed baseline that blocks new or
+  increased untested complexity. ([#193](https://github.com/HemSoft/codexbar-mac/issues/193))
+
 - Added deterministic Gemini provider concurrency coverage for tier-fetch
   coalescing, including the in-flight waiter and tier-derived project routing.
 - Added deterministic coordinator and GitHub Copilot concurrency coverage for

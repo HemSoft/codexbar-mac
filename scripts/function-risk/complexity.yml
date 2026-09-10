@@ -1,0 +1,9 @@
+# Separate measurement policy; the strict repository lint policy is unchanged.
+only_rules:
+  - cyclomatic_complexity
+check_for_updates: false
+cyclomatic_complexity:
+  # Include zero-decision func/init bodies as well as complex declarations.
+  warning: -1
+  error: 1000000
+  ignores_case_statements: false

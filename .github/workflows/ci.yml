@@ -49,7 +49,15 @@ jobs:
       - name: Smoke-test app runner
         run: ./scripts/test-run.sh
 
+      - name: Install pinned function-risk tools
+        run: |
+          function_risk_swiftlint="$(./scripts/function-risk/install-swiftlint.sh "$RUNNER_TEMP/function-risk-tools")"
+          echo "FUNCTION_RISK_SWIFTLINT=$function_risk_swiftlint" >> "$GITHUB_ENV"
+
       - name: Build and test
+        id: mac-tests
+        env:
+          FUNCTION_RISK_RESULT: ${{ runner.temp }}/CodexBarMacTests-${{ github.run_id }}-${{ github.run_attempt }}.xcresult
         run: |
           set -o pipefail
           xcodebuild \
@@ -57,6 +65,38 @@ jobs:
             -scheme CodexBarMac \
             -destination 'platform=macOS' \
             -configuration Debug \
+            -enableCodeCoverage YES \
+            -resultBundlePath "$FUNCTION_RISK_RESULT" \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             test
+
+      - name: Verify function-risk failure fixtures
+        run: python3 -m unittest discover -s scripts/tests -p 'test_function_risk.py' -v
+
+      - name: Enforce Mac function-risk baseline
+        id: mac-risk
+        env:
+          FUNCTION_RISK_RESULT: ${{ runner.temp }}/CodexBarMacTests-${{ github.run_id }}-${{ github.run_attempt }}.xcresult
+        run: >-
+          python3 scripts/function-risk/measure.py
+          --result "$FUNCTION_RISK_RESULT"
+          --output "$RUNNER_TEMP/function-risk-mac"
+
+      - name: Publish Mac function risk
+        if: ${{ always() && (steps.mac-risk.outcome == 'success' || steps.mac-risk.outcome == 'failure') }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: function-risk-mac-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/function-risk-mac
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Preserve Mac test diagnostics
+        if: ${{ failure() && steps.mac-tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: CodexBarMacTests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/CodexBarMacTests-${{ github.run_id }}-${{ github.run_attempt }}.xcresult
+          if-no-files-found: warn
+          retention-days: 14
