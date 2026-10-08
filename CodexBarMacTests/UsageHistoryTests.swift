@@ -637,7 +637,7 @@ final class UsageHistoryTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
         defaults.set(try JSONEncoder().encode([configuration]), forKey: "providerConfigurations")
-        let cachedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let cachedAt = Date().addingTimeInterval(-60)
         let refreshedAt = cachedAt.addingTimeInterval(60)
         let cached = ProviderUsageResult(
             accountID: configuration.id,
@@ -683,9 +683,10 @@ final class UsageHistoryTests: XCTestCase {
         XCTAssertTrue(refreshService.successfulRefreshResults.isEmpty)
         XCTAssertEqual(model.displayedResults.first?.bars, cached.bars)
         XCTAssertEqual(historyStore.snapshots.count, 1)
-        XCTAssertTrue(historyStore.snapshots[0].bars.isEmpty)
-        XCTAssertEqual(historyStore.snapshots[0].creditsRemaining, 9)
-        XCTAssertEqual(historyStore.snapshots[0].capturedAt, refreshedAt)
+        let snapshot = try XCTUnwrap(historyStore.snapshots.first)
+        XCTAssertTrue(snapshot.bars.isEmpty)
+        XCTAssertEqual(snapshot.creditsRemaining, 9)
+        XCTAssertEqual(snapshot.capturedAt, refreshedAt)
     }
 
     @MainActor
@@ -695,7 +696,7 @@ final class UsageHistoryTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
         defaults.set(try JSONEncoder().encode([configuration]), forKey: "providerConfigurations")
-        let cachedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let cachedAt = Date().addingTimeInterval(-60)
         let refreshedAt = cachedAt.addingTimeInterval(60)
         let cached = ProviderUsageResult(
             accountID: configuration.id,
@@ -742,9 +743,10 @@ final class UsageHistoryTests: XCTestCase {
         XCTAssertEqual(returnedResult?.creditsRemaining, 12)
         XCTAssertEqual(model.displayedResults.first?.creditsRemaining, 12)
         XCTAssertEqual(historyStore.snapshots.count, 1)
-        XCTAssertEqual(historyStore.snapshots[0].bars.first?.used, 35)
-        XCTAssertNil(historyStore.snapshots[0].creditsRemaining)
-        XCTAssertEqual(historyStore.snapshots[0].capturedAt, refreshedAt)
+        let snapshot = try XCTUnwrap(historyStore.snapshots.first)
+        XCTAssertEqual(snapshot.bars.first?.used, 35)
+        XCTAssertNil(snapshot.creditsRemaining)
+        XCTAssertEqual(snapshot.capturedAt, refreshedAt)
     }
 
     @MainActor
