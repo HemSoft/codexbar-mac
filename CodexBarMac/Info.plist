@@ -23,7 +23,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://hemsoft.github.io/codexbar-mac/appcast.xml</string>
+	<string>https://hemsoft-dev.github.io/codexbar-mac/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
 	<key>SURequireSignedFeed</key>

@@ -3,7 +3,7 @@
 A native macOS menu bar app that keeps your AI provider usage limits visible. The Mac member of the CodexBar family:
 
 - [codexbar](https://github.com/HemSoft/codexbar) — Windows (C# / WPF / .NET 9)
-- [codexbar-ios](https://github.com/HemSoft/codexbar-ios) — iOS (SwiftUI)
+- [codexbar-ios](https://github.com/hemsoft-dev/codexbar-ios) — iOS (SwiftUI)
 - Inspired by [steipete/CodexBar](https://github.com/steipete/CodexBar) (MIT) by Peter Steinberger
 
 Built with Swift / SwiftUI using `MenuBarExtra` — native macOS, no Electron overhead.
@@ -40,7 +40,7 @@ GitHub Actions runs the same `xcodebuild test` flow on `macos-26` (Xcode 26.6) f
 
 Notarized macOS builds are published as immutable GitHub Release ZIPs. Direct-download
 builds use Sparkle for EdDSA-verified in-app updates from
-`https://hemsoft.github.io/codexbar-mac/appcast.xml`. Use **Check for Updates…** in the
+`https://hemsoft-dev.github.io/codexbar-mac/appcast.xml`. Use **Check for Updates…** in the
 menu bar popover at any time; Sparkle asks on the second launch before enabling
 automatic background checks.
 
@@ -65,7 +65,7 @@ Maintainers: see **Signing keychain** and **Release, updates & notarization** in
 
 ## Planned Work
 
-Remaining pre-release polish and release work is tracked in [GitHub Issues](https://github.com/HemSoft/codexbar-mac/issues).
+Remaining pre-release polish and release work is tracked in [GitHub Issues](https://github.com/hemsoft-dev/codexbar-mac/issues).
 
 ## Requirements
 

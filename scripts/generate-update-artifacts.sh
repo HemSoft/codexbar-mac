@@ -107,19 +107,19 @@ command -v python3 >/dev/null 2>&1 || {
   echo "Missing required command: python3" >&2
   exit 1
 }
-[[ "$DOWNLOAD_PREFIX" =~ ^https://github[.]com/HemSoft/codexbar-mac/releases/download/v[^/]+/$ ]] || {
+[[ "$DOWNLOAD_PREFIX" =~ ^https://github[.]com/hemsoft-dev/codexbar-mac/releases/download/v[^/]+/$ ]] || {
   echo "Download prefix must be an immutable CodexBar GitHub Release tag URL ending in /." >&2
   exit 1
 }
-[[ "$DOWNLOAD_PREFIX" == "https://github.com/HemSoft/codexbar-mac/releases/download/v$VERSION/" ]] || {
+[[ "$DOWNLOAD_PREFIX" == "https://github.com/hemsoft-dev/codexbar-mac/releases/download/v$VERSION/" ]] || {
   echo "Download prefix tag must match version $VERSION." >&2
   exit 1
 }
-[[ "$RELEASE_PAGE_URL" =~ ^https://github[.]com/HemSoft/codexbar-mac/releases/tag/v[^/]+$ ]] || {
+[[ "$RELEASE_PAGE_URL" =~ ^https://github[.]com/hemsoft-dev/codexbar-mac/releases/tag/v[^/]+$ ]] || {
   echo "Release page URL must be a CodexBar GitHub Release tag URL." >&2
   exit 1
 }
-[[ "$RELEASE_PAGE_URL" == "https://github.com/HemSoft/codexbar-mac/releases/tag/v$VERSION" ]] || {
+[[ "$RELEASE_PAGE_URL" == "https://github.com/hemsoft-dev/codexbar-mac/releases/tag/v$VERSION" ]] || {
   echo "Release page tag must match version $VERSION." >&2
   exit 1
 }
@@ -144,7 +144,7 @@ GENERATOR_ARGS=(
   --download-url-prefix "$DOWNLOAD_PREFIX"
   --release-notes-url-prefix "$DOWNLOAD_PREFIX"
   --full-release-notes-url "$RELEASE_PAGE_URL"
-  --link "https://github.com/HemSoft/codexbar-mac"
+  --link "https://github.com/hemsoft-dev/codexbar-mac"
   --maximum-deltas 0
   -o "$WORK_DIR/appcast.xml"
   "$WORK_DIR"
