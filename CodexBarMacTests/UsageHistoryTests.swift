@@ -637,7 +637,7 @@ final class UsageHistoryTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
         defaults.set(try JSONEncoder().encode([configuration]), forKey: "providerConfigurations")
-        let cachedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let cachedAt = Date().addingTimeInterval(-120)
         let refreshedAt = cachedAt.addingTimeInterval(60)
         let cached = ProviderUsageResult(
             accountID: configuration.id,
@@ -695,7 +695,7 @@ final class UsageHistoryTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let configuration = ProviderAccountConfiguration.defaultConfiguration(for: .openCodeZen)
         defaults.set(try JSONEncoder().encode([configuration]), forKey: "providerConfigurations")
-        let cachedAt = Date(timeIntervalSince1970: 1_788_475_200)
+        let cachedAt = Date().addingTimeInterval(-120)
         let refreshedAt = cachedAt.addingTimeInterval(60)
         let cached = ProviderUsageResult(
             accountID: configuration.id,
