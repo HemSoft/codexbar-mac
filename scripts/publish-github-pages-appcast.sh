@@ -2,7 +2,7 @@
 # Publish an already-signed appcast to the root of the repository's gh-pages branch.
 set -euo pipefail
 
-REPOSITORY="HemSoft/codexbar-mac"
+REPOSITORY="hemsoft-dev/codexbar-mac"
 APPCAST=""
 VERSION=""
 DRY_RUN=0
@@ -54,8 +54,8 @@ done
   echo "Invalid version: $VERSION" >&2
   exit 1
 }
-[[ "$REPOSITORY" == "HemSoft/codexbar-mac" ]] || {
-  echo "This publisher is restricted to HemSoft/codexbar-mac." >&2
+[[ "$REPOSITORY" == "hemsoft-dev/codexbar-mac" ]] || {
+  echo "This publisher is restricted to hemsoft-dev/codexbar-mac." >&2
   exit 1
 }
 grep -Fq 'sparkle:edSignature=' "$APPCAST" || {
@@ -170,4 +170,4 @@ if [[ "$PAGES_EXISTS" -eq 0 ]]; then
     -f 'source[path]=/' >/dev/null
 fi
 
-echo "Published: https://hemsoft.github.io/codexbar-mac/appcast.xml"
+echo "Published: https://hemsoft-dev.github.io/codexbar-mac/appcast.xml"

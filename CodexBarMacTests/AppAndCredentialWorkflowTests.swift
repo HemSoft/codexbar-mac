@@ -438,7 +438,7 @@ final class AppAndCredentialWorkflowTests: XCTestCase {
 
         XCTAssertEqual(
             info["SUFeedURL"] as? String,
-            "https://hemsoft.github.io/codexbar-mac/appcast.xml"
+            "https://hemsoft-dev.github.io/codexbar-mac/appcast.xml"
         )
         XCTAssertEqual(
             info["SUPublicEDKey"] as? String,

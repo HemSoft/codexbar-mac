@@ -108,7 +108,7 @@ with `find-identity`.
 
 Releases ship as a notarized `.zip` of `CodexBarMac.app` via GitHub Releases.
 Direct-download builds use Sparkle 2 for in-app updates. The signed appcast is
-published to `https://hemsoft.github.io/codexbar-mac/appcast.xml`; the same
+published to `https://hemsoft-dev.github.io/codexbar-mac/appcast.xml`; the same
 immutable release ZIP and SHA-256 generate the optional Homebrew cask.
 
 Prerequisites on the release machine:

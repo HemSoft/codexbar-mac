@@ -170,6 +170,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Developer Experience
 
+- Publish release assets and the update feed to the transferred organization
+  repository, and validate release URLs against its canonical owner.
+
 - Added function-level executable-line coverage and CRAP risk reports to the
   required Mac test check, with a reviewed baseline that blocks new or
   increased untested complexity. ([#193](https://github.com/HemSoft/codexbar-mac/issues/193))

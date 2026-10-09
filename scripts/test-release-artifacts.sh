@@ -99,8 +99,8 @@ CODEXBAR_USE_KEYCHAIN_WRAPPER=0 \
     --version 1.2.3 \
     --archive "$ARCHIVE" \
     --notes "$NOTES" \
-    --download-prefix "https://github.com/HemSoft/codexbar-mac/releases/download/v1.2.3/" \
-    --release-page-url "https://github.com/HemSoft/codexbar-mac/releases/tag/v1.2.3" \
+    --download-prefix "https://github.com/hemsoft-dev/codexbar-mac/releases/download/v1.2.3/" \
+    --release-page-url "https://github.com/hemsoft-dev/codexbar-mac/releases/tag/v1.2.3" \
     --appcast-output "$APPCAST" \
     --cask-output "$CASK"
 
@@ -117,7 +117,7 @@ grep -Fq "sha256 \"$EXPECTED_SHA\"" "$CASK"
 SECOND_CASK="$TMP/codexbar-mac-second.rb"
 "$ROOT/scripts/generate-homebrew-cask.sh" \
   --version 1.2.3 \
-  --url "https://github.com/HemSoft/codexbar-mac/releases/download/v1.2.3/CodexBarMac-1.2.3.zip" \
+  --url "https://github.com/hemsoft-dev/codexbar-mac/releases/download/v1.2.3/CodexBarMac-1.2.3.zip" \
   --sha256 "$EXPECTED_SHA" \
   --output "$SECOND_CASK"
 cmp -s "$CASK" "$SECOND_CASK"
@@ -137,8 +137,8 @@ if CODEXBAR_GENERATE_APPCAST="$TMP/missing" CODEXBAR_USE_KEYCHAIN_WRAPPER=0 \
     --version 1.2.3 \
     --archive "$ARCHIVE" \
     --notes "$NOTES" \
-    --download-prefix "https://github.com/HemSoft/codexbar-mac/releases/download/v1.2.3/" \
-    --release-page-url "https://github.com/HemSoft/codexbar-mac/releases/tag/v1.2.3" \
+    --download-prefix "https://github.com/hemsoft-dev/codexbar-mac/releases/download/v1.2.3/" \
+    --release-page-url "https://github.com/hemsoft-dev/codexbar-mac/releases/tag/v1.2.3" \
     --appcast-output "$TMP/missing.xml" \
     --cask-output "$TMP/missing.rb" >/dev/null 2>&1
 then
@@ -153,8 +153,8 @@ if FAKE_UNSIGNED_CURRENT_ITEM=1 \
     --version 1.2.3 \
     --archive "$ARCHIVE" \
     --notes "$NOTES" \
-    --download-prefix "https://github.com/HemSoft/codexbar-mac/releases/download/v1.2.3/" \
-    --release-page-url "https://github.com/HemSoft/codexbar-mac/releases/tag/v1.2.3" \
+    --download-prefix "https://github.com/hemsoft-dev/codexbar-mac/releases/download/v1.2.3/" \
+    --release-page-url "https://github.com/hemsoft-dev/codexbar-mac/releases/tag/v1.2.3" \
     --appcast-output "$TMP/unsigned-current.xml" \
     --cask-output "$TMP/unsigned-current.rb" >/dev/null 2>&1
 then
@@ -182,7 +182,7 @@ PATH="$TMP/bin:$PATH" "$ROOT/scripts/publish-github-pages-appcast.sh" \
 cat >"$TMP/bin/gh" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >>"$CALL_LOG"
-if [[ "\$*" == "api repos/HemSoft/codexbar-mac/pages" ]]; then
+if [[ "\$*" == "api repos/hemsoft-dev/codexbar-mac/pages" ]]; then
   printf '%s\n' '{"source":{"branch":"gh-pages","path":"/docs"}}'
   exit 0
 fi

@@ -300,12 +300,12 @@ preflight_publication_state() {
   local gh_pages_ref_count
   local existing_appcast_path="$PREFLIGHT_DIR/existing-appcast.xml"
 
-  [[ "$(gh api repos/HemSoft/codexbar-mac --jq '.permissions.admin')" == "true" ]] || {
+  [[ "$(gh api repos/hemsoft-dev/codexbar-mac --jq '.permissions.admin')" == "true" ]] || {
     echo "GitHub authentication needs repository admin permission to publish Releases and Pages." >&2
     exit 1
   }
 
-  if pages_json="$(gh api repos/HemSoft/codexbar-mac/pages 2>/dev/null)"; then
+  if pages_json="$(gh api repos/hemsoft-dev/codexbar-mac/pages 2>/dev/null)"; then
     pages_branch="$(jq -r '.source.branch // empty' <<<"$pages_json")"
     pages_path="$(jq -r '.source.path // empty' <<<"$pages_json")"
     [[ "$pages_branch" == "gh-pages" && "$pages_path" == "/" ]] || {
@@ -315,7 +315,7 @@ preflight_publication_state() {
   fi
 
   gh_pages_ref_count="$(
-    gh api repos/HemSoft/codexbar-mac/git/matching-refs/heads/gh-pages --jq length
+    gh api repos/hemsoft-dev/codexbar-mac/git/matching-refs/heads/gh-pages --jq length
   )" || {
     echo "Could not determine whether the gh-pages branch exists; refusing to publish." >&2
     exit 1
@@ -323,7 +323,7 @@ preflight_publication_state() {
 
   if [[ "$gh_pages_ref_count" -gt 0 ]]; then
     encoded_appcast="$(
-      gh api "repos/HemSoft/codexbar-mac/contents/appcast.xml?ref=gh-pages" --jq .content
+      gh api "repos/hemsoft-dev/codexbar-mac/contents/appcast.xml?ref=gh-pages" --jq .content
     )" || {
       echo "The gh-pages branch exists, but its appcast could not be read; refusing to reset update history." >&2
       exit 1
@@ -454,7 +454,7 @@ if [[ "$PUBLISH" -eq 1 ]]; then
     local tag="$1"
     local asset_name="$2"
 
-    gh api "repos/HemSoft/codexbar-mac/releases/tags/$tag" \
+    gh api "repos/hemsoft-dev/codexbar-mac/releases/tags/$tag" \
       | jq -c --arg name "$asset_name" \
         '[.assets[]? | select(.name == $name)][0] // empty'
   }
@@ -509,7 +509,7 @@ if [[ "$PUBLISH" -eq 1 ]]; then
     --target "$TARGET_SHA"
 
   RELEASE_URL="$(gh release view "$TAG" --json url --jq .url)"
-  DOWNLOAD_PREFIX="https://github.com/HemSoft/codexbar-mac/releases/download/$TAG/"
+  DOWNLOAD_PREFIX="https://github.com/hemsoft-dev/codexbar-mac/releases/download/$TAG/"
 
   "$ROOT/scripts/generate-update-artifacts.sh" \
     --version "$VERSION" \
@@ -536,7 +536,7 @@ if [[ "$PUBLISH" -eq 1 ]]; then
     --version "$VERSION"
 
   echo "Published release: $RELEASE_URL"
-  echo "Published appcast: https://hemsoft.github.io/codexbar-mac/appcast.xml"
+  echo "Published appcast: https://hemsoft-dev.github.io/codexbar-mac/appcast.xml"
   echo "Generated cask:    $CASK_PATH"
   echo "Open a reviewed PR adding it to HemSoft/homebrew-tap after that repository exists."
 fi

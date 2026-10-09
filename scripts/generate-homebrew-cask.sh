@@ -51,11 +51,11 @@ done
   echo "Invalid version: $VERSION" >&2
   exit 1
 }
-[[ "$URL" =~ ^https://github[.]com/HemSoft/codexbar-mac/releases/download/v[^/]+/CodexBarMac-[^/]+[.]zip$ ]] || {
+[[ "$URL" =~ ^https://github[.]com/hemsoft-dev/codexbar-mac/releases/download/v[^/]+/CodexBarMac-[^/]+[.]zip$ ]] || {
   echo "Release URL must be an immutable CodexBar GitHub Release ZIP URL." >&2
   exit 1
 }
-[[ "$URL" == "https://github.com/HemSoft/codexbar-mac/releases/download/v$VERSION/CodexBarMac-$VERSION.zip" ]] || {
+[[ "$URL" == "https://github.com/hemsoft-dev/codexbar-mac/releases/download/v$VERSION/CodexBarMac-$VERSION.zip" ]] || {
   echo "Release URL tag and filename must match version $VERSION." >&2
   exit 1
 }
@@ -75,7 +75,7 @@ cask "codexbar-mac" do
   url "$URL"
   name "CodexBar"
   desc "Menu bar display for AI provider usage limits"
-  homepage "https://github.com/HemSoft/codexbar-mac"
+  homepage "https://github.com/hemsoft-dev/codexbar-mac"
 
   auto_updates true
   depends_on macos: ">= :sonoma"
